@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-const API_BASE = 'http://localhost:8080/api';
+const API_BASE = 'https://nexus-ai-chatbot-2rv0.onrender.com/api';
 
 export async function fetchWithAuth(url: string, options: RequestInit = {}) {
   // Use absolute URL if starting with http, otherwise use relative
