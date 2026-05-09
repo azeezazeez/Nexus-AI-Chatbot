@@ -4,7 +4,7 @@
  */
 
 import { Session, User } from '../types';
-import { Plus, LogOut, Trash2, ShieldAlert } from 'lucide-react';
+import { Plus, LogOut, Trash2, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import StormLogo from './StormLogo';
 import UserAvatar from './UserAvatar';
@@ -50,12 +50,12 @@ export default function Sidebar({
       </AnimatePresence>
 
       <aside className={`
-        fixed inset-y-0 left-0 z-50 w-72 xs:w-80 bg-[--surface] dark:bg-black/90 border-r border-[--border] transition-transform duration-300 transform lg:translate-x-0 lg:static lg:inset-auto
+        fixed inset-y-0 left-0 z-50 w-72 xs:w-80 bg-[--surface] dark:bg-black/90 border-r border-[--border] transition-transform duration-300 ease-in-out transform lg:translate-x-0 lg:static lg:inset-auto
         ${isOpen ? 'translate-x-0' : '-translate-x-full'}
-        flex flex-col h-screen h-[100dvh] shadow-2xl lg:shadow-none
+        flex flex-col h-screen h-[100dvh] shadow-2xl lg:shadow-none isolate
       `}>
         {/* Header */}
-      <div className="p-6 md:p-8 shrink-0">
+      <div className="p-6 md:p-8 shrink-0 relative z-10">
         <div className="flex items-center justify-between mb-8 md:mb-10 lg:block">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-500/20 text-white p-1.5">
@@ -63,14 +63,20 @@ export default function Sidebar({
             </div>
             <h2 className="text-2xl font-black tracking-tighter text-[--text-main] italic">NEXUS</h2>
           </div>
-          <button onClick={onClose} className="lg:hidden p-2 text-[--text-muted] hover:text-[--text-main]">
-            <Plus className="w-6 h-6 rotate-45" />
+          <button 
+            onClick={onClose} 
+            className="lg:hidden p-2 text-[--text-muted] hover:text-[--text-main] rounded-full hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+          >
+            <X className="w-6 h-6" />
           </button>
         </div>
 
         <button
-          onClick={onNewSession}
-          className="w-full py-3.5 md:py-4 px-5 bg-indigo-600 text-white dark:bg-white dark:text-black rounded-2xl flex items-center justify-center lg:justify-start gap-3 font-bold text-xs md:text-sm tracking-wide hover:opacity-90 transition-all active:scale-[0.98] group shadow-lg"
+          onClick={() => {
+            onNewSession();
+            onClose();
+          }}
+          className="w-full py-3.5 md:py-4 px-5 bg-indigo-600 text-white dark:bg-white dark:text-black rounded-2xl flex items-center justify-center lg:justify-start gap-3 font-bold text-xs md:text-sm tracking-wide hover:opacity-90 transition-all active:scale-[0.98] group shadow-lg cursor-pointer"
         >
           <div className="w-5 h-5 md:w-6 md:h-6 rounded-lg bg-white/20 dark:bg-black/10 flex items-center justify-center group-hover:scale-110 transition-transform shrink-0">
             <Plus className="w-3.5 h-3.5 md:w-4 md:h-4 text-white dark:text-black" />
