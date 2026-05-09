@@ -224,9 +224,10 @@ export default function Chat({ user, onLogout }: Props) {
           <div className="flex items-center gap-4 md:gap-6">
             <button 
               onClick={() => setIsSidebarOpen(true)}
-              className="lg:hidden p-2 -ml-2 text-[--text-muted] hover:text-[--text-main] transition-colors"
+              className="lg:hidden p-2.5 -ml-2 bg-black/5 dark:bg-white/5 rounded-xl border border-[--border] text-[--text-muted] hover:text-indigo-600 transition-all flex items-center gap-2 active:scale-95"
             >
               <Menu className="w-5 h-5" />
+              <span className="text-[10px] font-black uppercase tracking-widest sm:hidden">Chats</span>
             </button>
             <div className="hidden sm:flex items-center gap-2.5">
               <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.4)] animate-pulse" />
