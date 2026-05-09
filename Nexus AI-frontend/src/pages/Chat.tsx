@@ -30,7 +30,7 @@ export default function Chat({ user, onLogout }: Props) {
       setSessions(response.sessions || []);
     } catch (err: any) {
       console.error('Failed to load sessions:', err);
-      if (err.message === 'Not authenticated' || err.message === 'User not found') {
+      if (err.status === 401) {
         onLogout();
       }
     } finally {
@@ -46,6 +46,7 @@ export default function Chat({ user, onLogout }: Props) {
       setMessages(response.messages || []);
     } catch (err: any) {
       console.error('Failed to load messages:', err);
+      if (err.status === 401) onLogout();
     }
   }, [onLogout]);
 
@@ -97,6 +98,10 @@ export default function Chat({ user, onLogout }: Props) {
       const response = await chatApi.sendMessage(userMessage, currentSessionId);
       const activeSessionId = response.sessionId || currentSessionId;
 
+      if (!currentSessionId && activeSessionId) {
+        setCurrentSessionId(activeSessionId);
+      }
+
       // Smart Naming: if this is a new chat, generate a title using Groq (via backend)
       const currentSession = sessions.find(s => s.id === activeSessionId);
       if ((!currentSessionId || (currentSession && currentSession.sessionName === "New Chat")) && activeSessionId) {
@@ -108,10 +113,6 @@ export default function Chat({ user, onLogout }: Props) {
           console.error("Smart renaming failed:", renameErr);
           if (response.isNewSessionHeader) await loadSessions();
         }
-      }
-
-      if (!currentSessionId && response.sessionId) {
-        setCurrentSessionId(response.sessionId);
       }
 
       // The backend response already contains the AI response
@@ -126,7 +127,7 @@ export default function Chat({ user, onLogout }: Props) {
 
     } catch (err: any) {
       console.error('Chat error:', err);
-      if (err.message === 'Not authenticated' || err.message === 'User not found') {
+      if (err.status === 401) {
         onLogout();
         return;
       }
@@ -148,9 +149,10 @@ export default function Chat({ user, onLogout }: Props) {
       const response = await chatApi.createSession();
       setCurrentSessionId(response.id);
       await loadSessions();
+      setIsSidebarOpen(false); // Close sidebar on mobile after creating new chat
     } catch (err: any) {
       console.error('Failed to create session:', err);
-      if (err.message === 'Not authenticated' || err.message === 'User not found') {
+      if (err.status === 401) {
         onLogout();
       }
     }
@@ -163,7 +165,7 @@ export default function Chat({ user, onLogout }: Props) {
       await loadSessions();
     } catch (err: any) {
       console.error('Failed to delete session:', err);
-      if (err.message === 'Not authenticated' || err.message === 'User not found') {
+      if (err.status === 401) {
         onLogout();
       }
     }
@@ -177,7 +179,7 @@ export default function Chat({ user, onLogout }: Props) {
       await loadSessions();
     } catch (err: any) {
       console.error('Failed to clear sessions:', err);
-      if (err.message === 'Not authenticated' || err.message === 'User not found') {
+      if (err.status === 401) {
         onLogout();
       }
     }
@@ -202,7 +204,7 @@ export default function Chat({ user, onLogout }: Props) {
   }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-[--bg-main] relative transition-colors duration-300">
+    <div className="flex h-screen h-[100dvh] overflow-hidden bg-[--bg-main] relative transition-colors duration-300">
       <div className="absolute top-0 right-0 w-[800px] h-[800px] bg-indigo-500/5 rounded-full blur-[160px] pointer-events-none" />
       <div className="absolute bottom-0 left-80 w-[600px] h-[600px] bg-purple-500/5 rounded-full blur-[140px] pointer-events-none" />
 
@@ -210,7 +212,10 @@ export default function Chat({ user, onLogout }: Props) {
         user={user}
         sessions={sessions}
         currentSessionId={currentSessionId}
-        onSelectSession={setCurrentSessionId}
+        onSelectSession={(id) => {
+          setCurrentSessionId(id);
+          setIsSidebarOpen(false);
+        }}
         onNewSession={createNewSession}
         onDeleteSession={deleteSession}
         onClearAll={handleClearAll}
@@ -220,23 +225,23 @@ export default function Chat({ user, onLogout }: Props) {
       />
 
       <main className="flex-1 flex flex-col min-w-0 bg-transparent relative z-20">
-        <header className="h-20 bg-white/70 dark:bg-black/20 backdrop-blur-xl border-b border-[--border] flex items-center justify-between px-6 md:px-10 shrink-0">
-          <div className="flex items-center gap-4 md:gap-6">
+        <header className="h-20 bg-white/70 dark:bg-black/20 backdrop-blur-xl border-b border-[--border] flex items-center justify-between px-4 md:px-10 shrink-0">
+          <div className="flex items-center gap-4 md:gap-6 min-w-0">
             <button 
               onClick={() => setIsSidebarOpen(true)}
-              className="lg:hidden p-2.5 -ml-2 bg-black/5 dark:bg-white/5 rounded-xl border border-[--border] text-[--text-muted] hover:text-indigo-600 transition-all flex items-center gap-2 active:scale-95"
+              className="lg:hidden p-2.5 -ml-1 bg-black/5 dark:bg-white/5 rounded-xl border border-[--border] text-[--text-muted] hover:text-indigo-600 transition-all flex items-center gap-2 active:scale-95 shrink-0"
             >
               <Menu className="w-5 h-5" />
-              <span className="text-[10px] font-black uppercase tracking-widest sm:hidden">Chats</span>
+              <span className="text-[10px] font-black uppercase tracking-widest hidden sm:inline-block">Chats</span>
             </button>
-            <div className="hidden sm:flex items-center gap-2.5">
+            <div className="hidden sm:flex items-center gap-2.5 shrink-0">
               <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.4)] animate-pulse" />
               <span className="text-[10px] font-black text-[--text-muted]/40 uppercase tracking-[0.25em]">Online</span>
             </div>
             {currentSessionId && (
               <>
-                <div className="hidden sm:block h-4 w-px bg-[--border]" />
-                <span className="text-xs font-bold text-[--text-main] tracking-wide truncate max-w-[120px] xs:max-w-xs">
+                <div className="hidden sm:block h-4 w-px bg-[--border] shrink-0" />
+                <span className="text-xs font-bold text-[--text-main] tracking-wide truncate max-w-[120px] sm:max-w-xs px-1">
                   {sessions.find(s => s.id === currentSessionId)?.sessionName || 'Chatting...'}
                 </span>
               </>
