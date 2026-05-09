@@ -100,6 +100,7 @@ export default function Chat({ user, onLogout }: Props) {
 
       if (!currentSessionId && activeSessionId) {
         setCurrentSessionId(activeSessionId);
+        await loadSessions(); // Refresh sidebar for first message in new chat
       }
 
       // Smart Naming: if this is a new chat, generate a title using Groq (via backend)
@@ -228,8 +229,13 @@ export default function Chat({ user, onLogout }: Props) {
         <header className="h-20 bg-white/70 dark:bg-black/20 backdrop-blur-xl border-b border-[--border] flex items-center justify-between px-4 md:px-10 shrink-0">
           <div className="flex items-center gap-4 md:gap-6 min-w-0">
             <button 
-              onClick={() => setIsSidebarOpen(true)}
-              className="lg:hidden p-2.5 -ml-1 bg-black/5 dark:bg-white/5 rounded-xl border border-[--border] text-[--text-muted] hover:text-indigo-600 transition-all flex items-center gap-2 active:scale-95 shrink-0"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setIsSidebarOpen(true);
+                loadSessions();
+              }}
+              className="lg:hidden p-2.5 -ml-1 bg-black/5 dark:bg-white/5 rounded-xl border border-[--border] text-[--text-muted] hover:text-indigo-600 transition-all flex items-center gap-2 active:scale-95 shrink-0 cursor-pointer z-30"
             >
               <Menu className="w-5 h-5" />
               <span className="text-[10px] font-black uppercase tracking-widest hidden sm:inline-block">Chats</span>
