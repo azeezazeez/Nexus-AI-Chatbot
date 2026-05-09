@@ -226,7 +226,7 @@ export default function Chat({ user, onLogout }: Props) {
       />
 
       <main className="flex-1 flex flex-col min-w-0 bg-transparent relative z-20">
-        <header className="h-20 bg-white/70 dark:bg-black/20 backdrop-blur-xl border-b border-[--border] flex items-center justify-between px-4 md:px-10 shrink-0">
+        <header className="sticky top-0 z-30 h-20 bg-white/80 dark:bg-black/40 backdrop-blur-2xl border-b border-[--border] flex items-center justify-between px-4 md:px-10 shrink-0">
           <div className="flex items-center gap-4 md:gap-6 min-w-0">
             <button 
               onClick={(e) => {
@@ -235,7 +235,7 @@ export default function Chat({ user, onLogout }: Props) {
                 setIsSidebarOpen(true);
                 loadSessions();
               }}
-              className="lg:hidden p-2.5 -ml-1 bg-black/5 dark:bg-white/5 rounded-xl border border-[--border] text-[--text-muted] hover:text-indigo-600 transition-all flex items-center gap-2 active:scale-95 shrink-0 cursor-pointer z-30"
+              className="lg:hidden p-2.5 -ml-1 bg-black/5 dark:bg-white/5 rounded-xl border border-[--border] text-[--text-muted] hover:text-indigo-600 transition-all flex items-center gap-2 active:scale-95 shrink-0 cursor-pointer"
             >
               <Menu className="w-5 h-5" />
               <span className="text-[10px] font-black uppercase tracking-widest hidden sm:inline-block">Chats</span>
