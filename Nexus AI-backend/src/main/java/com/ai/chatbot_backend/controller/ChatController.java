@@ -30,7 +30,7 @@ public class ChatController {
     private final GroqService groqService;
     private final ChatHistoryService chatHistoryService;
     private final UserService userService;
-    private final RedisEventService redisEventService; // ✅ Replaces ChatEventProducer
+    private final RedisEventService redisEventService;
 
     private User getCurrentUser(HttpSession session) {
         Long userId = (Long) session.getAttribute("userId");
@@ -72,6 +72,7 @@ public class ChatController {
             boolean isAuthenticated = (currentUser != null);
 
             Long sessionId = request.getSessionId();
+            List<Map<String, String>> conversationHistory = new ArrayList<>();
 
             if (isAuthenticated) {
                 if (sessionId == null) {
@@ -80,41 +81,34 @@ public class ChatController {
                     log.info("Created new session: {}", sessionId);
                 }
 
-                // ✅ Save message directly to PostgreSQL
-                chatHistoryService.saveMessage(sessionId, "user", request.getMessage());
-
-                // ✅ Redis replaces Kafka
-                redisEventService.sendUserEvent("MESSAGE_SENT", currentUser.getId() + ":" + sessionId);
-            }
-
-            List<Map<String, String>> conversationHistory = new ArrayList<>();
-            if (isAuthenticated && sessionId != null) {
+                // ✅ Step 1: Fetch history BEFORE saving the new message
                 List<ChatMessage> previousMessages = chatHistoryService.getSessionMessages(sessionId);
-                int startIndex = Math.max(0, previousMessages.size() - 11);
-                for (int i = startIndex; i < previousMessages.size() - 1; i++) {
+                int startIndex = Math.max(0, previousMessages.size() - 10);
+                for (int i = startIndex; i < previousMessages.size(); i++) {
                     ChatMessage msg = previousMessages.get(i);
                     conversationHistory.add(Map.of(
                             "role", msg.getRole(),
                             "content", msg.getContent()
                     ));
                 }
+
+                // ✅ Step 2: Save user message AFTER building history
+                chatHistoryService.saveMessage(sessionId, "user", request.getMessage());
+                redisEventService.sendUserEvent("MESSAGE_SENT", currentUser.getId() + ":" + sessionId);
             }
 
+            // ✅ Step 3: Call Groq with clean history + current message
             String aiResponse = groqService.generateResponse(request.getMessage(), conversationHistory);
 
             if (isAuthenticated && sessionId != null) {
-                // ✅ Save AI response directly to PostgreSQL
+                // ✅ Step 4: Save AI response
                 chatHistoryService.saveMessage(sessionId, "assistant", aiResponse);
-
-                // ✅ Redis replaces Kafka
                 redisEventService.sendUserEvent("AI_RESPONSE_SENT", currentUser.getId() + ":" + sessionId);
             }
 
             ChatResponse response = new ChatResponse();
             response.setResponse(aiResponse);
-            if (isAuthenticated) {
-                response.setSessionId(sessionId);
-            }
+            if (isAuthenticated) response.setSessionId(sessionId);
 
             return ResponseEntity.ok(response);
 
@@ -198,8 +192,6 @@ public class ChatController {
             }
 
             ChatSession newSession = chatHistoryService.createNewSession(currentUser, "New Chat");
-
-            // ✅ Redis replaces Kafka
             redisEventService.sendUserEvent("SESSION_CREATED", currentUser.getId() + ":" + newSession.getId());
 
             response.put("id", newSession.getId());
@@ -305,8 +297,6 @@ public class ChatController {
             }
 
             chatHistoryService.deleteSession(sessionId);
-
-            // ✅ Redis replaces Kafka
             redisEventService.sendUserEvent("SESSION_DELETED", currentUser.getId() + ":" + sessionId);
 
             response.put("message", "Session deleted successfully");
@@ -330,8 +320,6 @@ public class ChatController {
             }
 
             chatHistoryService.clearUserSessions(currentUser);
-
-            // ✅ Redis replaces Kafka
             redisEventService.sendUserEvent("ALL_SESSIONS_CLEARED", String.valueOf(currentUser.getId()));
 
             response.put("message", "All sessions cleared successfully");
