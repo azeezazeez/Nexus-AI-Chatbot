@@ -6,7 +6,7 @@ import { chatApi, authApi } from '../lib/api';
 import { motion, AnimatePresence } from 'motion/react';
 import StormLogo from '../components/StormLogo';
 import UserAvatar from '../components/UserAvatar';
-import { Send, ArrowDown } from 'lucide-react';
+import { Send, ArrowDown, Menu, X } from 'lucide-react';
 
 interface Props {
   user: User;
@@ -20,6 +20,7 @@ export default function Chat({ user, onLogout }: Props) {
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -214,19 +215,27 @@ export default function Chat({ user, onLogout }: Props) {
         onDeleteSession={deleteSession}
         onClearAll={handleClearAll}
         onLogout={handleLogout}
+        isOpen={isSidebarOpen}
+        onClose={() => setIsSidebarOpen(false)}
       />
 
       <main className="flex-1 flex flex-col min-w-0 bg-transparent relative z-20">
-        <header className="h-20 bg-white/70 dark:bg-black/20 backdrop-blur-xl border-b border-[--border] flex items-center justify-between px-10 shrink-0">
-          <div className="flex items-center gap-6">
-            <div className="flex items-center gap-2.5">
+        <header className="h-20 bg-white/70 dark:bg-black/20 backdrop-blur-xl border-b border-[--border] flex items-center justify-between px-6 md:px-10 shrink-0">
+          <div className="flex items-center gap-4 md:gap-6">
+            <button 
+              onClick={() => setIsSidebarOpen(true)}
+              className="lg:hidden p-2 -ml-2 text-[--text-muted] hover:text-[--text-main] transition-colors"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+            <div className="hidden sm:flex items-center gap-2.5">
               <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.4)] animate-pulse" />
               <span className="text-[10px] font-black text-[--text-muted]/40 uppercase tracking-[0.25em]">Online</span>
             </div>
             {currentSessionId && (
               <>
-                <div className="h-4 w-px bg-[--border]" />
-                <span className="text-xs font-bold text-[--text-main] tracking-wide truncate max-w-xs">
+                <div className="hidden sm:block h-4 w-px bg-[--border]" />
+                <span className="text-xs font-bold text-[--text-main] tracking-wide truncate max-w-[120px] xs:max-w-xs">
                   {sessions.find(s => s.id === currentSessionId)?.sessionName || 'Chatting...'}
                 </span>
               </>
@@ -236,25 +245,25 @@ export default function Chat({ user, onLogout }: Props) {
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto px-6 py-12 md:px-20 scroll-hide">
-          <div className="max-w-4xl mx-auto space-y-12">
+        <div className="flex-1 overflow-y-auto px-4 md:px-10 lg:px-20 py-8 md:py-12 scroll-hide">
+          <div className="max-w-4xl mx-auto space-y-8 md:space-y-12">
             {messages.length === 0 && !isTyping ? (
-              <div className="flex flex-col items-center justify-center h-full pt-20 text-center">
+              <div className="flex flex-col items-center justify-center h-full pt-10 md:pt-20 text-center px-4">
                 <motion.div
                   initial={{ scale: 0.8, opacity: 0 }}
                   animate={{ scale: 1, opacity: 1 }}
-                  className="w-24 h-24 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-[2.5rem] shadow-2xl shadow-indigo-500/20 flex items-center justify-center mb-10 relative text-white p-6"
+                  className="w-16 h-16 md:w-24 md:h-24 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-3xl md:rounded-[2.5rem] shadow-2xl shadow-indigo-500/20 flex items-center justify-center mb-6 md:mb-10 relative text-white p-4 md:p-6"
                 >
-                  <div className="absolute inset-0 rounded-[2.5rem] bg-indigo-500/20 animate-ping opacity-20" />
+                  <div className="absolute inset-0 rounded-3xl md:rounded-[2.5rem] bg-indigo-500/20 animate-ping opacity-20" />
                   <StormLogo className="w-full h-full" />
                 </motion.div>
-                <h2 className="text-4xl font-extrabold tracking-tight text-[--text-main] mb-4">
-                  Welcome, {user?.name?.split(' ')[0] || 'User'}
+                <h2 className="text-2xl md:text-4xl font-extrabold tracking-tight text-[--text-main] mb-4">
+                  Welcome, {user?.name?.split(' ')[0] || user?.username || 'User'}
                 </h2>
-                <p className="text-[--text-muted] max-w-md leading-relaxed text-sm font-medium">
+                <p className="text-[--text-muted] max-w-sm md:max-w-md leading-relaxed text-xs md:text-sm font-medium">
                   I'm here to help you. What would you like to chat about today?
                 </p>
-                <div className="mt-16 grid grid-cols-2 gap-4 w-full max-w-2xl text-left">
+                <div className="mt-8 md:mt-16 grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4 w-full max-w-2xl text-left">
                   {[
                     "Healthy breakfast ideas",
                     "How to build a React app",
@@ -264,7 +273,7 @@ export default function Chat({ user, onLogout }: Props) {
                     <button
                       key={i}
                       onClick={() => setInput(suggestion)}
-                      className="p-5 bg-[--surface] dark:bg-white/5 border border-[--border] rounded-[1.5rem] text-[10px] font-black uppercase tracking-widest text-[--text-muted] hover:text-[--text-main] hover:border-indigo-500/50 transition-all shadow-sm hover:shadow-lg"
+                      className="p-4 md:p-5 bg-[--surface] dark:bg-white/5 border border-[--border] rounded-2xl md:rounded-[1.5rem] text-[9px] md:text-[10px] font-black uppercase tracking-widest text-[--text-muted] hover:text-[--text-main] hover:border-indigo-500/50 transition-all shadow-sm hover:shadow-lg"
                     >
                       {suggestion}
                     </button>
@@ -278,22 +287,22 @@ export default function Chat({ user, onLogout }: Props) {
                     key={msg.id}
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className={`flex gap-6 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}
+                    className={`flex gap-3 md:gap-6 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}
                   >
-                    <div className={`w-12 h-12 rounded-2xl shrink-0 flex items-center justify-center border shadow-xl transition-all ${msg.role === 'user'
+                    <div className={`w-9 h-9 md:w-12 md:h-12 rounded-xl md:rounded-2xl shrink-0 flex items-center justify-center border shadow-xl transition-all ${msg.role === 'user'
                       ? 'p-0 shadow-indigo-500/10'
-                      : 'bg-[--surface] dark:bg-zinc-800 border-[--border] text-indigo-500 p-2.5'
+                      : 'bg-[--surface] dark:bg-zinc-800 border-[--border] text-indigo-500 p-2 md:p-2.5'
                       }`}>
-                      {msg.role === 'user' ? <UserAvatar name={user?.username || 'User'} className="w-full h-full text-lg" /> : <StormLogo className="w-full h-full" />}
+                      {msg.role === 'user' ? <UserAvatar name={user?.username || 'User'} className="w-full h-full text-sm md:text-lg" /> : <StormLogo className="w-full h-full" />}
                     </div>
-                    <div className={`flex flex-col max-w-[75%] ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
-                      <div className={`p-6 rounded-[2rem] border transition-colors shadow-sm ${msg.role === 'user'
+                    <div className={`flex flex-col max-w-[85%] md:max-w-[75%] ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+                      <div className={`p-4 md:p-6 rounded-2xl md:rounded-[2rem] border transition-colors shadow-sm ${msg.role === 'user'
                         ? 'bg-indigo-600 text-white border-indigo-500 font-medium'
                         : 'bg-white dark:bg-white/5 text-[--text-main] border-[--border] leading-relaxed'
                         } ${msg.role === 'user' ? 'rounded-tr-none' : 'rounded-tl-none'}`}>
                         <p className="text-sm md:text-base whitespace-pre-wrap">{msg.content}</p>
                       </div>
-                      <span className="mt-3 text-[9px] font-black text-[--text-muted]/40 uppercase tracking-[0.2em] px-3">
+                      <span className="mt-2 md:mt-3 text-[8px] md:text-[9px] font-black text-[--text-muted]/40 uppercase tracking-[0.2em] px-2 md:px-3">
                         {msg.role === 'user' ? 'You' : 'Nexus AI'} • {msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Just now'}
                       </span>
                     </div>
@@ -343,7 +352,7 @@ export default function Chat({ user, onLogout }: Props) {
           </div>
         </div>
 
-        <div className="p-10 md:p-16 pt-2 shrink-0 bg-gradient-to-t from-[--bg-main] via-[--bg-main] to-transparent">
+        <div className="p-4 md:p-10 lg:p-16 pt-2 shrink-0 bg-gradient-to-t from-[--bg-main] via-[--bg-main] to-transparent">
           <div className="max-w-4xl mx-auto relative">
             <form onSubmit={handleSendMessage} className="relative group">
               <input
@@ -352,23 +361,23 @@ export default function Chat({ user, onLogout }: Props) {
                 onChange={(e) => setInput(e.target.value)}
                 disabled={isTyping}
                 placeholder={isTyping ? "Thinking..." : "Type a message..."}
-                className="w-full pl-8 pr-20 py-6 bg-white dark:bg-white/5 border border-[--border] rounded-[2.5rem] shadow-2xl focus:outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all font-medium text-[--text-main] placeholder:text-[--text-muted]/30 tracking-wide text-sm"
+                className="w-full pl-6 md:pl-8 pr-16 md:pr-20 py-4 md:py-6 bg-white dark:bg-white/5 border border-[--border] rounded-2xl md:rounded-[2.5rem] shadow-2xl focus:outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all font-medium text-[--text-main] placeholder:text-[--text-muted]/30 tracking-wide text-xs md:text-sm"
               />
               <button
                 type="submit"
                 disabled={!input.trim() || isTyping}
-                className="absolute right-3 top-1/2 -translate-y-1/2 w-14 h-14 bg-indigo-600 text-white dark:bg-white dark:text-black rounded-full flex items-center justify-center shadow-2xl hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed transition-all active:scale-95 group"
+                className="absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 md:w-14 md:h-14 bg-indigo-600 text-white dark:bg-white dark:text-black rounded-full flex items-center justify-center shadow-2xl hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed transition-all active:scale-95 group"
               >
                 <div className="group-hover:translate-x-0.5 transition-transform">
-                  <Send className="w-5 h-5" />
+                  <Send className="w-4 h-4 md:w-5 md:h-5" />
                 </div>
               </button>
             </form>
           </div>
-          <div className="mt-6 flex items-center justify-center gap-6">
-            <p className="text-[8px] font-bold text-[--text-muted]/30 uppercase tracking-[0.3em]">AI-Powered Assistant</p>
+          <div className="mt-4 md:mt-6 flex items-center justify-center gap-4 md:gap-6">
+            <p className="text-[7px] md:text-[8px] font-bold text-[--text-muted]/30 uppercase tracking-[0.3em]">AI-Powered Assistant</p>
             <div className="w-1 h-1 rounded-full bg-[--border]" />
-            <p className="text-[8px] font-bold text-[--text-muted]/30 uppercase tracking-[0.3em]">Built with Nexus AI</p>
+            <p className="text-[7px] md:text-[8px] font-bold text-[--text-muted]/30 uppercase tracking-[0.3em]">Built with Nexus AI</p>
           </div>
         </div>
 
