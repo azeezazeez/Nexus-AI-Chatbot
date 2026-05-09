@@ -77,10 +77,9 @@ export default function Sidebar({
         </button>
       </div>
 
-      {/* Session List */}
-      <div className="flex-1 overflow-y-auto px-4 space-y-2 scroll-hide">
+      <div className="flex-1 overflow-y-auto px-4 space-y-2 scroll-hide min-h-0">
         <div className="flex items-center justify-between px-4 mb-4">
-          <label className="text-[10px] font-black text-[--text-muted]/40 uppercase tracking-[0.25em]">Recent Chats</label>
+          <label className="text-[10px] font-black text-[--text-muted]/60 uppercase tracking-[0.25em]">Recent Chats</label>
           {sessions.length > 0 && (
             <button 
               onClick={onClearAll}
@@ -91,39 +90,45 @@ export default function Sidebar({
             </button>
           )}
         </div>
-        <AnimatePresence initial={false}>
-          {sessions.map((session) => (
-            <motion.div
-              layout
-              key={session.id}
-              initial={{ opacity: 0, x: -10 }}
-              animate={{ opacity: 1, x: 0 }}
-              className={`group flex items-center gap-3 p-4 rounded-2xl cursor-pointer transition-all border ${
-                currentSessionId === session.id 
-                  ? 'bg-indigo-50 border-indigo-100 text-indigo-700 dark:bg-white/10 dark:border-white/10 dark:text-white shadow-sm' 
-                  : 'text-[--text-muted] border-transparent hover:bg-black/5 dark:hover:bg-white/5 hover:text-[--text-main]'
-              }`}
-              onClick={() => {
-                onSelectSession(session.id);
-                onClose();
-              }}
-            >
-              <div className={`shrink-0 w-2 h-2 rounded-full ${currentSessionId === session.id ? 'bg-indigo-500 animate-pulse' : 'bg-zinc-300 dark:bg-white/10'}`} />
-              <span className="flex-1 truncate text-xs font-bold tracking-wide">{session.sessionName}</span>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDeleteSession(session.id);
-                }}
-                className={`p-1.5 rounded-lg transition-all ${
-                  currentSessionId === session.id ? 'hover:bg-indigo-100 dark:hover:bg-white/10 text-indigo-400 hover:text-indigo-600 dark:text-white/40' : 'opacity-0 group-hover:opacity-100 hover:bg-red-500/10 text-zinc-400 hover:text-red-500'
+        
+        {sessions.length === 0 ? (
+          <div className="px-4 py-8 text-center bg-black/5 dark:bg-white/5 rounded-2xl border border-dashed border-[--border]">
+            <p className="text-[10px] font-bold text-[--text-muted] uppercase tracking-wider leading-relaxed">No recent chats<br /><span className="opacity-40 font-medium">Your history will appear here</span></p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {sessions.map((session) => (
+              <motion.div
+                key={session.id}
+                initial={{ opacity: 0, y: 5 }}
+                animate={{ opacity: 1, y: 0 }}
+                className={`group flex items-center gap-3 p-4 rounded-2xl cursor-pointer transition-all border ${
+                  currentSessionId === session.id 
+                    ? 'bg-indigo-50 border-indigo-100 text-indigo-700 dark:bg-white/10 dark:border-white/10 dark:text-white shadow-sm' 
+                    : 'text-[--text-muted] border-transparent hover:bg-black/5 dark:hover:bg-white/5 hover:text-[--text-main]'
                 }`}
+                onClick={() => {
+                  onSelectSession(session.id);
+                  onClose();
+                }}
               >
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
-            </motion.div>
-          ))}
-        </AnimatePresence>
+                <div className={`shrink-0 w-2 h-2 rounded-full ${currentSessionId === session.id ? 'bg-indigo-500 animate-pulse' : 'bg-zinc-300 dark:bg-white/10'}`} />
+                <span className="flex-1 truncate text-xs font-bold tracking-wide">{session.sessionName}</span>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDeleteSession(session.id);
+                  }}
+                  className={`p-1.5 rounded-lg transition-all ${
+                    currentSessionId === session.id ? 'hover:bg-indigo-100 dark:hover:bg-white/10 text-indigo-400 hover:text-indigo-600 dark:text-white/40' : 'opacity-0 group-hover:opacity-100 hover:bg-red-500/10 text-zinc-400 hover:text-red-500'
+                  }`}
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </motion.div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Footer */}
