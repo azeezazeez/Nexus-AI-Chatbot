@@ -18,6 +18,8 @@ interface Props {
   onDeleteSession: (id: number) => void;
   onClearAll: () => void;
   onLogout: () => void;
+  isOpen: boolean;
+  onClose: () => void;
 }
 
 export default function Sidebar({ 
@@ -28,11 +30,31 @@ export default function Sidebar({
   onNewSession, 
   onDeleteSession,
   onClearAll,
-  onLogout 
+  onLogout,
+  isOpen,
+  onClose
  }: Props) {
   return (
-    <aside className="w-80 h-full flex flex-col bg-[--surface] dark:bg-black/40 border-r border-[--border] relative z-30 transition-colors duration-300">
-      {/* Header */}
+    <>
+      {/* Mobile Overlay */}
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={onClose}
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 lg:hidden"
+          />
+        )}
+      </AnimatePresence>
+
+      <aside className={`
+        fixed inset-y-0 left-0 z-50 w-80 bg-[--surface] dark:bg-black/80 border-r border-[--border] transition-transform duration-300 transform lg:translate-x-0 lg:static lg:inset-auto
+        ${isOpen ? 'translate-x-0' : '-translate-x-full'}
+        flex flex-col h-full
+      `}>
+        {/* Header */}
       <div className="p-8">
         <div className="flex items-center gap-3 mb-10">
           <div className="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-500/20 text-white p-1.5">
@@ -42,7 +64,10 @@ export default function Sidebar({
         </div>
 
         <button
-          onClick={onNewSession}
+          onClick={() => {
+            onNewSession();
+            onClose();
+          }}
           className="w-full py-4 px-5 bg-indigo-600 text-white dark:bg-white dark:text-black rounded-2xl flex items-center gap-3 font-bold text-sm tracking-wide hover:opacity-90 transition-all active:scale-[0.98] group shadow-lg"
         >
           <div className="w-6 h-6 rounded-lg bg-white/20 dark:bg-black/10 flex items-center justify-center group-hover:scale-110 transition-transform">
@@ -78,7 +103,10 @@ export default function Sidebar({
                   ? 'bg-indigo-50 border-indigo-100 text-indigo-700 dark:bg-white/10 dark:border-white/10 dark:text-white shadow-sm' 
                   : 'text-[--text-muted] border-transparent hover:bg-black/5 dark:hover:bg-white/5 hover:text-[--text-main]'
               }`}
-              onClick={() => onSelectSession(session.id)}
+              onClick={() => {
+                onSelectSession(session.id);
+                onClose();
+              }}
             >
               <div className={`shrink-0 w-2 h-2 rounded-full ${currentSessionId === session.id ? 'bg-indigo-500 animate-pulse' : 'bg-zinc-300 dark:bg-white/10'}`} />
               <span className="flex-1 truncate text-xs font-bold tracking-wide">{session.sessionName}</span>
@@ -119,5 +147,6 @@ export default function Sidebar({
         </button>
       </div>
     </aside>
+    </>
   );
 }
