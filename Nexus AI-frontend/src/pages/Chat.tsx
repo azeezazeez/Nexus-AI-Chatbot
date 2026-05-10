@@ -26,7 +26,34 @@ export default function Chat({ user, onLogout }: Props) {
   const [suggestion, setSuggestion] = useState('');
   const [isFetchingSuggestion, setIsFetchingSuggestion] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
+
+  // ── Local autocomplete patterns ─────────────────────────────────────────────
+  // Each entry: [regex to match typed text, completion tail to append]
+  // The tail is what gets shown AFTER what the user already typed.
+  const AUTOCOMPLETE_MAP: Array<[RegExp, string]> = [
+    // ── How ──────────────────────────────────────────────────────────────────
+    [/^how$/i,                        ' can I help you?'],
+    [/^how\s+to$/i,                   ' implement this?'],
+    [/^how\s+to\s+fix$/i,             ' this issue?'],
+    [/^how\s+to\s+build$/i,           ' this in React?'],
+    [/^how\s+to\s+create$/i,          ' a REST API?'],
+    [/^how\s+to\s+use$/i,             ' this library?'],
+    [/^how\s+to\s+install$/i,         ' this package?'],
+    [/^how\s+to\s+connect$/i,         ' to the database?'],
+    [/^how\s+to\s+deploy$/i,          ' this application?'],
+    [/^how\s+to\s+debug$/i,           ' this error?'],
+    [/^how\s+does$/i,                 ' this work?'],
+    [/^how\s+can$/i,                  ' I improve this?'],
+    // ── What ─────────────────────────────────────────────────────────────────
+    [/^what$/i,                       ' is the best approach?'],
+    [/^what\s+is$/i,                  ' the difference between REST and GraphQL?'],
+    [/^what\s+are$/i,                 ' the best practices?'],
+    [/^what\s+does$/i,                ' this error mean?'],
+    [/^what\s+is\s+the\s+best$/i,     ' way to structure this?'],
+    [/^what\s+is\s+the\s+diff/i,      'erence between these two?'],
+    // ── Why ──────────────────────────────────────────────────────────────────
+    [/^why$/i,                        ' is this not working?'],
+    [/^why\s+is$/i
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -80,37 +107,20 @@ export default function Chat({ user, onLogout }: Props) {
     if (text.length < 3) { setSuggestion(''); return; }
 
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (abortRef.current) abortRef.current.abort();
 
     debounceRef.current = setTimeout(async () => {
-      const ctrl = new AbortController();
-      abortRef.current = ctrl;
       setIsFetchingSuggestion(true);
-
       try {
-        // ── Calls your backend proxy endpoint ──────────────────────────────
-        // Add to Spring Boot: POST /api/chat/autocomplete { "text": "..." }
-        // which calls Anthropic with a short-completion system prompt and
-        // returns { "suggestion": "..." }
-        //
-        // If you prefer to call Anthropic directly from the frontend during
-        // development, swap the fetch below with a direct API call —
-        // but proxy through your backend in production to protect your key.
-        const res = await fetch('/api/chat/autocomplete', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text }),
-          signal: ctrl.signal,
-        });
-
-        if (!res.ok) { setSuggestion(''); return; }
-        const data = await res.json();
-        // Only show the completion tail (not the text the user already typed)
+        // Uses chatApi — same base URL + credentials as all other calls
+        const data = await chatApi.autocomplete(text);
         const raw: string = data.suggestion || '';
-        const tail = raw.startsWith(text) ? raw.slice(text.length) : raw;
+        // Show only the tail after what the user already typed
+        const tail = raw.toLowerCase().startsWith(text.toLowerCase())
+          ? raw.slice(text.length)
+          : raw;
         setSuggestion(tail);
-      } catch (err: any) {
-        if (err.name !== 'AbortError') setSuggestion('');
+      } catch {
+        setSuggestion('');
       } finally {
         setIsFetchingSuggestion(false);
       }
