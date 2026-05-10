@@ -52,8 +52,15 @@ export default function Chat({ user, onLogout }: Props) {
 
   useEffect(() => { loadSessions(); }, [loadSessions]);
 
+  const justCreatedSessionRef = useRef<number | null>(null);
+
   useEffect(() => {
     if (currentSessionId) {
+      // Skip reloading if we just created this session mid-chat (avoids duplicate AI response)
+      if (justCreatedSessionRef.current === currentSessionId) {
+        justCreatedSessionRef.current = null;
+        return;
+      }
       loadMessages(currentSessionId);
     } else {
       setMessages([]);
@@ -136,6 +143,7 @@ export default function Chat({ user, onLogout }: Props) {
       const activeSessionId = response.sessionId || currentSessionId;
 
       if (!currentSessionId && activeSessionId) {
+        justCreatedSessionRef.current = activeSessionId; // prevent useEffect from reloading messages
         setCurrentSessionId(activeSessionId);
         await loadSessions(); // Refresh sidebar for first message in new chat
       }
@@ -165,15 +173,38 @@ export default function Chat({ user, onLogout }: Props) {
 
     } catch (err: any) {
       console.error('Chat error:', err);
+
       if (err.status === 401) {
         onLogout();
         return;
       }
+
+      const getErrorMessage = (err: any): string => {
+        const status = err?.status || err?.response?.status;
+        const isOffline = !navigator.onLine;
+
+        if (isOffline)
+          return "📡 You appear to be offline. Please check your internet connection and try again.";
+        if (status === 429)
+          return "⏳ You're sending messages too fast. Please wait a moment and try again.";
+        if (status === 500 || status === 502 || status === 503)
+          return "🔧 The server ran into an issue on our end. This is temporary — please try again in a few seconds.";
+        if (status === 504)
+          return "⌛ The request timed out. The server took too long to respond. Please try again.";
+        if (status === 403)
+          return "🚫 You don't have permission to perform this action. Please log in again.";
+        if (status === 404)
+          return "🔍 The session or resource could not be found. Try starting a new chat.";
+        if (err?.message?.toLowerCase().includes('network') || err?.message?.toLowerCase().includes('fetch'))
+          return "🌐 Network error — couldn't reach the server. Please check your connection and try again.";
+        return "⚠️ Something went wrong on our end. Please try again in a moment — your message was not lost.";
+      };
+
       const errMsg: Message = {
         id: Date.now() + 1,
         sessionId: currentSessionId || 0,
         role: 'assistant',
-        content: 'Sorry, I encountered an error. Please try again.',
+        content: getErrorMessage(err),
         timestamp: new Date().toISOString(),
       };
       setMessages(prev => [...prev, errMsg]);
@@ -369,25 +400,26 @@ export default function Chat({ user, onLogout }: Props) {
                     </div>
                     <div className="flex flex-col min-w-0 items-start max-w-[85%] md:max-w-[75%]">
                       <div className="p-4 md:p-6 rounded-2xl md:rounded-[2rem] bg-white dark:bg-white/5 border border-indigo-500/20 text-[--text-main] leading-relaxed rounded-tl-none flex items-center gap-3 md:gap-4 shadow-sm">
-                        <div className="flex items-end gap-[3px]">
+                        <div className="flex items-end gap-1">
                           {[0, 1, 2].map((i) => (
                             <motion.span
                               key={i}
-                              className="block w-[5px] h-[5px] md:w-[6px] md:h-[6px] bg-indigo-500 rounded-full"
-                              animate={{ y: [0, -6, 0] }}
+                              className="block w-[6px] h-[6px] md:w-[7px] md:h-[7px] bg-indigo-500 rounded-full"
+                              animate={{ y: ["0%", "-60%", "0%"] }}
                               transition={{
                                 repeat: Infinity,
-                                duration: 0.6,
-                                delay: i * 0.15,
-                                ease: "easeInOut",
+                                repeatType: "loop",
+                                duration: 0.7,
+                                delay: i * 0.18,
+                                ease: [0.45, 0, 0.55, 1],
                               }}
                             />
                           ))}
                         </div>
                         <motion.span
-                          className="text-[10px] font-black uppercase tracking-widest text-indigo-500"
-                          animate={{ opacity: [1, 0.4, 1] }}
-                          transition={{ repeat: Infinity, duration: 1.5, ease: "easeInOut" }}
+                          className="text-[10px] font-black uppercase tracking-widest text-indigo-400"
+                          animate={{ opacity: [0.5, 1, 0.5] }}
+                          transition={{ repeat: Infinity, repeatType: "loop", duration: 1.4, ease: "easeInOut" }}
                         >
                           Thinking...
                         </motion.span>
@@ -403,6 +435,26 @@ export default function Chat({ user, onLogout }: Props) {
 
         <div className="p-4 md:p-10 lg:p-16 pt-2 shrink-0 bg-gradient-to-t from-[--bg-main] via-[--bg-main] to-transparent">
           <div className="max-w-4xl mx-auto relative">
+            {/* Typing suggestions */}
+            {!isTyping && messages.length > 0 && (
+              <div className="flex gap-2 mb-3 overflow-x-auto pb-1 scroll-hide">
+                {[
+                  "Explain more",
+                  "Give an example",
+                  "Summarize this",
+                  "How to fix it?",
+                  "What are alternatives?",
+                ].map((suggestion, i) => (
+                  <button
+                    key={i}
+                    onClick={() => setInput(suggestion)}
+                    className="shrink-0 px-3 py-1.5 text-[9px] md:text-[10px] font-black uppercase tracking-widest bg-[--surface] dark:bg-white/5 border border-[--border] rounded-full text-[--text-muted] hover:text-indigo-500 hover:border-indigo-500/50 transition-all whitespace-nowrap"
+                  >
+                    {suggestion}
+                  </button>
+                ))}
+              </div>
+            )}
             <form onSubmit={handleSendMessage} className="relative group">
               <input
                 type="text"
