@@ -76,11 +76,48 @@ export default function Chat({ user, onLogout }: Props) {
     }
   };
 
+  const BLOCKED_PATTERNS = [
+    // Source code / file exfiltration
+    /\b(show|send|give|share|print|display|reveal|expose|leak|dump|export|output)\b.{0,40}\b(source\s*code|backend|\.env|config|secret|api\s*key|private\s*key|password|token|database\s*schema|schema|credentials|auth\s*token|jwt\s*secret|server\s*code|internal\s*code|system\s*prompt)\b/i,
+    /\b(source\s*code|backend\s*code|server\s*code|\.env|api\s*key|jwt\s*secret|private\s*key|db\s*password)\b.{0,40}\b(show|send|give|share|reveal|expose|leak|dump)\b/i,
+    // Adult / 18+ content
+    /\b(porn|pornography|nude|naked|hentai|xxx|onlyfans|sex\s*video|explicit\s*content|adult\s*content|nsfw|erotic|strip\s*club|cam\s*girl|sex\s*scene)\b/i,
+    // Illegal activities
+    /\b(how\s*to\s*(make|build|create|synthesize|buy|get)\s*(drugs?|meth|cocaine|heroin|crack|bomb|explosive|weapon|gun|poison|malware|ransomware|virus|keylogger))\b/i,
+    /\b(drug\s*deal|arms\s*deal|human\s*traffic|child\s*(abuse|exploit|porn|grooming)|dark\s*web\s*(buy|sell|order)|money\s*launder|hack\s*into|ddos\s*attack|phishing\s*kit|credit\s*card\s*dump|carding)\b/i,
+    // Theft / fraud
+    /\b(how\s*to\s*(steal|rob|shoplift|pickpocket|scam|defraud|bypass\s*payment|crack\s*account|brute\s*force\s*login))\b/i,
+    /\b(social\s*engineering\s*script|fake\s*(id|passport|document)|identity\s*theft|account\s*takeover)\b/i,
+  ];
+
+  const isSensitiveMessage = (text: string): boolean => {
+    return BLOCKED_PATTERNS.some(pattern => pattern.test(text));
+  };
+
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || isTyping) return;
 
     const userMessage = input.trim();
+
+    if (isSensitiveMessage(userMessage)) {
+      const blockedMsg: Message = {
+        id: Date.now() + 1,
+        sessionId: currentSessionId || 0,
+        role: 'assistant',
+        content: "⚠️ I'm not able to help with that request. I don't share internal code, credentials, or system files, and I don't assist with adult content, illegal activities, fraud, or anything that could cause harm. If you have a legitimate question, feel free to ask!",
+        timestamp: new Date().toISOString(),
+      };
+      setMessages(prev => [...prev, {
+        id: Date.now(),
+        sessionId: currentSessionId || 0,
+        role: 'user',
+        content: userMessage,
+        timestamp: new Date().toISOString(),
+      }, blockedMsg]);
+      setInput('');
+      return;
+    }
     setInput('');
 
     const tempUserMsg: Message = {
@@ -299,7 +336,7 @@ export default function Chat({ user, onLogout }: Props) {
                     key={msg.id}
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className={`flex gap-3 md:gap-6 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}
+                    className={`flex gap-3 md:gap-6 min-w-0 overflow-hidden ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}
                   >
                     <div className={`w-9 h-9 md:w-12 md:h-12 rounded-xl md:rounded-2xl shrink-0 flex items-center justify-center border shadow-xl transition-all ${msg.role === 'user'
                       ? 'p-0 shadow-indigo-500/10'
@@ -307,12 +344,12 @@ export default function Chat({ user, onLogout }: Props) {
                       }`}>
                       {msg.role === 'user' ? <UserAvatar name={user?.username || 'User'} className="w-full h-full text-sm md:text-lg" /> : <StormLogo className="w-full h-full" />}
                     </div>
-                    <div className={`flex flex-col max-w-[85%] md:max-w-[75%] ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+                    <div className={`flex flex-col min-w-0 max-w-[85%] md:max-w-[75%] ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
                       <div className={`p-4 md:p-6 rounded-2xl md:rounded-[2rem] border transition-colors shadow-sm ${msg.role === 'user'
                         ? 'bg-indigo-600 text-white border-indigo-500 font-medium'
                         : 'bg-white dark:bg-white/5 text-[--text-main] border-[--border] leading-relaxed'
                         } ${msg.role === 'user' ? 'rounded-tr-none' : 'rounded-tl-none'}`}>
-                        <p className="text-sm md:text-base whitespace-pre-wrap">{msg.content}</p>
+                        <p className="text-sm md:text-base whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{msg.content}</p>
                       </div>
                       <span className="mt-2 md:mt-3 text-[8px] md:text-[9px] font-black text-[--text-muted]/40 uppercase tracking-[0.2em] px-2 md:px-3">
                         {msg.role === 'user' ? 'You' : 'Nexus AI'} • {msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Just now'}
