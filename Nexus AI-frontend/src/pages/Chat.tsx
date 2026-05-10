@@ -362,36 +362,36 @@ export default function Chat({ user, onLogout }: Props) {
                   <motion.div
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="flex gap-6 min-w-0 overflow-hidden"
+                    className="flex gap-3 md:gap-6 min-w-0 overflow-hidden"
                   >
-                    <div className="w-12 h-12 rounded-2xl shrink-0 flex items-center justify-center bg-[--surface] dark:bg-zinc-800 border border-[--border] text-indigo-500 p-2.5 shadow-xl">
+                    <div className="w-9 h-9 md:w-12 md:h-12 rounded-xl md:rounded-2xl shrink-0 flex items-center justify-center bg-[--surface] dark:bg-zinc-800 border border-[--border] text-indigo-500 p-2 md:p-2.5 shadow-xl">
                       <StormLogo className="w-full h-full" />
                     </div>
-                    <div className="flex flex-col min-w-0 items-start max-w-[75%]">
-                      <motion.div
-                        initial={{ width: "auto" }}
-                        animate={{ width: "auto" }}
-                        className="p-6 rounded-[2rem] bg-white dark:bg-white/5 border border-indigo-500/20 text-[--text-main] leading-relaxed rounded-tl-none flex items-center gap-4 shadow-sm"
-                      >
-                        <div className="flex gap-1.5">
-                          <motion.div
-                            animate={{ scale: [1, 1.5, 1], opacity: [0.5, 1, 0.5] }}
-                            transition={{ repeat: Infinity, duration: 1 }}
-                            className="w-1.5 h-1.5 bg-indigo-500 rounded-full"
-                          />
-                          <motion.div
-                            animate={{ scale: [1, 1.5, 1], opacity: [0.5, 1, 0.5] }}
-                            transition={{ repeat: Infinity, duration: 1, delay: 0.2 }}
-                            className="w-1.5 h-1.5 bg-indigo-500 rounded-full"
-                          />
-                          <motion.div
-                            animate={{ scale: [1, 1.5, 1], opacity: [0.5, 1, 0.5] }}
-                            transition={{ repeat: Infinity, duration: 1, delay: 0.4 }}
-                            className="w-1.5 h-1.5 bg-indigo-500 rounded-full"
-                          />
+                    <div className="flex flex-col min-w-0 items-start max-w-[85%] md:max-w-[75%]">
+                      <div className="p-4 md:p-6 rounded-2xl md:rounded-[2rem] bg-white dark:bg-white/5 border border-indigo-500/20 text-[--text-main] leading-relaxed rounded-tl-none flex items-center gap-3 md:gap-4 shadow-sm">
+                        <div className="flex items-end gap-[3px]">
+                          {[0, 1, 2].map((i) => (
+                            <motion.span
+                              key={i}
+                              className="block w-[5px] h-[5px] md:w-[6px] md:h-[6px] bg-indigo-500 rounded-full"
+                              animate={{ y: [0, -6, 0] }}
+                              transition={{
+                                repeat: Infinity,
+                                duration: 0.6,
+                                delay: i * 0.15,
+                                ease: "easeInOut",
+                              }}
+                            />
+                          ))}
                         </div>
-                        <span className="text-[10px] font-black uppercase tracking-widest text-indigo-500">Thinking...</span>
-                      </motion.div>
+                        <motion.span
+                          className="text-[10px] font-black uppercase tracking-widest text-indigo-500"
+                          animate={{ opacity: [1, 0.4, 1] }}
+                          transition={{ repeat: Infinity, duration: 1.5, ease: "easeInOut" }}
+                        >
+                          Thinking...
+                        </motion.span>
+                      </div>
                     </div>
                   </motion.div>
                 )}
