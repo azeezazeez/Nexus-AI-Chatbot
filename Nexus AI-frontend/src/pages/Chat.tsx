@@ -53,7 +53,25 @@ export default function Chat({ user, onLogout }: Props) {
     [/^what\s+is\s+the\s+diff/i,      'erence between these two?'],
     // ── Why ──────────────────────────────────────────────────────────────────
     [/^why$/i,                        ' is this not working?'],
-    [/^why\s+is$/i
+    [/^why\s+is$/i,                   ' this not working?'],
+    [/^why\s+does$/i,                 ' this keep failing?'],
+    [/^why\s+should$/i,               ' I use this approach?'],
+    // ── Can / Could ───────────────────────────────────────────────────────────
+    [/^can$/i,                        ' you help me with this?'],
+    [/^can\s+you$/i,                  ' explain this in simple terms?'],
+    [/^could\s+you$/i,                ' give me an example?'],
+    // ── Explain / Tell ────────────────────────────────────────────────────────
+    [/^explain$/i,                    ' how this works step by step.'],
+    [/^tell\s+me$/i,                  ' more about this topic.'],
+    [/^tell\s+me\s+about$/i,          ' the best practices for this.'],
+    // ── Write / Generate ──────────────────────────────────────────────────────
+    [/^write$/i,                      ' a function that does this.'],
+    [/^write\s+a$/i,                  ' short explanation for this.'],
+    [/^generate$/i,                   ' a code example for this.'],
+    // ── Fix / Debug ───────────────────────────────────────────────────────────
+    [/^fix$/i,                        ' this bug in my code.'],
+    [/^debug$/i,                      ' this error message.'],
+  ];
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
