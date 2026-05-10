@@ -294,7 +294,7 @@ export default function Chat({ user, onLogout }: Props) {
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto px-4 md:px-10 lg:px-20 py-8 md:py-12 scroll-hide">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 md:px-10 lg:px-20 py-8 md:py-12 scroll-hide">
           <div className="max-w-4xl mx-auto space-y-8 md:space-y-12">
             {messages.length === 0 && !isTyping ? (
               <div className="flex flex-col items-center justify-center h-full pt-10 md:pt-20 text-center px-4">
@@ -362,12 +362,12 @@ export default function Chat({ user, onLogout }: Props) {
                   <motion.div
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="flex gap-6"
+                    className="flex gap-6 min-w-0 overflow-hidden"
                   >
                     <div className="w-12 h-12 rounded-2xl shrink-0 flex items-center justify-center bg-[--surface] dark:bg-zinc-800 border border-[--border] text-indigo-500 p-2.5 shadow-xl">
                       <StormLogo className="w-full h-full" />
                     </div>
-                    <div className="flex flex-col items-start max-w-[75%]">
+                    <div className="flex flex-col min-w-0 items-start max-w-[75%]">
                       <motion.div
                         initial={{ width: "auto" }}
                         animate={{ width: "auto" }}
