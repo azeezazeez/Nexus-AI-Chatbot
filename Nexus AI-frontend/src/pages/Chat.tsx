@@ -6,7 +6,7 @@ import { chatApi, authApi } from '../lib/api';
 import { motion, AnimatePresence } from 'motion/react';
 import StormLogo from '../components/StormLogo';
 import UserAvatar from '../components/UserAvatar';
-import { Send, ArrowDown, Menu, X } from 'lucide-react';
+import { Send, Menu, X } from 'lucide-react';
 
 interface Props {
   user: User;
@@ -430,19 +430,7 @@ export default function Chat({ user, onLogout }: Props) {
           </div>
         </div>
 
-        <AnimatePresence>
-          {messages.length > 5 && (
-            <motion.button
-              initial={{ opacity: 0, scale: 0.8 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.8 }}
-              onClick={() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })}
-              className="absolute bottom-40 right-10 p-4 bg-white dark:bg-zinc-800 border border-[--border] rounded-full shadow-2xl text-[--text-muted] hover:text-[--text-main] transition-all z-20 hover:border-indigo-500/50"
-            >
-              <ArrowDown className="w-5 h-5" />
-            </motion.button>
-          )}
-        </AnimatePresence>
+
       </main>
     </div>
   );
