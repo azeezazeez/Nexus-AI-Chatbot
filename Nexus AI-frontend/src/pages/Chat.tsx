@@ -13,6 +13,63 @@ interface Props {
   onLogout: () => void;
 }
 
+// ── Local autocomplete patterns ─────────────────────────────────────────────
+// IMPORTANT: defined OUTSIDE the component so the reference is stable
+// and useCallback doesn't recreate fetchSuggestion on every render.
+const AUTOCOMPLETE_MAP: Array<[RegExp, string]> = [
+  // ── How ──────────────────────────────────────────────────────────────────
+  [/^how$/i,                        ' can I help you?'],
+  [/^how\s+to$/i,                   ' implement this?'],
+  [/^how\s+to\s+fix$/i,             ' this issue?'],
+  [/^how\s+to\s+build$/i,           ' this in React?'],
+  [/^how\s+to\s+create$/i,          ' a REST API?'],
+  [/^how\s+to\s+use$/i,             ' this library?'],
+  [/^how\s+to\s+install$/i,         ' this package?'],
+  [/^how\s+to\s+connect$/i,         ' to the database?'],
+  [/^how\s+to\s+deploy$/i,          ' this application?'],
+  [/^how\s+to\s+debug$/i,           ' this error?'],
+  [/^how\s+does$/i,                 ' this work?'],
+  [/^how\s+can$/i,                  ' I improve this?'],
+  // ── What ─────────────────────────────────────────────────────────────────
+  [/^what$/i,                       ' is the best approach?'],
+  [/^what\s+is$/i,                  ' the difference between REST and GraphQL?'],
+  [/^what\s+are$/i,                 ' the best practices?'],
+  [/^what\s+does$/i,                ' this error mean?'],
+  [/^what\s+is\s+the\s+best$/i,     ' way to structure this?'],
+  [/^what\s+is\s+the\s+diff/i,      'erence between these two?'],
+  // ── Why ──────────────────────────────────────────────────────────────────
+  [/^why$/i,                        ' is this not working?'],
+  [/^why\s+is$/i,                   ' this not working?'],
+  [/^why\s+does$/i,                 ' this keep failing?'],
+  [/^why\s+should$/i,               ' I use this approach?'],
+  // ── Can / Could ───────────────────────────────────────────────────────────
+  [/^can$/i,                        ' you help me with this?'],
+  [/^can\s+you$/i,                  ' explain this in simple terms?'],
+  [/^could\s+you$/i,                ' give me an example?'],
+  // ── Explain / Tell ────────────────────────────────────────────────────────
+  [/^explain$/i,                    ' how this works step by step.'],
+  [/^tell\s+me$/i,                  ' more about this topic.'],
+  [/^tell\s+me\s+about$/i,          ' the best practices for this.'],
+  // ── Write / Generate ──────────────────────────────────────────────────────
+  [/^write$/i,                      ' a function that does this.'],
+  [/^write\s+a$/i,                  ' short explanation for this.'],
+  [/^generate$/i,                   ' a code example for this.'],
+  // ── Fix / Debug ───────────────────────────────────────────────────────────
+  [/^fix$/i,                        ' this bug in my code.'],
+  [/^debug$/i,                      ' this error message.'],
+];
+
+// ── Blocked patterns ────────────────────────────────────────────────────────
+const BLOCKED_PATTERNS = [
+  /\b(show|send|give|share|print|display|reveal|expose|leak|dump|export|output)\b.{0,40}\b(source\s*code|backend|\.env|config|secret|api\s*key|private\s*key|password|token|database\s*schema|schema|credentials|auth\s*token|jwt\s*secret|server\s*code|internal\s*code|system\s*prompt)\b/i,
+  /\b(source\s*code|backend\s*code|server\s*code|\.env|api\s*key|jwt\s*secret|private\s*key|db\s*password)\b.{0,40}\b(show|send|give|share|reveal|expose|leak|dump)\b/i,
+  /\b(porn|pornography|nude|naked|hentai|xxx|onlyfans|sex\s*video|explicit\s*content|adult\s*content|nsfw|erotic|strip\s*club|cam\s*girl|sex\s*scene)\b/i,
+  /\b(how\s*to\s*(make|build|create|synthesize|buy|get)\s*(drugs?|meth|cocaine|heroin|crack|bomb|explosive|weapon|gun|poison|malware|ransomware|virus|keylogger))\b/i,
+  /\b(drug\s*deal|arms\s*deal|human\s*traffic|child\s*(abuse|exploit|porn|grooming)|dark\s*web\s*(buy|sell|order)|money\s*launder|hack\s*into|ddos\s*attack|phishing\s*kit|credit\s*card\s*dump|carding)\b/i,
+  /\b(how\s*to\s*(steal|rob|shoplift|pickpocket|scam|defraud|bypass\s*payment|crack\s*account|brute\s*force\s*login))\b/i,
+  /\b(social\s*engineering\s*script|fake\s*(id|passport|document)|identity\s*theft|account\s*takeover)\b/i,
+];
+
 export default function Chat({ user, onLogout }: Props) {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<number | null>(null);
@@ -27,54 +84,10 @@ export default function Chat({ user, onLogout }: Props) {
   const [isFetchingSuggestion, setIsFetchingSuggestion] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // ── Local autocomplete patterns ─────────────────────────────────────────────
-  // Each entry: [regex to match typed text, completion tail to append]
-  // The tail is what gets shown AFTER what the user already typed.
-  const AUTOCOMPLETE_MAP: Array<[RegExp, string]> = [
-    // ── How ──────────────────────────────────────────────────────────────────
-    [/^how$/i,                        ' can I help you?'],
-    [/^how\s+to$/i,                   ' implement this?'],
-    [/^how\s+to\s+fix$/i,             ' this issue?'],
-    [/^how\s+to\s+build$/i,           ' this in React?'],
-    [/^how\s+to\s+create$/i,          ' a REST API?'],
-    [/^how\s+to\s+use$/i,             ' this library?'],
-    [/^how\s+to\s+install$/i,         ' this package?'],
-    [/^how\s+to\s+connect$/i,         ' to the database?'],
-    [/^how\s+to\s+deploy$/i,          ' this application?'],
-    [/^how\s+to\s+debug$/i,           ' this error?'],
-    [/^how\s+does$/i,                 ' this work?'],
-    [/^how\s+can$/i,                  ' I improve this?'],
-    // ── What ─────────────────────────────────────────────────────────────────
-    [/^what$/i,                       ' is the best approach?'],
-    [/^what\s+is$/i,                  ' the difference between REST and GraphQL?'],
-    [/^what\s+are$/i,                 ' the best practices?'],
-    [/^what\s+does$/i,                ' this error mean?'],
-    [/^what\s+is\s+the\s+best$/i,     ' way to structure this?'],
-    [/^what\s+is\s+the\s+diff/i,      'erence between these two?'],
-    // ── Why ──────────────────────────────────────────────────────────────────
-    [/^why$/i,                        ' is this not working?'],
-    [/^why\s+is$/i,                   ' this not working?'],
-    [/^why\s+does$/i,                 ' this keep failing?'],
-    [/^why\s+should$/i,               ' I use this approach?'],
-    // ── Can / Could ───────────────────────────────────────────────────────────
-    [/^can$/i,                        ' you help me with this?'],
-    [/^can\s+you$/i,                  ' explain this in simple terms?'],
-    [/^could\s+you$/i,                ' give me an example?'],
-    // ── Explain / Tell ────────────────────────────────────────────────────────
-    [/^explain$/i,                    ' how this works step by step.'],
-    [/^tell\s+me$/i,                  ' more about this topic.'],
-    [/^tell\s+me\s+about$/i,          ' the best practices for this.'],
-    // ── Write / Generate ──────────────────────────────────────────────────────
-    [/^write$/i,                      ' a function that does this.'],
-    [/^write\s+a$/i,                  ' short explanation for this.'],
-    [/^generate$/i,                   ' a code example for this.'],
-    // ── Fix / Debug ───────────────────────────────────────────────────────────
-    [/^fix$/i,                        ' this bug in my code.'],
-    [/^debug$/i,                      ' this error message.'],
-  ];
-
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const justCreatedSessionRef = useRef<number | null>(null);
 
+  // ── Data loaders ────────────────────────────────────────────────────────────
   const loadSessions = useCallback(async () => {
     try {
       const response = await chatApi.getSessions();
@@ -99,8 +112,6 @@ export default function Chat({ user, onLogout }: Props) {
 
   useEffect(() => { loadSessions(); }, [loadSessions]);
 
-  const justCreatedSessionRef = useRef<number | null>(null);
-
   useEffect(() => {
     if (currentSessionId) {
       if (justCreatedSessionRef.current === currentSessionId) {
@@ -120,35 +131,69 @@ export default function Chat({ user, onLogout }: Props) {
     return () => clearTimeout(timer);
   }, [messages, isTyping]);
 
-  // ── AI Autocomplete ─────────────────────────────────────────────────────────
-  const fetchSuggestion = useCallback(async (text: string) => {
-    if (text.length < 3) { setSuggestion(''); return; }
+  // ── Cleanup debounce on unmount ─────────────────────────────────────────────
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, []);
 
+  // ── Two-tier autocomplete ───────────────────────────────────────────────────
+  //   Tier 1: instant local pattern match  (no network, no delay)
+  //   Tier 2: AI fetch fallback            (debounced 380 ms)
+  const fetchSuggestion = useCallback(async (text: string) => {
+    if (text.length < 3) {
+      setSuggestion('');
+      return;
+    }
+
+    // Tier 1 — local map (instant)
+    for (const [pattern, tail] of AUTOCOMPLETE_MAP) {
+      if (pattern.test(text)) {
+        setSuggestion(tail);
+        return; // skip AI call entirely
+      }
+    }
+
+    // Tier 2 — AI fetch (debounced)
     if (debounceRef.current) clearTimeout(debounceRef.current);
 
     debounceRef.current = setTimeout(async () => {
       setIsFetchingSuggestion(true);
       try {
-        // Uses chatApi — same base URL + credentials as all other calls
         const data = await chatApi.autocomplete(text);
-        const raw: string = data.suggestion || '';
-        // Show only the tail after what the user already typed
+        const raw: string = data?.suggestion ?? '';
+
+        if (!raw) {
+          setSuggestion('');
+          return;
+        }
+
+        // Show only the tail — what comes AFTER what the user typed
         const tail = raw.toLowerCase().startsWith(text.toLowerCase())
           ? raw.slice(text.length)
-          : raw;
-        setSuggestion(tail);
-      } catch {
+          : ` ${raw}`;
+
+        setSuggestion(tail.trimEnd());
+      } catch (err) {
+        // Surface errors in dev so you can diagnose backend issues
+        if (process.env.NODE_ENV !== 'production') {
+          console.warn('[Autocomplete] AI fetch failed:', err);
+        }
         setSuggestion('');
       } finally {
         setIsFetchingSuggestion(false);
       }
     }, 380);
-  }, []);
+  }, []); // AUTOCOMPLETE_MAP is module-level — no dep needed
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     setInput(val);
-    setSuggestion(''); // clear stale suggestion immediately
+    // Clear stale suggestion and any in-flight debounce immediately
+    setSuggestion('');
+    setIsFetchingSuggestion(false);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
     fetchSuggestion(val);
   };
 
@@ -161,6 +206,7 @@ export default function Chat({ user, onLogout }: Props) {
     if (e.key === 'Escape') setSuggestion('');
   };
 
+  // ── Auth ────────────────────────────────────────────────────────────────────
   const handleLogout = async () => {
     try {
       await authApi.logout();
@@ -170,16 +216,7 @@ export default function Chat({ user, onLogout }: Props) {
     }
   };
 
-  const BLOCKED_PATTERNS = [
-    /\b(show|send|give|share|print|display|reveal|expose|leak|dump|export|output)\b.{0,40}\b(source\s*code|backend|\.env|config|secret|api\s*key|private\s*key|password|token|database\s*schema|schema|credentials|auth\s*token|jwt\s*secret|server\s*code|internal\s*code|system\s*prompt)\b/i,
-    /\b(source\s*code|backend\s*code|server\s*code|\.env|api\s*key|jwt\s*secret|private\s*key|db\s*password)\b.{0,40}\b(show|send|give|share|reveal|expose|leak|dump)\b/i,
-    /\b(porn|pornography|nude|naked|hentai|xxx|onlyfans|sex\s*video|explicit\s*content|adult\s*content|nsfw|erotic|strip\s*club|cam\s*girl|sex\s*scene)\b/i,
-    /\b(how\s*to\s*(make|build|create|synthesize|buy|get)\s*(drugs?|meth|cocaine|heroin|crack|bomb|explosive|weapon|gun|poison|malware|ransomware|virus|keylogger))\b/i,
-    /\b(drug\s*deal|arms\s*deal|human\s*traffic|child\s*(abuse|exploit|porn|grooming)|dark\s*web\s*(buy|sell|order)|money\s*launder|hack\s*into|ddos\s*attack|phishing\s*kit|credit\s*card\s*dump|carding)\b/i,
-    /\b(how\s*to\s*(steal|rob|shoplift|pickpocket|scam|defraud|bypass\s*payment|crack\s*account|brute\s*force\s*login))\b/i,
-    /\b(social\s*engineering\s*script|fake\s*(id|passport|document)|identity\s*theft|account\s*takeover)\b/i,
-  ];
-
+  // ── Send message ────────────────────────────────────────────────────────────
   const isSensitiveMessage = (text: string) =>
     BLOCKED_PATTERNS.some(p => p.test(text));
 
@@ -276,6 +313,7 @@ export default function Chat({ user, onLogout }: Props) {
     }
   };
 
+  // ── Session management ──────────────────────────────────────────────────────
   const createNewSession = async () => {
     try {
       const response = await chatApi.createSession();
@@ -380,14 +418,12 @@ export default function Chat({ user, onLogout }: Props) {
                 transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
                 className="absolute left-1/2 -translate-x-1/2 flex items-center gap-2.5 pointer-events-none select-none"
               >
-                {/* Pill background */}
                 <div className="flex items-center gap-2 px-4 py-2 rounded-2xl
                   bg-white/70 dark:bg-white/[0.06]
                   border border-indigo-200/60 dark:border-indigo-500/20
                   shadow-[0_2px_16px_0_rgba(99,102,241,0.10)]
                   backdrop-blur-md"
                 >
-                  {/* Small accent dot */}
                   <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 opacity-70 shrink-0" />
                   <span className="text-[11px] md:text-xs font-bold text-[--text-main] tracking-wide truncate max-w-[140px] sm:max-w-[260px] md:max-w-xs">
                     {currentSessionName}
@@ -397,7 +433,7 @@ export default function Chat({ user, onLogout }: Props) {
             )}
           </AnimatePresence>
 
-          {/* Right: intentionally empty — add controls here if needed */}
+          {/* Right: intentionally empty */}
           <div className="flex items-center gap-4 z-10" />
         </header>
 
@@ -492,7 +528,7 @@ export default function Chat({ user, onLogout }: Props) {
         <div className="p-4 md:p-10 lg:p-16 pt-2 shrink-0 bg-gradient-to-t from-[--bg-main] via-[--bg-main] to-transparent">
           <div className="max-w-4xl mx-auto relative">
 
-            {/* Static quick-reply chips (only when no suggestion is showing) */}
+            {/* Quick-reply chips (only when no suggestion is showing) */}
             {!isTyping && messages.length > 0 && !suggestion && (
               <div className="flex gap-2 mb-3 overflow-x-auto pb-1 scroll-hide">
                 {["Explain more", "Give an example", "Summarize this", "How to fix it?", "What are alternatives?"].map((s, i) => (
@@ -504,7 +540,7 @@ export default function Chat({ user, onLogout }: Props) {
               </div>
             )}
 
-            {/* ── Autocomplete suggestion pill ─────────────────────────── */}
+            {/* ── Autocomplete suggestion pill ─────────────────────────────── */}
             <AnimatePresence>
               {suggestion && !isTyping && (
                 <motion.div
@@ -551,7 +587,7 @@ export default function Chat({ user, onLogout }: Props) {
                 </motion.div>
               )}
 
-              {/* Subtle "fetching suggestion" shimmer */}
+              {/* Subtle "fetching" shimmer — only while waiting for AI tier */}
               {isFetchingSuggestion && !suggestion && input.length >= 3 && !isTyping && (
                 <motion.div
                   key="fetching"
@@ -573,11 +609,11 @@ export default function Chat({ user, onLogout }: Props) {
               )}
             </AnimatePresence>
 
-            {/* ── Text input ───────────────────────────────────────────── */}
+            {/* ── Text input ───────────────────────────────────────────────── */}
             <form onSubmit={handleSendMessage} className="relative group">
               {/*
-                Ghost-text layer: mirrors the input font/padding exactly so the
-                ghost completion appears to continue inline from the real cursor.
+                Ghost-text layer: mirrors the input font/padding exactly so
+                the ghost completion appears to continue inline from the cursor.
               */}
               <div
                 aria-hidden="true"
