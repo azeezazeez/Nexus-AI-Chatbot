@@ -1,0 +1,83 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// AutocompleteController.java
+// Add this controller to your Spring Boot project.
+// It proxies the autocomplete request to the AI provider (Groq / Anthropic)
+// so the API key is never exposed to the browser.
+// ─────────────────────────────────────────────────────────────────────────────
+
+package com.yourapp.controller;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.*;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.client.RestTemplate;
+
+import java.util.List;
+import java.util.Map;
+
+@RestController
+@RequestMapping("/api/chat")
+public class AutocompleteController {
+
+    @Value("${groq.api.key}")          // or anthropic.api.key – whichever you use
+    private String apiKey;
+
+    private final RestTemplate restTemplate = new RestTemplate();
+
+    // ── POST /api/chat/autocomplete ──────────────────────────────────────────
+    @PostMapping("/autocomplete")
+    public ResponseEntity<?> autocomplete(@RequestBody Map<String, String> body) {
+        String text = body.getOrDefault("text", "").trim();
+        if (text.length() < 3) {
+            return ResponseEntity.ok(Map.of("suggestion", ""));
+        }
+
+        try {
+            // ── Build the Groq / OpenAI-compatible request ───────────────────
+            // If you use Anthropic Claude instead of Groq, adapt the payload to
+            // the /v1/messages format and point the URL to api.anthropic.com.
+            String url = "https://api.groq.com/openai/v1/chat/completions";
+
+            Map<String, Object> payload = Map.of(
+                "model", "llama3-8b-8192",      // fast & cheap for autocomplete
+                "max_tokens", 20,
+                "temperature", 0.3,
+                "messages", List.of(
+                    Map.of("role", "system", "content",
+                        "You are an autocomplete assistant. " +
+                        "The user has started typing a message to an AI chatbot. " +
+                        "Complete their sentence naturally in 5 words or fewer. " +
+                        "Return ONLY the completion — no punctuation at the start, " +
+                        "no quotes, no explanation."),
+                    Map.of("role", "user", "content", text)
+                )
+            );
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            headers.setBearerAuth(apiKey);
+
+            HttpEntity<Map<String, Object>> request = new HttpEntity<>(payload, headers);
+            ResponseEntity<Map> resp = restTemplate.postForEntity(url, request, Map.class);
+
+            // Parse the completion out of the response
+            String suggestion = "";
+            if (resp.getStatusCode().is2xxSuccessful() && resp.getBody() != null) {
+                List<?> choices = (List<?>) resp.getBody().get("choices");
+                if (choices != null && !choices.isEmpty()) {
+                    Map<?, ?> choice  = (Map<?, ?>) choices.get(0);
+                    Map<?, ?> message = (Map<?, ?>) choice.get("message");
+                    if (message != null) {
+                        suggestion = String.valueOf(message.getOrDefault("content", "")).trim();
+                    }
+                }
+            }
+
+            return ResponseEntity.ok(Map.of("suggestion", suggestion));
+
+        } catch (Exception e) {
+            // Autocomplete is non-critical — return empty on any error
+            return ResponseEntity.ok(Map.of("suggestion", ""));
+        }
+    }
+}
