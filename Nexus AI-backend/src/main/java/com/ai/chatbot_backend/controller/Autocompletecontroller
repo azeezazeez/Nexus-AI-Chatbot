@@ -1,10 +1,3 @@
-// ─────────────────────────────────────────────────────────────────────────────
-// AutocompleteController.java
-// Add this controller to your Spring Boot project.
-// It proxies the autocomplete request to the AI provider (Groq / Anthropic)
-// so the API key is never exposed to the browser.
-// ─────────────────────────────────────────────────────────────────────────────
-
 package com.yourapp.controller;
 
 import org.springframework.beans.factory.annotation.Value;
