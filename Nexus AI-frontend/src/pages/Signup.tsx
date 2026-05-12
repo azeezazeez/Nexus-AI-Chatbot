@@ -64,62 +64,62 @@ export default function Signup({ onSignup }: Props) {
       <motion.div 
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
-        className="w-full max-w-md p-10 glass rounded-[2.5rem] shadow-2xl relative z-10 bg-white/70 dark:bg-zinc-900/40"
+        className="w-full max-w-md p-6 xs:p-8 md:p-10 glass rounded-3xl md:rounded-[2.5rem] shadow-2xl relative z-10 bg-white/70 dark:bg-zinc-900/40"
       >
-        <div className="flex flex-col items-center mb-8 text-center">
-          <div className="w-16 h-16 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl flex items-center justify-center mb-5 shadow-xl shadow-indigo-500/20 text-white p-3">
+        <div className="flex flex-col items-center mb-6 md:mb-8 text-center">
+          <div className="w-16 h-16 md:w-20 md:h-20 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-[2rem] flex items-center justify-center mb-6 shadow-2xl shadow-indigo-500/10 text-indigo-600 p-4">
             <StormLogo className="w-full h-full" />
           </div>
-          <h1 className="text-4xl font-black tracking-tighter text-[--text-main] mb-2 italic uppercase">Sign Up</h1>
-          <p className="text-[--text-muted] text-sm font-medium tracking-wide">Create your account to get started.</p>
+          <h1 className="text-3xl md:text-5xl font-black tracking-tighter text-[--text-main] mb-2 italic uppercase">Nexus AI</h1>
+          <p className="text-[10px] md:text-sm font-medium tracking-widest uppercase opacity-60 text-[--text-muted]">Join the nexus community</p>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-5">
-          <div className="space-y-5">
+        <form onSubmit={handleSubmit} className="space-y-4 md:space-y-5">
+          <div className="space-y-4 md:space-y-5">
             <div>
-              <label className="block text-[10px] font-bold text-[--text-muted] uppercase tracking-[0.2em] mb-2 px-1">Username</label>
+              <label className="block text-[9px] md:text-[10px] font-bold text-[--text-muted] uppercase tracking-[0.2em] mb-1.5 md:mb-2 px-1">Username</label>
               <input 
                 type="text" 
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                className="w-full px-5 py-4 bg-[--surface] border border-[--border] rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-[--text-main] placeholder:text-[--text-muted]/30"
+                className="w-full px-4 md:px-5 py-3 md:py-4 bg-[--surface] border border-[--border] rounded-xl md:rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm md:text-base text-[--text-main] placeholder:text-[--text-muted]/30"
                 placeholder="username"
                 required
               />
             </div>
           </div>
           <div>
-            <label className="block text-[10px] font-bold text-[--text-muted] uppercase tracking-[0.2em] mb-2 px-1">Email</label>
+            <label className="block text-[9px] md:text-[10px] font-bold text-[--text-muted] uppercase tracking-[0.2em] mb-1.5 md:mb-2 px-1">Email</label>
             <input 
               type="email" 
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full px-5 py-4 bg-[--surface] border border-[--border] rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-[--text-main] placeholder:text-[--text-muted]/30"
+              className="w-full px-4 md:px-5 py-3 md:py-4 bg-[--surface] border border-[--border] rounded-xl md:rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm md:text-base text-[--text-main] placeholder:text-[--text-muted]/30"
               placeholder="email@example.com"
               required
             />
           </div>
           <div>
-            <label className="block text-[10px] font-bold text-[--text-muted] uppercase tracking-[0.2em] mb-2 px-1">Password</label>
+            <label className="block text-[9px] md:text-[10px] font-bold text-[--text-muted] uppercase tracking-[0.2em] mb-1.5 md:mb-2 px-1">Password</label>
             <div className="relative">
               <input 
                 type={showPassword ? "text" : "password"} 
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-5 py-4 bg-[--surface] border border-[--border] rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-[--text-main] placeholder:text-[--text-muted]/30 text-sm pr-14"
+                className="w-full px-4 md:px-5 py-3 md:py-4 bg-[--surface] border border-[--border] rounded-xl md:rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-[--text-main] placeholder:text-[--text-muted]/30 text-sm pr-12 md:pr-14"
                 placeholder="••••••••"
                 required
               />
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-4 top-1/2 -translate-y-1/2 p-2 text-[--text-muted] hover:text-[--text-main] transition-colors"
+                className="absolute right-3 md:right-4 top-1/2 -translate-y-1/2 p-1.5 md:p-2 text-[--text-muted] hover:text-[--text-main] transition-colors"
                 tabIndex={-1}
               >
-                {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-4 h-4 md:w-5 md:h-5" />}
               </button>
             </div>
-            <p className="mt-2 px-1 text-[10px] text-[--text-muted] leading-relaxed font-medium">
+            <p className="mt-2 px-1 text-[9px] md:text-[10px] text-[--text-muted] leading-relaxed font-medium">
               Requires 8+ characters, one uppercase, one lowercase, one number, and one symbol.
             </p>
           </div>
@@ -128,23 +128,25 @@ export default function Signup({ onSignup }: Props) {
             <motion.div 
               initial={{ opacity: 0, x: -10 }}
               animate={{ opacity: 1, x: 0 }}
-              className="p-4 bg-red-500/10 border border-red-500/20 text-red-500 dark:text-red-400 text-xs rounded-2xl px-5 font-bold uppercase tracking-widest leading-relaxed"
+              className="p-3 md:p-4 bg-red-500/10 border border-red-500/20 text-red-500 dark:text-red-400 text-[9px] md:text-xs rounded-xl md:rounded-2xl px-4 md:px-5 font-bold uppercase tracking-widest leading-relaxed"
             >
               {error}
             </motion.div>
           )}
 
-          <button 
+          <motion.button 
             type="submit" 
             disabled={loading}
-            className="w-full py-5 px-8 bg-indigo-600 text-white dark:bg-white dark:text-black rounded-[1.25rem] font-bold uppercase tracking-widest text-xs flex items-center justify-center gap-3 hover:opacity-90 transition-all active:scale-[0.97] disabled:opacity-50 disabled:cursor-not-allowed group shadow-xl"
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.95 }}
+            className="w-full py-4 md:py-5 px-6 md:px-8 bg-indigo-600 text-white dark:bg-white dark:text-black rounded-xl md:rounded-[1.25rem] font-bold uppercase tracking-widest text-[10px] md:text-xs flex items-center justify-center gap-2 md:gap-3 hover:opacity-90 transition-all disabled:opacity-50 disabled:cursor-not-allowed group shadow-xl"
           >
             {loading ? 'Processing...' : 'Sign Up'}
-            <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-          </button>
+            <ArrowRight className="w-3.5 h-3.5 md:w-4 md:h-4 group-hover:translate-x-1 transition-transform" />
+          </motion.button>
         </form>
 
-        <p className="mt-8 text-center text-xs text-[--text-muted] font-medium tracking-wide">
+        <p className="mt-6 md:mt-8 text-center text-[10px] md:text-xs text-[--text-muted] font-medium tracking-wide">
           Already have an account? {' '}
           <Link to="/login" className="text-indigo-600 dark:text-white font-bold hover:underline transition-colors underline-offset-8 decoration-indigo-500/30">Log In</Link>
         </p>
