@@ -711,7 +711,7 @@ export default function Chat({ user, onLogout }: Props) {
                   disabled={isUploading}
                   className={`p-2 rounded-lg transition-all ${isUploading ? 'text-indigo-400 animate-pulse' : 'text-zinc-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20'}`}
                 >
-                  <Plus className="w-5 h-5" />
+                  <Paperclip className="w-5 h-5" />
                 </button>
 
                 <div className="flex items-center gap-2">
@@ -741,7 +741,9 @@ export default function Chat({ user, onLogout }: Props) {
                             'Scout 4.6 Pro', 
                             'Scout 3.5 Mini', 
                             'gemini-2.5-flash',
-                            'llama-3.3-70b-versatile'
+                            'llama-3.3-70b-versatile',
+                            'Google AI Studio API',
+                            'Groq Llama 3 70B'
                           ].map((model) => (
                             <button
                               key={model}
@@ -761,22 +763,21 @@ export default function Chat({ user, onLogout }: Props) {
                     whileTap={{ scale: 0.95 }}
                     onClick={isTyping ? handleStopResponse : () => handleSendMessage()}
                     disabled={(!input.trim() && attachedFiles.length === 0 && !isUploading) && !isTyping}
-                    className={`p-2.5 rounded-xl shadow-md transition-all flex items-center justify-center border ${
+                    className={`p-2.5 rounded-2xl shadow-sm transition-all flex items-center justify-center border w-11 h-11 ${
                       isTyping 
-                        ? 'bg-zinc-900 text-white border-zinc-800 dark:bg-white dark:text-black dark:border-white' 
+                        ? 'bg-white border-zinc-200 dark:bg-zinc-800 dark:border-zinc-700' 
                         : (!input.trim() && attachedFiles.length === 0) 
-                          ? 'bg-zinc-50 text-zinc-300 border-zinc-100 dark:bg-zinc-800 dark:text-zinc-600 dark:border-white/5' 
-                          : 'bg-zinc-900 text-white border-zinc-800 dark:bg-white dark:text-black dark:border-white'
+                          ? 'bg-zinc-50 text-zinc-300 border-zinc-100 dark:bg-zinc-800/50 dark:text-zinc-700 dark:border-white/5' 
+                          : 'bg-white text-zinc-900 border-zinc-200 dark:bg-zinc-200 dark:text-zinc-900 dark:border-white'
                     }`}
                   >
                     {isTyping ? (
-                      <div className="relative w-5 h-5 flex items-center justify-center">
-                        <div className={`absolute inset-0 border-2 rounded-full animate-spin ${
-                          document.documentElement.classList.contains('dark') ? 'border-zinc-200 border-t-zinc-900' : 'border-zinc-700/20 border-t-zinc-100'
-                        }`} />
-                        <div className={`w-1.5 h-1.5 rounded-sm ${
-                          document.documentElement.classList.contains('dark') ? 'bg-zinc-900' : 'bg-zinc-100'
-                        }`} />
+                      <div className="relative w-full h-full flex items-center justify-center">
+                        {/* Rotating ring */}
+                        <div className="absolute inset-1.5 border-[1.5px] border-zinc-300 dark:border-zinc-500 rounded-full" />
+                        <div className="absolute inset-1.5 border-[1.5px] border-t-indigo-600 dark:border-t-indigo-400 rounded-full animate-spin" />
+                        {/* Central square stop icon */}
+                        <div className="w-2.5 h-2.5 bg-zinc-900 dark:bg-zinc-100 rounded-sm" />
                       </div>
                     ) : (
                       <ArrowUp className={`w-5 h-5 transition-transform ${input.trim() ? 'scale-110' : 'scale-90 opacity-40'}`} />
