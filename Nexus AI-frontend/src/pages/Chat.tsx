@@ -9,6 +9,7 @@ import UserAvatar from '../components/UserAvatar';
 import ConfirmationModal from '../components/ConfirmationModal';
 import { Send, ArrowDown, ArrowUp, Menu, Square, Paperclip, Copy, Check, Plus, Mic, MicOff, Volume2, VolumeX } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 interface Props {
   user: User;
@@ -534,7 +535,7 @@ export default function Chat({ user, onLogout }: Props) {
                         )}
 
                         <div className="text-sm md:text-base text-[--text-main] leading-relaxed markdown-body max-w-none">
-                          <ReactMarkdown>{msg.content}</ReactMarkdown>
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
                         </div>
                         <div className="flex items-center gap-3 opacity-0 group-hover:opacity-100 transition-opacity pt-2">
                           <motion.button 
