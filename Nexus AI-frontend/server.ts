@@ -25,7 +25,8 @@ const storage = multer.diskStorage({
   },
   filename: function (req, file, cb) {
     const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
-    cb(null, uniqueSuffix + "-" + file.originalname);
+    const safeName = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
+    cb(null, uniqueSuffix + "-" + safeName);
   },
 });
 
@@ -44,7 +45,7 @@ const upload = multer({
     if (allowed.includes(file.mimetype)) {
       cb(null, true);
     } else {
-      cb(new Error("File type not allowed"));
+      cb(new Error("File type not allowed. Allowed: images, PDF, text files"));
     }
   },
 });
@@ -53,10 +54,10 @@ const DB_FILE = path.join(process.cwd(), "db.json");
 
 // Initial DB structure
 const initialDb = {
-  users: [] as any[],
-  sessions: [] as any[],
-  messages: [] as any[],
-  files: [] as any[],
+  users: [],
+  sessions: [],
+  messages: [],
+  files: [],
 };
 
 // Load DB
@@ -64,28 +65,38 @@ function loadDb() {
   try {
     if (!fs.existsSync(DB_FILE)) {
       fs.writeFileSync(DB_FILE, JSON.stringify(initialDb, null, 2));
-      return initialDb;
+      return JSON.parse(JSON.stringify(initialDb));
     }
     const data = fs.readFileSync(DB_FILE, "utf-8");
-    const db = JSON.parse(data || JSON.stringify(initialDb));
+    const db = JSON.parse(data || "{}");
     return { ...initialDb, ...db };
   } catch (err) {
     console.error("DB Load Error:", err);
-    return initialDb;
+    return JSON.parse(JSON.stringify(initialDb));
   }
 }
 
 // Save DB
-function saveDb(data: any) {
-  fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
+function saveDb(data) {
+  try {
+    fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
+  } catch (err) {
+    console.error("DB Save Error:", err);
+  }
 }
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = process.env.PORT || 3000;
 
-  app.use(express.json());
+  app.use(express.json({ limit: "50mb" }));
   app.use(cookieParser());
+
+  // Logging middleware for debugging
+  app.use((req, res, next) => {
+    console.log(`${req.method} ${req.url}`);
+    next();
+  });
 
   // CORS for Vercel frontend
   app.use((req, res, next) => {
@@ -93,6 +104,7 @@ async function startServer() {
       "https://nexus-smart-ai.vercel.app",
       "http://localhost:5173",
       "http://localhost:3000",
+      "http://127.0.0.1:5173",
     ];
     const origin = req.headers.origin || "";
     if (allowedOrigins.includes(origin)) {
@@ -105,18 +117,16 @@ async function startServer() {
     );
     res.setHeader(
       "Access-Control-Allow-Headers",
-      "Content-Type, Authorization"
+      "Content-Type, Authorization, X-Requested-With"
     );
-    if (req.method === "OPTIONS") return res.sendStatus(204);
+    if (req.method === "OPTIONS") {
+      return res.sendStatus(204);
+    }
     next();
   });
 
   // Simple Auth Middleware
-  const authMiddleware = (
-    req: express.Request,
-    res: express.Response,
-    next: express.NextFunction
-  ) => {
+  const authMiddleware = (req, res, next) => {
     let userId = req.cookies.userId;
 
     const authHeader = req.headers.authorization;
@@ -128,26 +138,31 @@ async function startServer() {
       return res.status(401).json({ error: "Not authenticated" });
     }
     const db = loadDb();
-    const user = db.users.find((u: any) => u.id === userId);
+    const user = db.users.find((u) => u.id === userId);
     if (!user) {
       return res.status(401).json({ error: "User not found" });
     }
-    (req as any).user = user;
+    req.user = user;
     next();
   };
 
   // --- API Routes ---
+
+  // Health check endpoint
+  app.get("/api/health", (req, res) => {
+    res.json({ status: "ok", timestamp: new Date().toISOString() });
+  });
 
   // auth routes
   app.post("/api/auth/signup", (req, res) => {
     const { username, email, password } = req.body;
     const db = loadDb();
 
-    if (db.users.find((u: any) => u.username === username)) {
+    if (db.users.find((u) => u.username === username)) {
       return res.status(400).json({ error: "Username already exists" });
     }
 
-    if (db.users.find((u: any) => u.email === email)) {
+    if (db.users.find((u) => u.email === email)) {
       return res.status(400).json({ error: "Email already exists" });
     }
 
@@ -191,7 +206,7 @@ async function startServer() {
   app.post("/api/auth/resend-otp", (req, res) => {
     const { email } = req.body;
     const db = loadDb();
-    const user = db.users.find((u: any) => u.email === email);
+    const user = db.users.find((u) => u.email === email);
     if (!user) return res.status(404).json({ error: "Account not found" });
 
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
@@ -214,7 +229,7 @@ async function startServer() {
   app.post("/api/auth/verify-otp", (req, res) => {
     const { email, otpCode } = req.body;
     const db = loadDb();
-    const user = db.users.find((u: any) => u.email === email);
+    const user = db.users.find((u) => u.email === email);
 
     if (!user) return res.status(404).json({ error: "User not found" });
     if (user.otp !== otpCode)
@@ -231,6 +246,7 @@ async function startServer() {
       httpOnly: true,
       sameSite: "none",
       secure: true,
+      maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
     });
     res.json({
       user: {
@@ -247,7 +263,7 @@ async function startServer() {
   app.post("/api/auth/forgot-password", (req, res) => {
     const { email } = req.body;
     const db = loadDb();
-    const user = db.users.find((u: any) => u.email === email);
+    const user = db.users.find((u) => u.email === email);
 
     if (!user)
       return res.status(404).json({ error: "No account found with this email" });
@@ -264,7 +280,7 @@ async function startServer() {
   app.post("/api/auth/reset-password", (req, res) => {
     const { email, otpCode, newPassword } = req.body;
     const db = loadDb();
-    const user = db.users.find((u: any) => u.email === email);
+    const user = db.users.find((u) => u.email === email);
 
     if (!user) return res.status(404).json({ error: "User not found" });
     if (user.resetOtp !== otpCode)
@@ -284,7 +300,7 @@ async function startServer() {
     const { username, password } = req.body;
     const db = loadDb();
     const user = db.users.find(
-      (u: any) => u.username === username && u.password === password
+      (u) => u.username === username && u.password === password
     );
     if (!user)
       return res.status(401).json({ error: "Invalid username or password" });
@@ -297,6 +313,7 @@ async function startServer() {
       httpOnly: true,
       sameSite: "none",
       secure: true,
+      maxAge: 30 * 24 * 60 * 60 * 1000,
     });
     res.json({
       user: {
@@ -311,7 +328,7 @@ async function startServer() {
   });
 
   app.post("/api/auth/logout", (req, res) => {
-    res.clearCookie("userId", { sameSite: "none", secure: true });
+    res.clearCookie("userId", { sameSite: "none", secure: true, path: "/" });
     res.json({ message: "Logged out" });
   });
 
@@ -325,7 +342,7 @@ async function startServer() {
 
     if (userId) {
       const db = loadDb();
-      const user = db.users.find((u: any) => u.id === userId);
+      const user = db.users.find((u) => u.id === userId);
       if (user)
         return res.json({
           authenticated: true,
@@ -338,11 +355,11 @@ async function startServer() {
           },
         });
     }
-    res.status(401).json({ authenticated: false });
+    res.json({ authenticated: false });
   });
 
   app.get("/api/auth/me", authMiddleware, (req, res) => {
-    const user = (req as any).user;
+    const user = req.user;
     res.json({
       user: {
         id: user.id,
@@ -357,7 +374,7 @@ async function startServer() {
   app.post(
     "/api/chat/upload",
     authMiddleware,
-    (req: any, res: express.Response, next: express.NextFunction) => {
+    (req, res, next) => {
       upload.single("file")(req, res, (err) => {
         if (err instanceof multer.MulterError) {
           if (err.code === "LIMIT_FILE_SIZE") {
@@ -372,7 +389,7 @@ async function startServer() {
         next();
       });
     },
-    (req: any, res: express.Response) => {
+    (req, res) => {
       if (!req.file) {
         return res.status(400).json({ error: "No file uploaded" });
       }
@@ -386,35 +403,68 @@ async function startServer() {
         size: req.file.size,
         path: `/uploads/${req.file.filename}`,
         isImage: req.file.mimetype.startsWith("image/"),
+        uploadDate: new Date().toISOString(),
+        userId: req.user.id,
       };
 
       if (!db.files) db.files = [];
       db.files.push(fileInfo);
       saveDb(db);
 
-      console.log(`[Upload] ${req.file.originalname} → ${req.file.filename}`);
+      console.log(`[Upload] ${req.file.originalname} → ${req.file.filename} by user ${req.user.id}`);
       res.json({ file: fileInfo });
     }
   );
+
+  // Get user's uploaded files
+  app.get("/api/chat/files", authMiddleware, (req, res) => {
+    const db = loadDb();
+    const userFiles = (db.files || []).filter(f => f.userId === req.user.id);
+    res.json({ files: userFiles });
+  });
+
+  // Delete uploaded file
+  app.delete("/api/chat/files/:fileId", authMiddleware, (req, res) => {
+    const { fileId } = req.params;
+    const db = loadDb();
+    const fileIndex = (db.files || []).findIndex(f => f.id === parseInt(fileId) && f.userId === req.user.id);
+    
+    if (fileIndex === -1) {
+      return res.status(404).json({ error: "File not found" });
+    }
+    
+    const file = db.files[fileIndex];
+    const filePath = path.join(process.cwd(), file.path);
+    
+    // Delete actual file from disk
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+    
+    db.files.splice(fileIndex, 1);
+    saveDb(db);
+    
+    res.json({ message: "File deleted successfully" });
+  });
 
   // Serve static uploads
   app.use("/uploads", express.static(uploadsDir));
 
   // chat routes
   app.get("/api/chat/sessions", authMiddleware, (req, res) => {
-    const user = (req as any).user;
+    const user = req.user;
     const db = loadDb();
-    const sessions = db.sessions
-      .filter((s: any) => s.userId === user.id)
+    const sessions = (db.sessions || [])
+      .filter((s) => s.userId === user.id)
       .sort(
-        (a: any, b: any) =>
+        (a, b) =>
           new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
       );
     res.json({ sessions });
   });
 
   app.post("/api/chat/new-session", authMiddleware, (req, res) => {
-    const user = (req as any).user;
+    const user = req.user;
     const db = loadDb();
     const newSession = {
       id: Date.now(),
@@ -423,6 +473,7 @@ async function startServer() {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
+    if (!db.sessions) db.sessions = [];
     db.sessions.push(newSession);
     saveDb(db);
     res.json(newSession);
@@ -432,11 +483,11 @@ async function startServer() {
     const { sessionId } = req.params;
     const db = loadDb();
     const sid = Number(sessionId);
-    db.sessions = db.sessions.filter(
-      (s: any) => s.id !== sid && String(s.id) !== sessionId
+    db.sessions = (db.sessions || []).filter(
+      (s) => s.id !== sid && String(s.id) !== sessionId
     );
-    db.messages = db.messages.filter(
-      (m: any) => m.sessionId !== sid && String(m.sessionId) !== sessionId
+    db.messages = (db.messages || []).filter(
+      (m) => m.sessionId !== sid && String(m.sessionId) !== sessionId
     );
     saveDb(db);
     res.json({ message: "Chat deleted" });
@@ -445,7 +496,7 @@ async function startServer() {
   app.patch("/api/chat/rename", authMiddleware, (req, res) => {
     const { sessionId, name } = req.body;
     const db = loadDb();
-    const session = db.sessions.find((s: any) => s.id === Number(sessionId));
+    const session = (db.sessions || []).find((s) => s.id === Number(sessionId));
     if (!session) return res.status(404).json({ error: "Session not found" });
 
     session.sessionName = name;
@@ -498,7 +549,7 @@ async function startServer() {
         return res.json({ title: fallbackTitle });
       }
 
-      const data: any = await response.json();
+      const data = await response.json();
       const title = data.choices?.[0]?.message?.content
         ?.trim()
         .replace(/^["']|["']$/g, "");
@@ -513,20 +564,20 @@ async function startServer() {
     const { q } = req.query;
     if (!q) return res.json({ sessions: [] });
 
-    const user = (req as any).user;
+    const user = req.user;
     const db = loadDb();
-    const userSessions = db.sessions.filter((s: any) => s.userId === user.id);
+    const userSessions = (db.sessions || []).filter((s) => s.userId === user.id);
 
     const apiKey = process.env.GROQ_API_KEY;
     if (!apiKey) {
-      const results = userSessions.filter((s: any) =>
+      const results = userSessions.filter((s) =>
         s.sessionName.toLowerCase().includes(String(q).toLowerCase())
       );
       return res.json({ sessions: results });
     }
 
     try {
-      const chatSummaries = userSessions.map((s: any) => ({
+      const chatSummaries = userSessions.map((s) => ({
         id: s.id,
         name: s.sessionName,
       }));
@@ -558,23 +609,23 @@ async function startServer() {
       );
 
       if (response.ok) {
-        const data: any = await response.json();
+        const data = await response.json();
         const content = data.choices?.[0]?.message?.content || "";
         if (content.toLowerCase().includes("none")) {
           return res.json({ sessions: [] });
         }
         const ids = content
           .split(",")
-          .map((id: string) => Number(id.trim()))
-          .filter((id: number) => !isNaN(id));
-        const results = userSessions.filter((s: any) => ids.includes(s.id));
+          .map((id) => Number(id.trim()))
+          .filter((id) => !isNaN(id));
+        const results = userSessions.filter((s) => ids.includes(s.id));
         return res.json({ sessions: results });
       }
 
       throw new Error("Groq Search failed");
     } catch (error) {
       console.error("AI Search error:", error);
-      const results = userSessions.filter((s: any) =>
+      const results = userSessions.filter((s) =>
         s.sessionName.toLowerCase().includes(String(q).toLowerCase())
       );
       return res.json({ sessions: results });
@@ -582,14 +633,14 @@ async function startServer() {
   });
 
   app.delete("/api/chat/sessions", authMiddleware, (req, res) => {
-    const user = (req as any).user;
+    const user = req.user;
     const db = loadDb();
-    const userSessionIds = db.sessions
-      .filter((s: any) => s.userId === user.id)
-      .map((s: any) => s.id);
-    db.sessions = db.sessions.filter((s: any) => s.userId !== user.id);
-    db.messages = db.messages.filter(
-      (m: any) => !userSessionIds.includes(m.sessionId)
+    const userSessionIds = (db.sessions || [])
+      .filter((s) => s.userId === user.id)
+      .map((s) => s.id);
+    db.sessions = (db.sessions || []).filter((s) => s.userId !== user.id);
+    db.messages = (db.messages || []).filter(
+      (m) => !userSessionIds.includes(m.sessionId)
     );
     saveDb(db);
     res.json({ message: "All chats cleared" });
@@ -627,7 +678,7 @@ async function startServer() {
       );
 
       if (response.ok) {
-        const data: any = await response.json();
+        const data = await response.json();
         const suggestion = data.choices?.[0]?.message?.content || "";
         return res.json({ suggestion });
       }
@@ -641,15 +692,15 @@ async function startServer() {
   app.get("/api/chat/history/:sessionId", authMiddleware, (req, res) => {
     const { sessionId } = req.params;
     const db = loadDb();
-    const messages = db.messages.filter(
-      (m: any) => String(m.sessionId) === sessionId
+    const messages = (db.messages || []).filter(
+      (m) => String(m.sessionId) === sessionId
     );
     res.json({ messages });
   });
 
   app.post("/api/chat/send", authMiddleware, async (req, res) => {
     const { message, sessionId, fileIds, model } = req.body;
-    const user = (req as any).user;
+    const user = req.user;
     const db = loadDb();
 
     let targetSessionId = sessionId;
@@ -664,11 +715,12 @@ async function startServer() {
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
+      if (!db.sessions) db.sessions = [];
       db.sessions.push(newSession);
       targetSessionId = newSession.id;
     } else {
-      const session = db.sessions.find(
-        (s: any) => s.id === Number(targetSessionId)
+      const session = (db.sessions || []).find(
+        (s) => s.id === Number(targetSessionId)
       );
       if (
         session &&
@@ -687,6 +739,7 @@ async function startServer() {
       content: message,
       timestamp: new Date().toISOString(),
     };
+    if (!db.messages) db.messages = [];
     db.messages.push(newMessage);
 
     const geminiKey = process.env.GEMINI_API_KEY;
@@ -696,17 +749,18 @@ async function startServer() {
 
     try {
       const history = (db.messages || []).filter(
-        (m: any) => Number(m.sessionId) === Number(targetSessionId)
+        (m) => Number(m.sessionId) === Number(targetSessionId)
       );
       const dbFiles = db.files || [];
-      const attachedImages = fileIds
+      const attachedImages = fileIds && fileIds.length > 0
         ? dbFiles.filter(
-            (f: any) =>
-              fileIds.includes(f.id) && f.mimetype.startsWith("image/")
+            (f) =>
+              fileIds.includes(f.id) && f.mimetype && f.mimetype.startsWith("image/")
           )
         : dbFiles.filter(
-            (f: any) =>
+            (f) =>
               message.includes(f.originalName) &&
+              f.mimetype &&
               f.mimetype.startsWith("image/")
           );
 
@@ -732,12 +786,12 @@ async function startServer() {
         )
           geminiModel = "gemini-1.5-pro";
 
-        const contents = history.slice(-20).map((m: any) => ({
+        const contents = history.slice(-20).map((m) => ({
           role: m.role === "user" ? "user" : "model",
           parts: [{ text: m.content }],
         }));
 
-        if (attachedImages.length > 0) {
+        if (attachedImages.length > 0 && contents.length > 0) {
           const lastTurn = contents[contents.length - 1];
           for (const img of attachedImages) {
             const fullPath = path.join(process.cwd(), img.path);
@@ -787,7 +841,7 @@ async function startServer() {
           }
         );
 
-        const data: any = await response.json();
+        const data = await response.json();
         if (response.ok) {
           aiResponseContent =
             data.candidates?.[0]?.content?.parts?.[0]?.text ||
@@ -799,7 +853,7 @@ async function startServer() {
         const groqModel = model?.includes("3.1")
           ? "llama-3.1-8b-instant"
           : "llama-3.3-70b-versatile";
-        const groqMessages = history.slice(-10).map((m: any) => ({
+        const groqMessages = history.slice(-10).map((m) => ({
           role: m.role,
           content: m.content,
         }));
@@ -828,7 +882,7 @@ async function startServer() {
           }
         );
 
-        const data: any = await response.json();
+        const data = await response.json();
         if (response.ok) {
           aiResponseContent =
             data.choices?.[0]?.message?.content || "No response from AI.";
@@ -836,9 +890,9 @@ async function startServer() {
           throw new Error(data.error?.message || "Groq error");
         }
       } else {
-        throw new Error("No API keys configured or no suitable model found.");
+        aiResponseContent = "API keys not configured. Please set GROQ_API_KEY or GEMINI_API_KEY environment variables.";
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error("AI Fetch Error:", error);
       aiResponseContent = "Something went wrong: " + error.message;
     }
@@ -852,8 +906,8 @@ async function startServer() {
     };
     db.messages.push(aiMessage);
 
-    const session = db.sessions.find(
-      (s: any) => s.id === Number(targetSessionId)
+    const session = (db.sessions || []).find(
+      (s) => s.id === Number(targetSessionId)
     );
     if (session) session.updatedAt = new Date().toISOString();
 
@@ -877,16 +931,24 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), "dist");
-    app.use(express.static(distPath));
-    app.get("*", (req, res) => {
-      res.sendFile(path.join(distPath, "index.html"));
-    });
+    if (fs.existsSync(distPath)) {
+      app.use(express.static(distPath));
+      app.get("*", (req, res) => {
+        res.sendFile(path.join(distPath, "index.html"));
+      });
+    } else {
+      console.log("Dist folder not found, serving API only");
+      app.get("*", (req, res) => {
+        res.json({ message: "API is running", endpoints: ["/api/*"] });
+      });
+    }
   }
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
     console.log(`Uploads directory: ${uploadsDir}`);
     console.log(`DB file: ${DB_FILE}`);
+    console.log(`Environment: ${process.env.NODE_ENV || "development"}`);
   });
 }
 
