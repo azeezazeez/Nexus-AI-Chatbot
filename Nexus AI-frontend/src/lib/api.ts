@@ -13,18 +13,16 @@ const API_BASE = 'https://nexus-ai-chatbot-arhr.onrender.com/api';
 export async function fetchWithAuth(url: string, options: RequestInit = {}) {
   const response = await fetch(url, {
     ...options,
-    credentials: 'include', // sends JSESSIONID cookie on every request
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
       ...(options.headers as Record<string, string>),
-      // No Authorization header — backend is session-based, not JWT
     },
   });
 
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    // Let /status 401 pass through so callers can check auth state
     if (url.includes('/status') && response.status === 401) {
       return data;
     }
@@ -113,12 +111,52 @@ export const chatApi = {
   clearSessions: () =>
     fetchWithAuth(`${API_BASE}/chat/sessions`, { method: 'DELETE' }),
 
-  sendMessage: (message: string, sessionId: number | null) =>
+  sendMessage: (
+    message: string,
+    sessionId: number | null,
+    fileIds?: string[],
+    signal?: AbortSignal
+  ) =>
     fetchWithAuth(`${API_BASE}/chat/send`, {
       method: 'POST',
-      body: JSON.stringify({ message, sessionId }),
+      body: JSON.stringify({ message, sessionId, fileIds: fileIds || [] }),
+      signal,
     }),
 
   searchSessions: (query: string) =>
     fetchWithAuth(`${API_BASE}/chat/search?q=${encodeURIComponent(query)}`),
+
+  // ── File Upload ──────────────────────────────────────────────────────────
+  uploadFile: async (file: File): Promise<{ file: UploadedFile }> => {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const response = await fetch(`${API_BASE}/files/upload`, {
+      method: 'POST',
+      credentials: 'include',
+      // ⚠️ Do NOT set Content-Type header here — browser sets it with boundary
+      body: formData,
+    });
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      const error = new Error(data.error || 'Upload failed') as any;
+      error.status = response.status;
+      throw error;
+    }
+
+    return data;
+  },
 };
+
+// ── Types ────────────────────────────────────────────────────────────────────
+export interface UploadedFile {
+  id: string;
+  originalName: string;
+  fileName: string;
+  contentType: string;
+  size: number;
+  url: string;
+  isImage: boolean;
+}
