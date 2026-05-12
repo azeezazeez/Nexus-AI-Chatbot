@@ -1,3 +1,5 @@
+package com.eduexam.backend.controller; 
+
 @RequestMapping("/api")
 @RestController
 public class HealthController {
