@@ -19,43 +19,44 @@ export default function StormLogo({ className = "" }: Props) {
     >
       <defs>
         <linearGradient id="nexusGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="#6366f1" />
-          <stop offset="100%" stopColor="#a855f7" />
+          <stop offset="0%" stopColor="#4F46E5" />
+          <stop offset="100%" stopColor="#7C3AED" />
         </linearGradient>
       </defs>
       
-      {/* Outer Hexagon Frame */}
+      <circle cx="50" cy="50" r="45" fill="url(#nexusGradient)" fillOpacity="0.03" />
+
       <path 
-        d="M50 10L85 30V70L50 90L15 70V30L50 10Z" 
+        d="M32 25V75L50 53" 
         stroke="url(#nexusGradient)" 
-        strokeWidth="2" 
-        strokeOpacity="0.3"
-      />
-      
-      {/* Inner Interconnected Hub */}
-      <path 
-        d="M50 25L72 38V62L50 75L28 62V38L50 25Z" 
-        fill="url(#nexusGradient)" 
-        fillOpacity="0.1"
-      />
-      <path 
-        d="M50 25V50M72 38L50 50M72 62L50 50M50 75V50M28 62L50 50M28 38L50 50" 
-        stroke="url(#nexusGradient)" 
-        strokeWidth="4" 
+        strokeWidth="11" 
         strokeLinecap="round" 
+        strokeLinejoin="round"
+      />
+      <path 
+        d="M68 75V25L50 47" 
+        stroke="url(#nexusGradient)" 
+        strokeWidth="11" 
+        strokeLinecap="round" 
+        strokeLinejoin="round"
       />
       
-      {/* Core Node */}
-      <circle cx="50" cy="50" r="8" fill="url(#nexusGradient)" />
-      <circle cx="50" cy="50" r="4" fill="white" className="dark:fill-zinc-900" />
-      
-      {/* Terminal Nodes */}
-      <circle cx="50" cy="25" r="3" fill="#6366f1" />
-      <circle cx="72" cy="38" r="3" fill="#818cf8" />
-      <circle cx="72" cy="62" r="3" fill="#a855f7" />
-      <circle cx="50" cy="75" r="3" fill="#c084fc" />
-      <circle cx="28" cy="62" r="3" fill="#a855f7" />
-      <circle cx="28" cy="38" r="3" fill="#818cf8" />
+      <circle 
+        cx="50" 
+        cy="50" 
+        r="10" 
+        fill="white" 
+        className="dark:fill-zinc-900 shadow-md"
+      />
+      <circle 
+        cx="50" 
+        cy="50" 
+        r="5" 
+        fill="url(#nexusGradient)" 
+      />
+
+      <circle cx="32" cy="25" r="2.5" fill="white" fillOpacity="0.5" />
+      <circle cx="68" cy="75" r="2.5" fill="white" fillOpacity="0.5" />
     </svg>
   );
 }
