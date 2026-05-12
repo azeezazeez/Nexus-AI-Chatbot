@@ -480,25 +480,27 @@ export default function Chat({ user, onLogout }: Props) {
                             return (
                               <div className="flex flex-col gap-3 mb-4">
                                 {imageFiles.map((fileName, idx) => (
-                                  <div key={idx} className="relative overflow-hidden rounded-xl border border-white/20 shadow-xl bg-black/5">
+                                  <div key={idx} className="group/img relative overflow-hidden rounded-2xl border border-zinc-200 dark:border-white/10 shadow-lg bg-zinc-100 dark:bg-black/20">
                                     <img
                                       src={`${BACKEND_BASE}/uploads/${fileName}`}
                                       alt={fileName}
-                                      className="max-w-full h-auto max-h-[500px] object-contain cursor-zoom-in"
+                                      className="max-w-full h-auto max-h-[600px] object-contain cursor-zoom-in transition-transform duration-500 group-hover/img:scale-[1.02]"
                                       onClick={() => window.open(`${BACKEND_BASE}/uploads/${fileName}`, '_blank')}
                                     />
-                                    <div className="absolute bottom-0 left-0 right-0 bg-black/40 backdrop-blur-md px-3 py-1.5 border-t border-white/10">
-                                      <p className="text-[10px] font-bold text-white truncate">{fileName}</p>
+                                    <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover/img:opacity-100 transition-opacity duration-300">
+                                      <p className="text-[10px] font-black text-white uppercase tracking-[0.2em]">{fileName}</p>
                                     </div>
                                   </div>
                                 ))}
                                 {otherFiles.length > 0 && (
                                   <div className="flex flex-wrap gap-2">
                                     {otherFiles.map((fileName, idx) => (
-                                      <div key={idx} className="flex items-center gap-2 px-3 py-2 bg-white/10 rounded-xl border border-white/20">
-                                        <FileText className="w-4 h-4 shrink-0 text-white" />
+                                      <div key={idx} className="flex items-center gap-3 px-4 py-2.5 bg-zinc-50 dark:bg-white/5 rounded-xl border border-zinc-200 dark:border-white/10 group/file hover:border-indigo-500/50 transition-all">
+                                        <div className="p-1.5 rounded-lg bg-white dark:bg-zinc-800 shadow-sm text-indigo-500">
+                                          <FileText className="w-4 h-4" />
+                                        </div>
                                         <div className="flex flex-col">
-                                          <span className="text-xs font-bold text-white truncate max-w-[200px]">{fileName}</span>
+                                          <span className="text-[10px] font-black text-zinc-500 dark:text-zinc-400 uppercase tracking-widest truncate max-w-[200px] group-hover/file:text-indigo-500 transition-colors">{fileName}</span>
                                         </div>
                                       </div>
                                     ))}
@@ -673,11 +675,26 @@ export default function Chat({ user, onLogout }: Props) {
                       initial={{ scale: 0.8, opacity: 0 }}
                       animate={{ scale: 1, opacity: 1 }}
                       exit={{ scale: 0.8, opacity: 0 }}
-                      className="flex items-center gap-2 px-3 py-2 bg-indigo-50 dark:bg-indigo-900/10 border border-indigo-200 dark:border-indigo-500/20 rounded-xl max-w-[200px]"
+                      className="group relative flex items-center gap-3 pr-3 pl-2 py-2 bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl shadow-sm hover:border-indigo-500/30 transition-all max-w-[200px]"
                     >
-                      {file.isImage ? <ImageIcon className="w-3.5 h-3.5 text-indigo-500 shrink-0" /> : <FileText className="w-3.5 h-3.5 text-indigo-500 shrink-0" />}
-                      <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 truncate">{file.originalName}</span>
-                      <button onClick={() => removeAttachedFile(i)} className="text-indigo-400 hover:text-red-500 transition-colors shrink-0">
+                      {file.isImage ? (
+                        <div className="w-8 h-8 rounded-lg overflow-hidden bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700">
+                          <img 
+                            src={`${BACKEND_BASE}/uploads/${file.fileName}`} 
+                            alt={file.originalName} 
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
+                      ) : (
+                        <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-100 dark:border-indigo-500/20">
+                          <FileText className="w-4 h-4 text-indigo-500" />
+                        </div>
+                      )}
+                      <span className="text-[10px] font-black text-zinc-500 dark:text-zinc-400 uppercase tracking-widest truncate">{file.originalName}</span>
+                      <button 
+                        onClick={() => removeAttachedFile(i)} 
+                        className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-zinc-900 dark:bg-white text-white dark:text-black flex items-center justify-center shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200"
+                      >
                         <X className="w-3 h-3" />
                       </button>
                     </motion.div>
