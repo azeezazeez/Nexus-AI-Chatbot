@@ -13,61 +13,37 @@ interface Props {
   onLogout: () => void;
 }
 
-// ── Local autocomplete patterns ─────────────────────────────────────────────
-// IMPORTANT: defined OUTSIDE the component so the reference is stable
-// and useCallback doesn't recreate fetchSuggestion on every render.
-const AUTOCOMPLETE_MAP: Array<[RegExp, string]> = [
-  // ── How ──────────────────────────────────────────────────────────────────
-  [/^how$/i,                        ' can I help you?'],
-  [/^how\s+to$/i,                   ' implement this?'],
-  [/^how\s+to\s+fix$/i,             ' this issue?'],
-  [/^how\s+to\s+build$/i,           ' this in React?'],
-  [/^how\s+to\s+create$/i,          ' a REST API?'],
-  [/^how\s+to\s+use$/i,             ' this library?'],
-  [/^how\s+to\s+install$/i,         ' this package?'],
-  [/^how\s+to\s+connect$/i,         ' to the database?'],
-  [/^how\s+to\s+deploy$/i,          ' this application?'],
-  [/^how\s+to\s+debug$/i,           ' this error?'],
-  [/^how\s+does$/i,                 ' this work?'],
-  [/^how\s+can$/i,                  ' I improve this?'],
-  // ── What ─────────────────────────────────────────────────────────────────
-  [/^what$/i,                       ' is the best approach?'],
-  [/^what\s+is$/i,                  ' the difference between REST and GraphQL?'],
-  [/^what\s+are$/i,                 ' the best practices?'],
-  [/^what\s+does$/i,                ' this error mean?'],
-  [/^what\s+is\s+the\s+best$/i,     ' way to structure this?'],
-  [/^what\s+is\s+the\s+diff/i,      'erence between these two?'],
-  // ── Why ──────────────────────────────────────────────────────────────────
-  [/^why$/i,                        ' is this not working?'],
-  [/^why\s+is$/i,                   ' this not working?'],
-  [/^why\s+does$/i,                 ' this keep failing?'],
-  [/^why\s+should$/i,               ' I use this approach?'],
-  // ── Can / Could ───────────────────────────────────────────────────────────
-  [/^can$/i,                        ' you help me with this?'],
-  [/^can\s+you$/i,                  ' explain this in simple terms?'],
-  [/^could\s+you$/i,                ' give me an example?'],
-  // ── Explain / Tell ────────────────────────────────────────────────────────
-  [/^explain$/i,                    ' how this works step by step.'],
-  [/^tell\s+me$/i,                  ' more about this topic.'],
-  [/^tell\s+me\s+about$/i,          ' the best practices for this.'],
-  // ── Write / Generate ──────────────────────────────────────────────────────
-  [/^write$/i,                      ' a function that does this.'],
-  [/^write\s+a$/i,                  ' short explanation for this.'],
-  [/^generate$/i,                   ' a code example for this.'],
-  // ── Fix / Debug ───────────────────────────────────────────────────────────
-  [/^fix$/i,                        ' this bug in my code.'],
-  [/^debug$/i,                      ' this error message.'],
-];
-
-// ── Blocked patterns ────────────────────────────────────────────────────────
-const BLOCKED_PATTERNS = [
-  /\b(show|send|give|share|print|display|reveal|expose|leak|dump|export|output)\b.{0,40}\b(source\s*code|backend|\.env|config|secret|api\s*key|private\s*key|password|token|database\s*schema|schema|credentials|auth\s*token|jwt\s*secret|server\s*code|internal\s*code|system\s*prompt)\b/i,
-  /\b(source\s*code|backend\s*code|server\s*code|\.env|api\s*key|jwt\s*secret|private\s*key|db\s*password)\b.{0,40}\b(show|send|give|share|reveal|expose|leak|dump)\b/i,
-  /\b(porn|pornography|nude|naked|hentai|xxx|onlyfans|sex\s*video|explicit\s*content|adult\s*content|nsfw|erotic|strip\s*club|cam\s*girl|sex\s*scene)\b/i,
-  /\b(how\s*to\s*(make|build|create|synthesize|buy|get)\s*(drugs?|meth|cocaine|heroin|crack|bomb|explosive|weapon|gun|poison|malware|ransomware|virus|keylogger))\b/i,
-  /\b(drug\s*deal|arms\s*deal|human\s*traffic|child\s*(abuse|exploit|porn|grooming)|dark\s*web\s*(buy|sell|order)|money\s*launder|hack\s*into|ddos\s*attack|phishing\s*kit|credit\s*card\s*dump|carding)\b/i,
-  /\b(how\s*to\s*(steal|rob|shoplift|pickpocket|scam|defraud|bypass\s*payment|crack\s*account|brute\s*force\s*login))\b/i,
-  /\b(social\s*engineering\s*script|fake\s*(id|passport|document)|identity\s*theft|account\s*takeover)\b/i,
+// ── Local autocomplete dictionary ───────────────────────────────────────────
+// A broad set of phrases to provide "smart" feel without backend calls
+const SUGGESTIONS_BANK = [
+  "How can I help you today?",
+  "How to implement a responsive layout in React?",
+  "How to fix common JavaScript errors?",
+  "How to build a full-stack app with Node.js?",
+  "What is the best way to learn TypeScript?",
+  "What are the benefits of using Tailwind CSS?",
+  "What does this code do in this context?",
+  "Why is my application running slow?",
+  "Why should I use functional components?",
+  "Can you explain higher-order functions?",
+  "Can you write a unit test for this?",
+  "Explain the difference between SQL and NoSQL.",
+  "Tell me about the latest web development trends.",
+  "Write a clean code example for a login form.",
+  "Generate a sample database schema for a blog.",
+  "Fix this bug in my React hook.",
+  "Debug this layout issue on mobile devices.",
+  "I'm looking for healthy breakfast ideas.",
+  "Draft a poem about the morning rain.",
+  "Explain quantum physics to a five year old.",
+  "How to deploy a website to the cloud?",
+  "What are some creative gift ideas for developers?",
+  "Can you tell me a joke about programming?",
+  "Help me structure my project folders.",
+  "Describe the concept of 'closure' in JS.",
+  "How to optimize images for faster loading?",
+  "What is the purpose of a Docker container?",
+  "Write a professional email for a job application.",
 ];
 
 export default function Chat({ user, onLogout }: Props) {
@@ -81,7 +57,6 @@ export default function Chat({ user, onLogout }: Props) {
 
   // ── Autocomplete state ──────────────────────────────────────────────────────
   const [suggestion, setSuggestion] = useState('');
-  const [isFetchingSuggestion, setIsFetchingSuggestion] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -138,62 +113,47 @@ export default function Chat({ user, onLogout }: Props) {
     };
   }, []);
 
-  // ── Two-tier autocomplete ───────────────────────────────────────────────────
-  //   Tier 1: instant local pattern match  (no network, no delay)
-  //   Tier 2: AI fetch fallback            (debounced 380 ms)
-  const fetchSuggestion = useCallback(async (text: string) => {
-    if (text.length < 3) {
+  // ── Improved local autocomplete ──────────────────────────────────────────────
+  const fetchSuggestion = useCallback((text: string) => {
+    if (text.length < 2) {
       setSuggestion('');
       return;
     }
 
-    // Tier 1 — local map (instant)
-    for (const [pattern, tail] of AUTOCOMPLETE_MAP) {
-      if (pattern.test(text)) {
-        setSuggestion(tail);
-        return; // skip AI call entirely
+    const lower = text.toLowerCase();
+    
+    // Find first match that contains the current input (smarter than starting with)
+    // but prefer starting matches for UX
+    let match = SUGGESTIONS_BANK.find(s => s.toLowerCase().startsWith(lower));
+    
+    // Fallback: look for keyword match if no prefix match
+    if (!match) {
+      const words = lower.split(' ').filter(w => w.length > 2);
+      if (words.length > 0) {
+        match = SUGGESTIONS_BANK.find(s => {
+          const sLower = s.toLowerCase();
+          return words.every(w => sLower.includes(w));
+        });
       }
     }
-
-    // Tier 2 — AI fetch (debounced)
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-
-    debounceRef.current = setTimeout(async () => {
-      setIsFetchingSuggestion(true);
-      try {
-        const data = await chatApi.autocomplete(text);
-        const raw: string = data?.suggestion ?? '';
-
-        if (!raw) {
-          setSuggestion('');
-          return;
-        }
-
-        // Show only the tail — what comes AFTER what the user typed
-        const tail = raw.toLowerCase().startsWith(text.toLowerCase())
-          ? raw.slice(text.length)
-          : ` ${raw}`;
-
-        setSuggestion(tail.trimEnd());
-      } catch (err) {
-        // Surface errors in dev so you can diagnose backend issues
-        if (process.env.NODE_ENV !== 'production') {
-          console.warn('[Autocomplete] AI fetch failed:', err);
-        }
-        setSuggestion('');
-      } finally {
-        setIsFetchingSuggestion(false);
+    
+    if (match) {
+      // If it starts with the input, suggest the tail
+      if (match.toLowerCase().startsWith(lower)) {
+        setSuggestion(match.slice(text.length));
+      } else {
+        // Otherwise suggest the whole phrase but it's harder to "ghost"
+        // so for now we only ghost prefixes for clean UI
+        setSuggestion(''); 
       }
-    }, 380);
-  }, []); // AUTOCOMPLETE_MAP is module-level — no dep needed
+    } else {
+      setSuggestion('');
+    }
+  }, []); 
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     setInput(val);
-    // Clear stale suggestion and any in-flight debounce immediately
-    setSuggestion('');
-    setIsFetchingSuggestion(false);
-    if (debounceRef.current) clearTimeout(debounceRef.current);
     fetchSuggestion(val);
   };
 
@@ -210,15 +170,26 @@ export default function Chat({ user, onLogout }: Props) {
   const handleLogout = async () => {
     try {
       await authApi.logout();
-      onLogout();
     } catch (err) {
       console.error('Logout failed:', err);
+    } finally {
+      onLogout();
     }
   };
 
   // ── Send message ────────────────────────────────────────────────────────────
-  const isSensitiveMessage = (text: string) =>
-    BLOCKED_PATTERNS.some(p => p.test(text));
+  const isSensitiveMessage = (text: string) => {
+    const BLOCKED_PATTERNS = [
+      /\b(show|send|give|share|print|display|reveal|expose|leak|dump|export|output)\b.{0,40}\b(source\s*code|backend|\.env|config|secret|api\s*key|private\s*key|password|token|database\s*schema|schema|credentials|auth\s*token|jwt\s*secret|server\s*code|internal\s*code|system\s*prompt)\b/i,
+      /\b(source\s*code|backend\s*code|server\s*code|\.env|api\s*key|jwt\s*secret|private\s*key|db\s*password)\b.{0,40}\b(show|send|give|share|reveal|expose|leak|dump)\b/i,
+      /\b(porn|pornography|nude|naked|hentai|xxx|onlyfans|sex\s*video|explicit\s*content|adult\s*content|nsfw|erotic|strip\s*club|cam\s*girl|sex\s*scene)\b/i,
+      /\b(how\s*to\s*(make|build|create|synthesize|buy|get)\s*(drugs?|meth|cocaine|heroin|crack|bomb|explosive|weapon|gun|poison|malware|ransomware|virus|keylogger))\b/i,
+      /\b(drug\s*deal|arms\s*deal|human\s*traffic|child\s*(abuse|exploit|porn|grooming)|dark\s*web\s*(buy|sell|order)|money\s*launder|hack\s*into|ddos\s*attack|phishing\s*kit|credit\s*card\s*dump|carding)\b/i,
+      /\b(how\s*to\s*(steal|rob|shoplift|pickpocket|scam|defraud|bypass\s*payment|crack\s*account|brute\s*force\s*login))\b/i,
+      /\b(social\s*engineering\s*script|fake\s*(id|passport|document)|identity\s*theft|account\s*takeover)\b/i,
+    ];
+    return BLOCKED_PATTERNS.some(p => p.test(text));
+  };
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -264,16 +235,17 @@ export default function Chat({ user, onLogout }: Props) {
         await loadSessions();
       }
 
+      // Smart Naming: generate title and rename if needed
       const currentSession = sessions.find(s => s.id === activeSessionId);
-      if ((!currentSessionId || (currentSession && currentSession.sessionName === "New Chat")) && activeSessionId) {
-        try {
-          const { title } = await chatApi.generateTitle(userMessage);
-          await chatApi.renameSession(activeSessionId, title);
-          await loadSessions();
-        } catch (renameErr) {
-          console.error("Smart renaming failed:", renameErr);
-          if (response.isNewSessionHeader) await loadSessions();
-        }
+      if ((!currentSessionId || (currentSession && (currentSession.sessionName === "New Chat" || currentSession.sessionName.includes('...')))) && activeSessionId) {
+        chatApi.generateTitle(userMessage)
+          .then(async ({ title }) => {
+            if (title) {
+              await chatApi.renameSession(activeSessionId, title);
+              await loadSessions();
+            }
+          })
+          .catch(err => console.error("Smart renaming background failed:", err));
       }
 
       const aiMsg: Message = {
@@ -317,12 +289,18 @@ export default function Chat({ user, onLogout }: Props) {
   const createNewSession = async () => {
     try {
       const response = await chatApi.createSession();
+      // Set ref BEFORE setting ID to prevent loadMessages from firing
+      justCreatedSessionRef.current = response.id; 
+      setMessages([]); // Clear locally immediately
       setCurrentSessionId(response.id);
       await loadSessions();
       setIsSidebarOpen(false);
     } catch (err: any) {
       console.error('Failed to create session:', err);
-      if (err.status === 401) onLogout();
+      // Only logout if it's explicitly 401 and we are sure we aren't in a middle of a re-auth
+      if (err.status === 401) {
+        onLogout();
+      }
     }
   };
 
@@ -584,27 +562,6 @@ export default function Chat({ user, onLogout }: Props) {
                   >
                     ✕
                   </button>
-                </motion.div>
-              )}
-
-              {/* Subtle "fetching" shimmer — only while waiting for AI tier */}
-              {isFetchingSuggestion && !suggestion && input.length >= 3 && !isTyping && (
-                <motion.div
-                  key="fetching"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  className="mb-2.5 flex items-center gap-2"
-                >
-                  <span className="px-2 py-1 text-[8px] font-black uppercase tracking-[0.2em] text-indigo-300/50 bg-indigo-500/5 border border-indigo-500/10 rounded-full">AI</span>
-                  <div className="flex gap-1 items-center px-3 py-1.5">
-                    {[0, 1, 2].map(i => (
-                      <motion.span key={i} className="block w-1 h-1 rounded-full bg-indigo-400/40"
-                        animate={{ opacity: [0.3, 0.8, 0.3] }}
-                        transition={{ repeat: Infinity, duration: 0.9, delay: i * 0.2 }}
-                      />
-                    ))}
-                  </div>
                 </motion.div>
               )}
             </AnimatePresence>
