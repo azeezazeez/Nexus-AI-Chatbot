@@ -635,7 +635,7 @@ export default function Chat({ user, onLogout }: Props) {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: 10 }}
                 onClick={() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })}
-                className="fixed bottom-32 right-1/2 translate-x-1/2 p-3 bg-white dark:bg-zinc-800 border border-[--border] rounded-full shadow-2xl text-[--text-muted] hover:text-indigo-600 transition-all z-40 group"
+                 className="fixed bottom-36 right-6 md:right-10 p-3 bg-white/80 dark:bg-zinc-800/80 backdrop-blur-xl border border-zinc-200 dark:border-zinc-700 rounded-full shadow-2xl text-zinc-500 hover:text-indigo-600 transition-all z-40 group hover:scale-110 active:scale-90"
               >
                 <ArrowDown className="w-5 h-5 group-hover:translate-y-0.5 transition-transform" />
               </motion.button>
