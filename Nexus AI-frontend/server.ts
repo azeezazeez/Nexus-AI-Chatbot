@@ -1,26 +1,22 @@
 import express from "express";
+import cors from "cors";
 import { createServer as createViteServer } from "vite";
 import path from "path";
 import { fileURLToPath } from "url";
 import cookieParser from "cookie-parser";
 import fs from "fs";
-import cors from "cors";
-
-// Add this near the top with your other imports
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const DB_FILE = path.join(__dirname, "db.json");
 
-// Initial DB structure
 const initialDb = {
   users: [] as any[],
   sessions: [] as any[],
   messages: [] as any[],
 };
 
-// Load DB
 function loadDb() {
   if (!fs.existsSync(DB_FILE)) {
     fs.writeFileSync(DB_FILE, JSON.stringify(initialDb, null, 2));
@@ -29,20 +25,31 @@ function loadDb() {
   return JSON.parse(fs.readFileSync(DB_FILE, "utf-8"));
 }
 
-// Save DB
 function saveDb(data: any) {
   fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
 }
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3000;
+
+  // ── CORS — must be first ─────────────────────────────────────────────────
+  app.use(
+    cors({
+      origin: process.env.FRONTEND_URL || "https://nexus-smart-ai.vercel.app",
+      credentials: true,
+    })
+  );
 
   app.use(express.json());
   app.use(cookieParser());
 
-  // Simple Auth Middleware
-  const authMiddleware = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  // ── Auth Middleware ──────────────────────────────────────────────────────
+  const authMiddleware = (
+    req: express.Request,
+    res: express.Response,
+    next: express.NextFunction
+  ) => {
     const userId = req.cookies.userId;
     if (!userId) {
       return res.status(401).json({ error: "Not authenticated" });
@@ -56,26 +63,22 @@ async function startServer() {
     next();
   };
 
-  // --- API Routes ---
+  // ── Auth Routes ──────────────────────────────────────────────────────────
 
-  // auth routes
   app.post("/api/auth/signup", (req, res) => {
     const { username, email, password } = req.body;
     const db = loadDb();
 
-    if (db.users.find((u: any) => u.username === username)) {
+    if (db.users.find((u: any) => u.username === username))
       return res.status(400).json({ error: "Username already exists" });
-    }
 
-    if (db.users.find((u: any) => u.email === email)) {
+    if (db.users.find((u: any) => u.email === email))
       return res.status(400).json({ error: "Email already exists" });
-    }
 
     const domain = email.split("@")[1];
     const allowedDomains = ["gmail.com", "yahoo.com", "email.com", "outlook.com", "hotmail.com", "icloud.com"];
-    if (!allowedDomains.includes(domain)) {
-      return res.status(400).json({ error: `Please use a common email provider (e.g., gmail.com)` });
-    }
+    if (!allowedDomains.includes(domain))
+      return res.status(400).json({ error: "Please use a common email provider (e.g., gmail.com)" });
 
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     const newUser = {
@@ -92,7 +95,11 @@ async function startServer() {
     saveDb(db);
 
     console.log(`[Signup OTP] ${email}: ${otp}`);
-    res.json({ message: "Registration successful. Please verify your account.", email: newUser.email, otpSimulated: otp });
+    res.json({
+      message: "Registration successful. Please verify your account.",
+      email: newUser.email,
+      otpSimulated: otp,
+    });
   });
 
   app.post("/api/auth/resend-otp", (req, res) => {
@@ -104,16 +111,8 @@ async function startServer() {
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     const expiry = new Date(Date.now() + 10 * 60 * 1000).toISOString();
 
-    // If user is not verified, resend signup OTP
-    if (!user.isVerified) {
-      user.otp = otp;
-      user.otpExpiry = expiry;
-    } 
-    // If user has a resetOtp, they are in forgot password flow
-    if (user.resetOtp) {
-      user.resetOtp = otp;
-      user.resetOtpExpiry = expiry;
-    }
+    if (!user.isVerified) { user.otp = otp; user.otpExpiry = expiry; }
+    if (user.resetOtp)    { user.resetOtp = otp; user.resetOtpExpiry = expiry; }
 
     saveDb(db);
     console.log(`[Resend OTP] ${email}: ${otp}`);
@@ -121,7 +120,7 @@ async function startServer() {
   });
 
   app.post("/api/auth/verify-otp", (req, res) => {
-    const { email, otpCode } = req.body; // user used otpCode in api.ts
+    const { email, otpCode } = req.body;
     const db = loadDb();
     const user = db.users.find((u: any) => u.email === email);
 
@@ -145,7 +144,6 @@ async function startServer() {
     const { email } = req.body;
     const db = loadDb();
     const user = db.users.find((u: any) => u.email === email);
-
     if (!user) return res.status(404).json({ error: "No account found with this email" });
 
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
@@ -208,11 +206,14 @@ async function startServer() {
     res.json({ user: { id: user.id, name: user.name, email: user.email, username: user.username } });
   });
 
-  // chat routes
+  // ── Chat Routes ──────────────────────────────────────────────────────────
+
   app.get("/api/chat/sessions", authMiddleware, (req, res) => {
     const user = (req as any).user;
     const db = loadDb();
-    const sessions = db.sessions.filter((s: any) => s.userId === user.id).sort((a: any, b: any) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+    const sessions = db.sessions
+      .filter((s: any) => s.userId === user.id)
+      .sort((a: any, b: any) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
     res.json({ sessions });
   });
 
@@ -245,7 +246,6 @@ async function startServer() {
     const db = loadDb();
     const session = db.sessions.find((s: any) => s.id === Number(sessionId));
     if (!session) return res.status(404).json({ error: "Session not found" });
-    
     session.sessionName = name;
     session.updatedAt = new Date().toISOString();
     saveDb(db);
@@ -257,34 +257,30 @@ async function startServer() {
     const apiKey = process.env.GROQ_API_KEY;
 
     if (!apiKey) {
-      return res.json({ title: firstMessage.length > 30 ? firstMessage.substring(0, 27) + "..." : firstMessage });
+      return res.json({
+        title: firstMessage.length > 30 ? firstMessage.substring(0, 27) + "..." : firstMessage,
+      });
     }
 
     try {
       const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
         method: "POST",
-        headers: {
-          "Authorization": `Bearer ${apiKey}`,
-          "Content-Type": "application/json"
-        },
+        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
         body: JSON.stringify({
           model: "llama-3.3-70b-versatile",
           messages: [
             {
               role: "system",
-              content: "Generate a very short (max 4 words) descriptive title for a chat that starts with the following message. Return only the title text, no quotes or punctuation."
+              content:
+                "Generate a very short (max 4 words) descriptive title for a chat that starts with the following message. Return only the title text, no quotes or punctuation.",
             },
-            {
-              role: "user",
-              content: firstMessage
-            }
+            { role: "user", content: firstMessage },
           ],
-          max_tokens: 20
-        })
+          max_tokens: 20,
+        }),
       });
-
       const data: any = await response.json();
-      const title = data.choices?.[0]?.message?.content?.trim().replace(/^["']|["']$/g, '');
+      const title = data.choices?.[0]?.message?.content?.trim().replace(/^["']|["']$/g, "");
       res.json({ title: title || firstMessage.substring(0, 30) });
     } catch (error) {
       console.error("Groq AI Error:", error);
@@ -328,7 +324,6 @@ async function startServer() {
       db.sessions.push(newSession);
       targetSessionId = newSession.id;
     } else {
-      // Check if this is the first real message in the session to rename it
       const session = db.sessions.find((s: any) => s.id === Number(targetSessionId));
       if (session && session.sessionName === "New Chat") {
         session.sessionName = message.length > 30 ? message.substring(0, 27) + "..." : message;
@@ -345,7 +340,6 @@ async function startServer() {
     };
     db.messages.push(newMessage);
 
-    // Mock AI response
     const aiResponseContent = `I received your message: "${message}". How can I help you further?`;
     const aiMessage = {
       id: Date.now() + 1,
@@ -356,23 +350,15 @@ async function startServer() {
     };
     db.messages.push(aiMessage);
 
-    // Update session updatedAt
     const session = db.sessions.find((s: any) => s.id === Number(targetSessionId));
-    if (session) {
-      session.updatedAt = new Date().toISOString();
-    }
+    if (session) session.updatedAt = new Date().toISOString();
 
     saveDb(db);
-    res.json({ 
-      response: aiResponseContent, 
-      sessionId: targetSessionId,
-      isNewSessionHeader 
-    });
+    res.json({ response: aiResponseContent, sessionId: targetSessionId, isNewSessionHeader });
   });
 
-  // --- End API Routes ---
+  // ── Static / Vite ────────────────────────────────────────────────────────
 
-  // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -382,7 +368,7 @@ async function startServer() {
   } else {
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
-    app.get("*", (req, res) => {
+    app.get("*", (_req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
     });
   }
