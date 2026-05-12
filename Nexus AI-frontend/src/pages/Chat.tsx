@@ -8,12 +8,13 @@ import StormLogo from '../components/StormLogo';
 import UserAvatar from '../components/UserAvatar';
 import ConfirmationModal from '../components/ConfirmationModal';
 import {
-  Send, ArrowDown, ArrowUp, Menu,
+  ArrowDown, ArrowUp, Menu,
   Paperclip, Copy, Check,
   X, FileText,
   ChevronDown, Edit2,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
+import type { Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
@@ -83,7 +84,7 @@ export default function Chat({ user, onLogout }: Props) {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [isModelMenuOpen, setIsModelMenuOpen] = useState(false);
-  const [selectedModel, setSelectedModel] = useState('Nexus 4.6 Adaptive');
+  const [selectedModel, setSelectedModel] = useState('Scout 4.6 Adaptive');
   // FIX: Use a consistent type (string) for editing message ID
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editInput, setEditInput] = useState('');
@@ -403,10 +404,10 @@ export default function Chat({ user, onLogout }: Props) {
             <div className="flex items-center gap-2 md:gap-3">
               <StormLogo className={`w-6 h-6 text-indigo-600 dark:text-indigo-500 transition-all`} />
               <div className="hidden sm:flex flex-col">
-                <span className="text-[10px] font-black text-[--text-main] uppercase tracking-widest leading-none mb-1">Nexus AI</span>
+                <span className="text-[10px] font-black text-[--text-main] uppercase tracking-widest leading-none mb-1">Scout AI</span>
                 <div className="flex items-center gap-1.5">
                   <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  <span className="text-[8px] font-bold text-[--text-muted]/60 uppercase tracking-widest">Nexus Active</span>
+                  <span className="text-[8px] font-bold text-[--text-muted]/60 uppercase tracking-widest">Scout Active</span>
                 </div>
               </div>
             </div>
@@ -566,11 +567,12 @@ export default function Chat({ user, onLogout }: Props) {
                                 <ReactMarkdown
                                   remarkPlugins={[remarkGfm]}
                                   components={{
-                                    // FIX: Destructure `inline` out of props so it isn't forwarded to the DOM element
-                                    code({ className, children, inline, ...props }: React.ComponentPropsWithoutRef<'code'> & { inline?: boolean }) {
+                                    code({ className, children, ...props }: any) {
                                       const match = /language-(\w+)/.exec(className || '');
                                       const content = String(children).replace(/\n$/, '');
-                                      return !inline && match ? (
+                                      // @ts-ignore - inline is passed by react-markdown v8+ but not always in types
+                                      const isInline = props.inline || !className;
+                                      return !isInline && match ? (
                                         <CodeBlock language={match[1]} value={content} />
                                       ) : (
                                         <code
@@ -581,7 +583,7 @@ export default function Chat({ user, onLogout }: Props) {
                                         </code>
                                       );
                                     }
-                                  }}
+                                  } as Components}
                                 >
                                   {msg.content.replace(/\n?\n?\[Attached Files:.*?\]/g, '').trim()}
                                 </ReactMarkdown>
@@ -592,7 +594,7 @@ export default function Chat({ user, onLogout }: Props) {
                           {/* Actions & Timestamp Below */}
                           <div className="flex justify-end items-center gap-1 mt-1.5 px-1 opacity-0 group-hover:opacity-100 transition-opacity">
                             {msg.role === 'assistant' && (
-                              <span className="text-[10px] font-black text-indigo-500/50 uppercase tracking-[0.2em] mr-auto pl-1">Nexus AI</span>
+                              <span className="text-[10px] font-black text-indigo-500/50 uppercase tracking-[0.2em] mr-auto pl-1">Scout AI</span>
                             )}
                             <span className="text-[9px] font-black text-zinc-400 dark:text-zinc-500 uppercase tracking-widest whitespace-nowrap mr-1">
                               {msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Now'}
@@ -842,7 +844,7 @@ export default function Chat({ user, onLogout }: Props) {
               accept="image/jpeg,image/png,image/gif,image/webp,application/pdf,text/plain"
               className="hidden"
             />
-            <p className="mt-4 text-center text-[10px] font-medium text-[--text-muted]/40">Nexus AI can make mistakes. Check important info.</p>
+            <p className="mt-4 text-center text-[10px] font-medium text-[--text-muted]/40">Scout AI can make mistakes. Check important info.</p>
           </div>
         </div>
       </main>
