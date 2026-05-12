@@ -454,10 +454,10 @@ export default function Chat({ user, onLogout }: Props) {
                     className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} group`}
                   >
                     <div className={`flex gap-3 max-w-[90%] md:max-w-[80%] ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
-                      <div className={`w-7 h-7 md:w-8 md:h-8 rounded-full shrink-0 flex items-center justify-center border shadow-sm ${
+                      <div className={`w-7 h-7 md:w-8 md:h-8 rounded-full shrink-0 flex items-center justify-center border shadow-xl ${
                         msg.role === 'user'
                           ? 'bg-white dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700'
-                          : 'bg-white dark:bg-zinc-950 border-white/10'
+                          : 'bg-zinc-900 border-zinc-800 text-white shadow-indigo-500/20'
                       }`}>
                         {msg.role === 'user'
                           ? <UserAvatar name={user?.username || 'User'} className="w-full h-full text-[10px]" />
@@ -613,10 +613,10 @@ export default function Chat({ user, onLogout }: Props) {
 
                 {isTyping && (
                   <div className="flex items-start gap-3">
-                    <div className="w-7 h-7 md:w-8 md:h-8 rounded-full shrink-0 flex items-center justify-center bg-white dark:bg-zinc-950 border border-white/10 shadow-sm">
+                    <div className="w-7 h-7 md:w-8 md:h-8 rounded-full shrink-0 flex items-center justify-center bg-zinc-900 border border-zinc-800 text-white shadow-xl shadow-indigo-500/10">
                       <StormLogo className="w-4 h-4 ml-[1px] animate-spin" />
                     </div>
-                    <div className="bg-white/90 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 px-4 py-3 rounded-2xl rounded-tl-none shadow-sm flex items-center gap-2 backdrop-blur-xl">
+                    <div className="bg-white/90 dark:bg-zinc-900/90 border border-zinc-200 dark:border-zinc-800 px-4 py-3 rounded-2xl rounded-tl-none shadow-sm flex items-center gap-2 backdrop-blur-xl">
                       <motion.div animate={{ scale: [1, 1.2, 1], opacity: [0.3, 1, 0.3] }} transition={{ repeat: Infinity, duration: 1 }} className="w-1.5 h-1.5 bg-indigo-600 rounded-full" />
                       <motion.div animate={{ scale: [1, 1.2, 1], opacity: [0.3, 1, 0.3] }} transition={{ repeat: Infinity, duration: 1, delay: 0.2 }} className="w-1.5 h-1.5 bg-indigo-600 rounded-full" />
                       <motion.div animate={{ scale: [1, 1.2, 1], opacity: [0.3, 1, 0.3] }} transition={{ repeat: Infinity, duration: 1, delay: 0.4 }} className="w-1.5 h-1.5 bg-indigo-600 rounded-full" />
