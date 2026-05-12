@@ -6,7 +6,7 @@ import { chatApi, authApi } from '../lib/api';
 import { motion, AnimatePresence } from 'motion/react';
 import StormLogo from '../components/StormLogo';
 import UserAvatar from '../components/UserAvatar';
-import { Send, ArrowDown, Menu, X } from 'lucide-react';
+import { Send, ArrowDown, Menu } from 'lucide-react';
 
 interface Props {
   user: User;
@@ -59,7 +59,6 @@ export default function Chat({ user, onLogout }: Props) {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const justCreatedSessionRef = useRef<number | null>(null);
 
   const loadSessions = useCallback(async () => {
     try {
@@ -67,6 +66,7 @@ export default function Chat({ user, onLogout }: Props) {
       setSessions(response.sessions || []);
     } catch (err: any) {
       console.error('Failed to load sessions:', err);
+      // Only logout on 401 AND no token — avoids logging out on network blips
       if (err.status === 401 && !localStorage.getItem('auth_token')) {
         onLogout();
       }
@@ -77,9 +77,7 @@ export default function Chat({ user, onLogout }: Props) {
 
   const loadMessages = useCallback(async (sid: number) => {
     try {
-      console.log('Loading messages for session:', sid);
       const response = await chatApi.getMessages(sid);
-      console.log('Messages response:', response);
       setMessages(response.messages || []);
     } catch (err: any) {
       console.error('Failed to load messages:', err);
@@ -91,10 +89,6 @@ export default function Chat({ user, onLogout }: Props) {
 
   useEffect(() => {
     if (currentSessionId) {
-      if (justCreatedSessionRef.current === currentSessionId) {
-        justCreatedSessionRef.current = null;
-        return;
-      }
       loadMessages(currentSessionId);
     } else {
       setMessages([]);
@@ -115,44 +109,41 @@ export default function Chat({ user, onLogout }: Props) {
     };
   }, []);
 
-  // ── Improved local autocomplete ──────────────────────────────────────────────
+  // ── FIX #3: Fully local autocomplete — no API call, wrapped in try/catch ───
   const fetchSuggestion = useCallback((text: string) => {
-    if (text.length < 2) {
-      setSuggestion('');
-      return;
-    }
+    try {
+      if (text.length < 2) {
+        setSuggestion('');
+        return;
+      }
 
-    const lower = text.toLowerCase();
-    
-    // Find first match that starts with the current input or contains the words
-    let match = SUGGESTIONS_BANK.find(s => s.toLowerCase().startsWith(lower));
-    
-    if (!match) {
-      // Smarter matching: if user types words that are in the suggestion bank
-      const words = lower.split(' ').filter(w => w.length > 2);
-      if (words.length > 0) {
-        match = SUGGESTIONS_BANK.find(s => {
-          const sLower = s.toLowerCase();
-          return words.every(w => sLower.includes(w));
-        });
+      const lower = text.toLowerCase();
+
+      let match = SUGGESTIONS_BANK.find(s => s.toLowerCase().startsWith(lower));
+
+      if (!match) {
+        const words = lower.split(' ').filter(w => w.length > 2);
+        if (words.length > 0) {
+          match = SUGGESTIONS_BANK.find(s => {
+            const sLower = s.toLowerCase();
+            return words.every(w => sLower.includes(w));
+          });
+        }
       }
-    }
-    
-    if (match) {
-      // Suggestion pill will show the full 'match'
-      // but ghost text (setSuggestion) only works effectively if it's a suffix
-      if (match.toLowerCase().startsWith(lower)) {
-        setSuggestion(match.slice(text.length));
+
+      if (match) {
+        if (match.toLowerCase().startsWith(lower)) {
+          setSuggestion(match.slice(text.length));
+        } else {
+          setSuggestion(match);
+        }
       } else {
-        // If it's a keyword match but not a prefix, we'll set suggestion to the full string
-        // so the pill can show it, but we won't show ghost text in the input.
-        // To distinguish, we'll use local state in render.
-        setSuggestion(match); 
+        setSuggestion('');
       }
-    } else {
+    } catch {
       setSuggestion('');
     }
-  }, []); 
+  }, []);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
@@ -163,7 +154,6 @@ export default function Chat({ user, onLogout }: Props) {
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Tab' && suggestion) {
       e.preventDefault();
-      // If suggestion is a suffix, append it. If it's the full string, replace/complete it.
       if (suggestion.toLowerCase().startsWith(input.toLowerCase())) {
         setInput(input + suggestion);
       } else if (SUGGESTIONS_BANK.includes(suggestion) && !suggestion.toLowerCase().startsWith(input.toLowerCase())) {
@@ -179,10 +169,9 @@ export default function Chat({ user, onLogout }: Props) {
   const handleLogout = async () => {
     try {
       await authApi.logout();
-      localStorage.removeItem('auth_token');
-      onLogout();
     } catch (err) {
       console.error('Logout failed:', err);
+    } finally {
       localStorage.removeItem('auth_token');
       onLogout();
     }
@@ -207,29 +196,31 @@ export default function Chat({ user, onLogout }: Props) {
     setIsTyping(true);
 
     try {
-      // Send to backend - backend will handle AI response
+      // Backend creates a new session automatically when sessionId is null
       const response = await chatApi.sendMessage(userMessage, currentSessionId);
       const activeSessionId = response.sessionId || currentSessionId;
 
       if (!currentSessionId && activeSessionId) {
         setCurrentSessionId(activeSessionId);
-        await loadSessions(); // Refresh sidebar for first message in new chat
+        await loadSessions();
       }
 
-      // Smart Naming: if this is a new chat, generate a title using Groq (via backend)
+      // Smart Naming: generate a title for new or untitled sessions
       const currentSession = sessions.find(s => s.id === activeSessionId);
-      if ((!currentSessionId || (currentSession && currentSession.sessionName === "New Chat")) && activeSessionId) {
+      if (
+        (!currentSessionId || (currentSession && currentSession.sessionName === 'New Chat')) &&
+        activeSessionId
+      ) {
         try {
           const { title } = await chatApi.generateTitle(userMessage);
           await chatApi.renameSession(activeSessionId, title);
           await loadSessions();
         } catch (renameErr) {
-          console.error("Smart renaming failed:", renameErr);
+          console.error('Smart renaming failed:', renameErr);
           if (response.isNewSessionHeader) await loadSessions();
         }
       }
 
-      // The backend response already contains the AI response
       const aiMsg: Message = {
         id: Date.now() + 1,
         sessionId: activeSessionId,
@@ -241,6 +232,7 @@ export default function Chat({ user, onLogout }: Props) {
 
     } catch (err: any) {
       console.error('Chat error:', err);
+      // FIX: only logout on explicit 401, not on any error
       if (err.status === 401) {
         onLogout();
         return;
@@ -258,34 +250,22 @@ export default function Chat({ user, onLogout }: Props) {
     }
   };
 
-  const createNewSession = async () => {
-    try {
-      const response = await chatApi.createSession();
-      // Set ref BEFORE setting ID to prevent loadMessages from firing redundant requests
-      justCreatedSessionRef.current = response.id;
-      setCurrentSessionId(response.id);
-      await loadSessions();
-      setIsSidebarOpen(false); // Close sidebar on mobile after creating new chat
-    } catch (err: any) {
-      console.error('Failed to create session:', err);
-      // Double check auth status before forcing logout
-      if (err.status === 401) {
-        try {
-          const statusResult = await authApi.getStatus();
-          if (!statusResult.authenticated) {
-            onLogout();
-          }
-        } catch (e) {
-          onLogout();
-        }
-      }
-    }
+  // ── FIX #1 & #2: Purely local new chat — no API call, no aggressive logout ──
+  const createNewSession = () => {
+    setCurrentSessionId(null);
+    setMessages([]);
+    setInput('');
+    setSuggestion('');
+    setIsSidebarOpen(false);
   };
 
   const deleteSession = async (sid: number) => {
     try {
       await chatApi.deleteSession(sid);
-      if (currentSessionId === sid) setCurrentSessionId(null);
+      if (currentSessionId === sid) {
+        setCurrentSessionId(null);
+        setMessages([]);
+      }
       await loadSessions();
     } catch (err: any) {
       console.error('Failed to delete session:', err);
@@ -300,6 +280,7 @@ export default function Chat({ user, onLogout }: Props) {
     try {
       await chatApi.clearSessions();
       setCurrentSessionId(null);
+      setMessages([]);
       await loadSessions();
     } catch (err: any) {
       console.error('Failed to clear sessions:', err);
@@ -376,8 +357,6 @@ export default function Chat({ user, onLogout }: Props) {
               </>
             )}
           </div>
-          <div className="flex items-center gap-4">
-          </div>
         </header>
 
         <div className="flex-1 overflow-y-auto px-4 md:px-10 lg:px-20 py-8 md:py-12 scroll-hide">
@@ -404,13 +383,13 @@ export default function Chat({ user, onLogout }: Props) {
                     "How to build a React app",
                     "Write a poem about rain",
                     "Explain quantum physics"
-                  ].map((suggestion, i) => (
+                  ].map((s, i) => (
                     <button
                       key={i}
-                      onClick={() => setInput(suggestion)}
+                      onClick={() => setInput(s)}
                       className="p-4 md:p-5 bg-[--surface] dark:bg-white/5 border border-[--border] rounded-2xl md:rounded-[1.5rem] text-[9px] md:text-[10px] font-black uppercase tracking-widest text-[--text-muted] hover:text-[--text-main] hover:border-indigo-500/50 transition-all shadow-sm hover:shadow-lg"
                     >
-                      {suggestion}
+                      {s}
                     </button>
                   ))}
                 </div>
@@ -428,7 +407,9 @@ export default function Chat({ user, onLogout }: Props) {
                       ? 'p-0 shadow-indigo-500/10'
                       : 'bg-[--surface] dark:bg-zinc-800 border-[--border] text-indigo-500 p-2 md:p-2.5'
                       }`}>
-                      {msg.role === 'user' ? <UserAvatar name={user?.username || 'User'} className="w-full h-full text-sm md:text-lg" /> : <StormLogo className="w-full h-full" />}
+                      {msg.role === 'user'
+                        ? <UserAvatar name={user?.username || 'User'} className="w-full h-full text-sm md:text-lg" />
+                        : <StormLogo className="w-full h-full" />}
                     </div>
                     <div className={`flex flex-col max-w-[85%] md:max-w-[75%] ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
                       <div className={`p-4 md:p-6 rounded-2xl md:rounded-[2rem] border transition-colors shadow-sm ${msg.role === 'user'
@@ -455,26 +436,17 @@ export default function Chat({ user, onLogout }: Props) {
                     </div>
                     <div className="flex flex-col items-start max-w-[75%]">
                       <motion.div
-                        initial={{ width: "auto" }}
-                        animate={{ width: "auto" }}
                         className="p-6 rounded-[2rem] bg-white dark:bg-white/5 border border-indigo-500/20 text-[--text-main] leading-relaxed rounded-tl-none flex items-center gap-4 shadow-sm"
                       >
                         <div className="flex gap-1.5">
-                          <motion.div
-                            animate={{ scale: [1, 1.5, 1], opacity: [0.5, 1, 0.5] }}
-                            transition={{ repeat: Infinity, duration: 1 }}
-                            className="w-1.5 h-1.5 bg-indigo-500 rounded-full"
-                          />
-                          <motion.div
-                            animate={{ scale: [1, 1.5, 1], opacity: [0.5, 1, 0.5] }}
-                            transition={{ repeat: Infinity, duration: 1, delay: 0.2 }}
-                            className="w-1.5 h-1.5 bg-indigo-500 rounded-full"
-                          />
-                          <motion.div
-                            animate={{ scale: [1, 1.5, 1], opacity: [0.5, 1, 0.5] }}
-                            transition={{ repeat: Infinity, duration: 1, delay: 0.4 }}
-                            className="w-1.5 h-1.5 bg-indigo-500 rounded-full"
-                          />
+                          {[0, 0.2, 0.4].map((delay, i) => (
+                            <motion.div
+                              key={i}
+                              animate={{ scale: [1, 1.5, 1], opacity: [0.5, 1, 0.5] }}
+                              transition={{ repeat: Infinity, duration: 1, delay }}
+                              className="w-1.5 h-1.5 bg-indigo-500 rounded-full"
+                            />
+                          ))}
                         </div>
                         <span className="text-[10px] font-black uppercase tracking-widest text-indigo-500">Thinking...</span>
                       </motion.div>
@@ -490,19 +462,22 @@ export default function Chat({ user, onLogout }: Props) {
         <div className="p-4 md:p-10 lg:p-16 pt-2 shrink-0 bg-gradient-to-t from-[--bg-main] via-[--bg-main] to-transparent">
           <div className="max-w-4xl mx-auto relative">
 
-            {/* Quick-reply chips (only when no suggestion is showing) */}
+            {/* Quick-reply chips */}
             {!isTyping && messages.length > 0 && !suggestion && (
               <div className="flex gap-2 mb-3 overflow-x-auto pb-1 scroll-hide">
                 {["Explain more", "Give an example", "Summarize this", "How to fix it?", "What are alternatives?"].map((s, i) => (
-                  <button key={i} onClick={() => { setInput(s); fetchSuggestion(s); }}
-                    className="shrink-0 px-3 py-1.5 text-[9px] md:text-[10px] font-black uppercase tracking-widest bg-[--surface] dark:bg-white/5 border border-[--border] rounded-full text-[--text-muted] hover:text-indigo-500 hover:border-indigo-500/50 transition-all whitespace-nowrap">
+                  <button
+                    key={i}
+                    onClick={() => { setInput(s); fetchSuggestion(s); }}
+                    className="shrink-0 px-3 py-1.5 text-[9px] md:text-[10px] font-black uppercase tracking-widest bg-[--surface] dark:bg-white/5 border border-[--border] rounded-full text-[--text-muted] hover:text-indigo-500 hover:border-indigo-500/50 transition-all whitespace-nowrap"
+                  >
                     {s}
                   </button>
                 ))}
               </div>
             )}
 
-            {/* ── Autocomplete suggestion pill ─────────────────────────────── */}
+            {/* Autocomplete suggestion pill */}
             <AnimatePresence>
               {suggestion && !isTyping && (
                 <motion.div
@@ -513,26 +488,22 @@ export default function Chat({ user, onLogout }: Props) {
                   transition={{ duration: 0.18 }}
                   className="mb-2.5 flex items-center gap-2 overflow-x-auto scroll-hide"
                 >
-                  {/* AI badge */}
                   <span className="shrink-0 px-2 py-1 text-[8px] font-black uppercase tracking-[0.2em] text-indigo-400 bg-indigo-500/10 border border-indigo-500/20 rounded-full">
                     AI
                   </span>
-
-                  {/* Suggestion chip — click to accept */}
                   <button
-                    onClick={() => { 
+                    onClick={() => {
                       if (SUGGESTIONS_BANK.includes(suggestion)) {
                         setInput(suggestion);
                       } else {
                         setInput(prev => prev + suggestion);
                       }
-                      setSuggestion(''); 
+                      setSuggestion('');
                     }}
                     className="flex items-center gap-2 px-3 py-1.5 bg-white/60 dark:bg-white/[0.06] border border-indigo-300/40 dark:border-indigo-500/20 rounded-xl shadow-sm hover:border-indigo-400/60 hover:bg-indigo-50/60 dark:hover:bg-indigo-500/10 transition-all group max-w-[85%]"
                     title="Click or press Tab to accept"
                   >
-                    {/* What the user already typed — muted (only if it matches prefix) */}
-                    {suggestion && suggestion.toLowerCase() && !suggestion.toLowerCase().startsWith(input.toLowerCase()) && SUGGESTIONS_BANK.includes(suggestion) ? (
+                    {suggestion && !suggestion.toLowerCase().startsWith(input.toLowerCase()) && SUGGESTIONS_BANK.includes(suggestion) ? (
                       <span className="text-[11px] md:text-xs font-semibold text-indigo-500 dark:text-indigo-400 truncate">
                         {suggestion}
                       </span>
@@ -546,13 +517,10 @@ export default function Chat({ user, onLogout }: Props) {
                         </span>
                       </>
                     )}
-                    {/* Tab hint badge */}
                     <span className="shrink-0 ml-1 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-widest border border-[--border] rounded-md text-[--text-muted]/50 group-hover:border-indigo-400/40 group-hover:text-indigo-400 transition-all hidden sm:inline-block">
                       Tab
                     </span>
                   </button>
-
-                  {/* Dismiss */}
                   <button
                     onClick={() => setSuggestion('')}
                     className="shrink-0 text-[--text-muted]/30 hover:text-[--text-muted]/60 text-xs transition-colors px-1"
