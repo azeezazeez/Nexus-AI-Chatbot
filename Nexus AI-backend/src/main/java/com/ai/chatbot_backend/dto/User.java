@@ -34,7 +34,7 @@ public class User {
     private LocalDateTime createdAt;
 
     @Column(name = "is_verified")
-    private boolean isVerified;
+    private boolean verified;
 
     @Column(name = "otp")
     private String otp;
