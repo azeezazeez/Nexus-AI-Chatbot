@@ -58,7 +58,7 @@ export default function StormLogo({ className = "" }: Props) {
       <circle cx="70" cy="70" r="3" fill="#d946ef" />
       
       {/* Interactive Core pulsing effect (semantic) */}
-      <circle cx="50" cy="50" r="5" fill="white" className="dark:fill-zinc-900 shadow-sm" />
+      <circle cx="50" cy="50" r="5" fill="currentColor" stroke="url(#nexusGrad)" strokeWidth="0.5" className="opacity-90" />
       <circle cx="50" cy="50" r="2.5" fill="url(#nexusGrad)" />
     </svg>
   );
