@@ -66,8 +66,8 @@ export default function Chat({ user, onLogout }: Props) {
       setSessions(response.sessions || []);
     } catch (err: any) {
       console.error('Failed to load sessions:', err);
-      // Only logout on 401 AND no token — avoids logging out on network blips
-      if (err.status === 401 && !localStorage.getItem('auth_token')) {
+      // 401 means the session cookie expired or was invalidated — log out
+      if (err.status === 401) {
         onLogout();
       }
     } finally {
@@ -81,7 +81,7 @@ export default function Chat({ user, onLogout }: Props) {
       setMessages(response.messages || []);
     } catch (err: any) {
       console.error('Failed to load messages:', err);
-      if (err.status === 401 && !localStorage.getItem('auth_token')) onLogout();
+      if (err.status === 401) onLogout();
     }
   }, [onLogout]);
 
@@ -168,12 +168,11 @@ export default function Chat({ user, onLogout }: Props) {
 
   const handleLogout = async () => {
     try {
-      await authApi.logout();
+      await authApi.logout(); // backend invalidates the session cookie
     } catch (err) {
       console.error('Logout failed:', err);
     } finally {
-      localStorage.removeItem('auth_token');
-      onLogout();
+      onLogout(); // always clear frontend state
     }
   };
 
