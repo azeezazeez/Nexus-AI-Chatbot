@@ -59,6 +59,8 @@ export default function Chat({ user, onLogout }: Props) {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  // Synchronous send guard — prevents double-send from StrictMode or fast re-renders
+  const isSendingRef = useRef(false);
 
   const loadSessions = useCallback(async () => {
     try {
@@ -178,21 +180,28 @@ export default function Chat({ user, onLogout }: Props) {
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim() || isTyping) return;
+
+    // Synchronous ref guard — isTyping state update is async and can't prevent
+    // a second call from slipping through before React re-renders (StrictMode,
+    // fast double-click, or form double-submit all hit this path)
+    if (isSendingRef.current || !input.trim()) return;
+    isSendingRef.current = true;
 
     const userMessage = input.trim();
     setSuggestion('');
     setInput('');
+    setIsTyping(true);
 
+    // Use crypto.randomUUID for guaranteed unique ids — Date.now() collides
+    // when two messages are created within the same millisecond
     const tempUserMsg: Message = {
-      id: Date.now(),
+      id: crypto.randomUUID ? (crypto.randomUUID() as any) : Date.now(),
       sessionId: currentSessionId || 0,
       role: 'user',
       content: userMessage,
       timestamp: new Date().toISOString(),
     };
     setMessages(prev => [...prev, tempUserMsg]);
-    setIsTyping(true);
 
     try {
       // Backend creates a new session automatically when sessionId is null
@@ -221,7 +230,7 @@ export default function Chat({ user, onLogout }: Props) {
       }
 
       const aiMsg: Message = {
-        id: Date.now() + 1,
+        id: crypto.randomUUID ? (crypto.randomUUID() as any) : Date.now() + 1,
         sessionId: activeSessionId,
         role: 'assistant',
         content: response.response,
@@ -231,13 +240,12 @@ export default function Chat({ user, onLogout }: Props) {
 
     } catch (err: any) {
       console.error('Chat error:', err);
-      // FIX: only logout on explicit 401, not on any error
       if (err.status === 401) {
         onLogout();
         return;
       }
       const errMsg: Message = {
-        id: Date.now() + 1,
+        id: crypto.randomUUID ? (crypto.randomUUID() as any) : Date.now() + 1,
         sessionId: currentSessionId || 0,
         role: 'assistant',
         content: 'Sorry, I encountered an error. Please try again.',
@@ -246,6 +254,7 @@ export default function Chat({ user, onLogout }: Props) {
       setMessages(prev => [...prev, errMsg]);
     } finally {
       setIsTyping(false);
+      isSendingRef.current = false; // release the lock so next message can go through
     }
   };
 
