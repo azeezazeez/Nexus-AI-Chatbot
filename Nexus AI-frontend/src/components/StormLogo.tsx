@@ -17,48 +17,45 @@ export default function StormLogo({ className = "" }: Props) {
       xmlns="http://www.w3.org/2000/svg" 
       className={className}
     >
+      <defs>
+        <linearGradient id="nexusLogoGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#4F46E5" />
+          <stop offset="100%" stopColor="#9333EA" />
+        </linearGradient>
+        <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+          <feGaussianBlur stdDeviation="3" result="blur" />
+          <feComposite in="SourceGraphic" in2="blur" operator="over" />
+        </filter>
+      </defs>
+
+      {/* Connection Paths */}
       <path 
-        d="M25 35L50 20L75 35L75 65L50 80L25 65L25 35Z" 
-        stroke="currentColor" 
-        strokeWidth="2" 
-        strokeOpacity="0.1" 
-      />
-      <path 
-        d="M35 40L50 31L65 40V60L50 69L35 60" 
-        stroke="currentColor" 
-        strokeWidth="1" 
-        strokeOpacity="0.2" 
-      />
-      <path 
-        d="M75 35L50 50L25 35" 
-        stroke="currentColor" 
-        strokeWidth="1.5" 
+        d="M20 20 L50 50 L80 20 M20 80 L50 50 L80 80" 
+        stroke="url(#nexusLogoGrad)" 
+        strokeWidth="10" 
         strokeLinecap="round" 
         strokeLinejoin="round" 
+        strokeOpacity="0.4"
       />
+      
+      {/* Main Core Structure */}
       <path 
-        d="M75 65L50 50L25 65" 
-        stroke="currentColor" 
-        strokeWidth="1.5" 
+        d="M30 30 L70 70 M70 30 L30 70" 
+        stroke="url(#nexusLogoGrad)" 
+        strokeWidth="12" 
         strokeLinecap="round" 
-        strokeLinejoin="round" 
+        filter="url(#glow)"
       />
-      <path 
-        d="M50 20V50V80" 
-        stroke="currentColor" 
-        strokeWidth="1.5" 
-        strokeLinecap="round" 
-        strokeLinejoin="round" 
-        strokeOpacity="0.5"
-      />
-      <path 
-        d="M30 45C30 35 50 30 50 30C50 30 70 35 70 45C70 55 50 60 50 60C50 60 30 65 30 75C30 85 50 90 50 90" 
-        stroke="currentColor"
-        strokeWidth="10"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        className="text-indigo-600 dark:text-indigo-400"
-      />
+
+      {/* Nodes */}
+      <circle cx="30" cy="30" r="4" fill="white" className="dark:fill-zinc-900" />
+      <circle cx="70" cy="70" r="4" fill="white" className="dark:fill-zinc-900" />
+      <circle cx="70" cy="30" r="4" fill="white" className="dark:fill-zinc-900" />
+      <circle cx="30" cy="70" r="4" fill="white" className="dark:fill-zinc-900" />
+      
+      {/* Central Pulsating Core */}
+      <circle cx="50" cy="50" r="6" fill="#4F46E5" />
+      <circle cx="50" cy="50" r="3" fill="white" />
     </svg>
   );
 }
