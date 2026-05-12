@@ -8,10 +8,10 @@ import StormLogo from '../components/StormLogo';
 import UserAvatar from '../components/UserAvatar';
 import ConfirmationModal from '../components/ConfirmationModal';
 import {
-  Send, ArrowDown, ArrowUp, Menu, Square,
-  Paperclip, Copy, Check, Plus, Mic, MicOff,
-  Volume2, VolumeX, X, FileText, Image as ImageIcon,
-  Circle, ChevronDown, Edit2, Loader2,
+  Send, ArrowDown, ArrowUp, Menu,
+  Paperclip, Copy, Check,
+  X, FileText,
+  ChevronDown, Edit2,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -84,7 +84,8 @@ export default function Chat({ user, onLogout }: Props) {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [isModelMenuOpen, setIsModelMenuOpen] = useState(false);
   const [selectedModel, setSelectedModel] = useState('Scout 4.6 Adaptive');
-  const [editingMessageId, setEditingMessageId] = useState<number | string | null>(null);
+  // FIX: Use a consistent type (string) for editing message ID
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editInput, setEditInput] = useState('');
 
   // Modal state
@@ -352,6 +353,10 @@ export default function Chat({ user, onLogout }: Props) {
     finally { onLogout(); }
   };
 
+  // FIX: Helper to get a stable string key for each message
+  const getMsgKey = (msg: Message, index: number): string =>
+    msg.id != null ? String(msg.id) : `index-${index}`;
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-screen font-sans text-zinc-400 bg-[--bg-main]">
@@ -448,168 +453,184 @@ export default function Chat({ user, onLogout }: Props) {
               </div>
             ) : (
               <div className="space-y-8 pb-32 pt-4">
-                {messages.map((msg, index) => (
-                  <div 
-                    key={msg.id || index} 
-                    className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} group`}
-                  >
-                    <div className={`flex gap-3 max-w-[90%] md:max-w-[80%] ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
-                      <div className={`w-7 h-7 md:w-8 md:h-8 rounded-full shrink-0 flex items-center justify-center border shadow-xl ${
-                        msg.role === 'user'
-                          ? 'bg-white dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700'
-                          : 'bg-zinc-900 border-zinc-800 text-white shadow-indigo-500/20'
-                      }`}>
-                        {msg.role === 'user'
-                          ? <UserAvatar name={user?.username || 'User'} className="w-full h-full text-[10px]" />
-                          : <StormLogo className={`w-4 h-4 ml-[1px] ${(isTyping && index === messages.length - 1 && msg.role === 'assistant') ? 'animate-spin' : ''}`} />
-                        }
-                      </div>
+                {messages.map((msg, index) => {
+                  // FIX: Use a stable string key for all ID comparisons
+                  const msgKey = getMsgKey(msg, index);
 
-                      <div className="flex flex-col gap-1 min-w-0 max-w-full">
-                        <div className={`px-4 py-3 rounded-2xl shadow-sm border transition-all duration-300 w-fit backdrop-blur-xl ${
-                          msg.role === 'assistant' 
-                            ? 'bg-white/80 dark:bg-zinc-900/40 border-zinc-200/40 dark:border-zinc-800/40 text-[--text-main]' 
-                            : 'bg-white/50 dark:bg-white/5 border-zinc-200/30 dark:border-white/10 text-[--text-main] selection:bg-indigo-500/10'
-                        } ${msg.role === 'user' ? 'rounded-tr-none ml-auto' : 'rounded-tl-none mr-auto'}`}>
-                          
-                          {msg.role === 'user' && msg.content.includes('[Attached Files:') && (() => {
-                            const match = msg.content.match(/\[Attached Files: (.*?)\]/);
-                            if (!match) return null;
-                            const fileNames = match[1].split(', ');
-                            const imageFiles = fileNames.filter(f => /\.(jpg|jpeg|png|gif|webp)$/i.test(f));
-                            const otherFiles = fileNames.filter(f => !/\.(jpg|jpeg|png|gif|webp)$/i.test(f));
-                            return (
-                              <div className="flex flex-col gap-3 mb-4">
-                                {imageFiles.map((fileName, idx) => (
-                                  <div key={idx} className="group/img relative overflow-hidden rounded-2xl border border-zinc-200 dark:border-white/10 shadow-lg bg-zinc-100 dark:bg-black/20">
-                                    <img
-                                      src={`${BACKEND_BASE}/uploads/${fileName}`}
-                                      alt={fileName}
-                                      className="max-w-full h-auto max-h-[600px] object-contain cursor-zoom-in transition-transform duration-500 group-hover/img:scale-[1.02]"
-                                      onClick={() => window.open(`${BACKEND_BASE}/uploads/${fileName}`, '_blank')}
-                                    />
-                                    <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover/img:opacity-100 transition-opacity duration-300">
-                                      <p className="text-[10px] font-black text-white uppercase tracking-[0.2em]">{fileName}</p>
-                                    </div>
-                                  </div>
-                                ))}
-                                {otherFiles.length > 0 && (
-                                  <div className="flex flex-wrap gap-2">
-                                    {otherFiles.map((fileName, idx) => (
-                                      <div key={idx} className="flex items-center gap-3 px-4 py-2.5 bg-zinc-50 dark:bg-white/5 rounded-xl border border-zinc-200 dark:border-white/10 group/file hover:border-indigo-500/50 transition-all">
-                                        <div className="p-1.5 rounded-lg bg-white dark:bg-zinc-800 shadow-sm text-indigo-500">
-                                          <FileText className="w-4 h-4" />
-                                        </div>
-                                        <div className="flex flex-col">
-                                          <span className="text-[10px] font-black text-zinc-500 dark:text-zinc-400 uppercase tracking-widest truncate max-w-[200px] group-hover/file:text-indigo-500 transition-colors">{fileName}</span>
-                                        </div>
-                                      </div>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })()}
-
-                          <div className={`text-sm md:text-base leading-relaxed markdown-body max-w-none`}>
-                            {editingMessageId === (msg.id || index) ? (
-                              <div className="flex flex-col gap-3 min-w-[240px] sm:min-w-[400px] p-1">
-                                <textarea
-                                  value={editInput}
-                                  onChange={(e) => setEditInput(e.target.value)}
-                                  className={`w-full border rounded-xl p-3 text-sm focus:outline-none focus:ring-2 focus:ring-white/20 transition-all resize-none font-medium min-h-[120px] ${
-                                    msg.role === 'user' 
-                                      ? 'bg-black/20 border-white/10 text-white placeholder:text-white/30' 
-                                      : 'bg-zinc-50 dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700 text-zinc-900 dark:text-zinc-100'
-                                  }`}
-                                  autoFocus
-                                />
-                                <div className="flex justify-end gap-2">
-                                  <button
-                                    onClick={() => setEditingMessageId(null)}
-                                    className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all rounded-lg ${
-                                      msg.role === 'user' ? 'text-white/60 hover:text-white' : 'text-zinc-500 hover:text-zinc-900'
-                                    }`}
-                                  >
-                                    Cancel
-                                  </button>
-                                  <button
-                                    onClick={() => {
-                                      setMessages(prev => prev.map((m, i) => (m.id === msg.id || (index === i)) ? { ...m, content: editInput } : m));
-                                      setEditingMessageId(null);
-                                    }}
-                                    className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all shadow-lg ${
-                                      msg.role === 'user' 
-                                        ? 'bg-white text-indigo-600 hover:bg-zinc-100' 
-                                        : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-indigo-500/20'
-                                    }`}
-                                  >
-                                    Save Changes
-                                  </button>
-                                </div>
-                              </div>
-                            ) : (
-                              <ReactMarkdown 
-                                remarkPlugins={[remarkGfm]}
-                                components={{
-                                  code({ className, children, ...props }: React.ComponentPropsWithoutRef<'code'> & { inline?: boolean }) {
-                                    const match = /language-(\w+)/.exec(className || '');
-                                    const content = String(children).replace(/\n$/, '');
-                                    return !props.inline && match ? (
-                                      <CodeBlock language={match[1]} value={content} />
-                                    ) : (
-                                      <code className={`${className || ''} bg-zinc-100/50 dark:bg-white/5 text-indigo-500 px-1 py-0.5 rounded font-mono text-[0.85em]`} {...props}>
-                                        {children}
-                                      </code>
-                                    );
-                                  }
-                                }}
-                              >
-                                {msg.content.replace(/\n?\n?\[Attached Files:.*?\]/g, '').trim()}
-                              </ReactMarkdown>
-                            )}
-                          </div>
+                  return (
+                    <div
+                      key={msgKey}
+                      className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} group`}
+                    >
+                      <div className={`flex gap-3 max-w-[90%] md:max-w-[80%] ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
+                        <div className={`w-7 h-7 md:w-8 md:h-8 rounded-full shrink-0 flex items-center justify-center border shadow-xl ${
+                          msg.role === 'user'
+                            ? 'bg-white dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700'
+                            : 'bg-zinc-900 border-zinc-800 text-white shadow-indigo-500/20'
+                        }`}>
+                          {msg.role === 'user'
+                            ? <UserAvatar name={user?.username || 'User'} className="w-full h-full text-[10px]" />
+                            : <StormLogo className={`w-4 h-4 ml-[1px] ${(isTyping && index === messages.length - 1 && msg.role === 'assistant') ? 'animate-spin' : ''}`} />
+                          }
                         </div>
 
-                        {/* Actions & Timestamp Below (Right Aligned) */}
-                        <div className="flex justify-end items-center gap-1 mt-1.5 px-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                          {msg.role === 'assistant' && (
-                             <span className="text-[10px] font-black text-indigo-500/50 uppercase tracking-[0.2em] mr-auto pl-1">Nexus AI</span>
-                          )}
-                          <span className="text-[9px] font-black text-zinc-400 dark:text-zinc-500 uppercase tracking-widest whitespace-nowrap mr-1">
-                            {msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Now'}
-                          </span>
-                          
-                          <div className="flex items-center gap-0.5">
-                            {msg.role === 'user' && (
-                              <button 
-                                onClick={() => {
-                                  setEditingMessageId(msg.id || index);
-                                  setEditInput(msg.content.replace(/\n?\n?\[Attached Files:.*?\]/g, '').trim());
-                                }}
-                                className="p-1 px-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 hover:text-indigo-600 transition-all"
-                                title="Edit message"
-                              >
-                                <Edit2 className="w-3.5 h-3.5" />
-                              </button>
+                        <div className="flex flex-col gap-1 min-w-0 max-w-full">
+                          <div className={`px-4 py-3 rounded-2xl shadow-sm border transition-all duration-300 w-fit backdrop-blur-xl ${
+                            msg.role === 'assistant'
+                              ? 'bg-white/80 dark:bg-zinc-900/40 border-zinc-200/40 dark:border-zinc-800/40 text-[--text-main]'
+                              : 'bg-white/50 dark:bg-white/5 border-zinc-200/30 dark:border-white/10 text-[--text-main] selection:bg-indigo-500/10'
+                          } ${msg.role === 'user' ? 'rounded-tr-none ml-auto' : 'rounded-tl-none mr-auto'}`}>
+
+                            {msg.role === 'user' && msg.content.includes('[Attached Files:') && (() => {
+                              const match = msg.content.match(/\[Attached Files: (.*?)\]/);
+                              if (!match) return null;
+                              const fileNames = match[1].split(', ');
+                              const imageFiles = fileNames.filter(f => /\.(jpg|jpeg|png|gif|webp)$/i.test(f));
+                              const otherFiles = fileNames.filter(f => !/\.(jpg|jpeg|png|gif|webp)$/i.test(f));
+                              return (
+                                <div className="flex flex-col gap-3 mb-4">
+                                  {imageFiles.map((fileName, idx) => (
+                                    <div key={idx} className="group/img relative overflow-hidden rounded-2xl border border-zinc-200 dark:border-white/10 shadow-lg bg-zinc-100 dark:bg-black/20">
+                                      <img
+                                        src={`${BACKEND_BASE}/uploads/${fileName}`}
+                                        alt={fileName}
+                                        className="max-w-full h-auto max-h-[600px] object-contain cursor-zoom-in transition-transform duration-500 group-hover/img:scale-[1.02]"
+                                        onClick={() => window.open(`${BACKEND_BASE}/uploads/${fileName}`, '_blank')}
+                                      />
+                                      <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover/img:opacity-100 transition-opacity duration-300">
+                                        <p className="text-[10px] font-black text-white uppercase tracking-[0.2em]">{fileName}</p>
+                                      </div>
+                                    </div>
+                                  ))}
+                                  {otherFiles.length > 0 && (
+                                    <div className="flex flex-wrap gap-2">
+                                      {otherFiles.map((fileName, idx) => (
+                                        <div key={idx} className="flex items-center gap-3 px-4 py-2.5 bg-zinc-50 dark:bg-white/5 rounded-xl border border-zinc-200 dark:border-white/10 group/file hover:border-indigo-500/50 transition-all">
+                                          <div className="p-1.5 rounded-lg bg-white dark:bg-zinc-800 shadow-sm text-indigo-500">
+                                            <FileText className="w-4 h-4" />
+                                          </div>
+                                          <div className="flex flex-col">
+                                            <span className="text-[10px] font-black text-zinc-500 dark:text-zinc-400 uppercase tracking-widest truncate max-w-[200px] group-hover/file:text-indigo-500 transition-colors">{fileName}</span>
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })()}
+
+                            <div className={`text-sm md:text-base leading-relaxed markdown-body max-w-none`}>
+                              {editingMessageId === msgKey ? (
+                                <div className="flex flex-col gap-3 min-w-[240px] sm:min-w-[400px] p-1">
+                                  <textarea
+                                    value={editInput}
+                                    onChange={(e) => setEditInput(e.target.value)}
+                                    className={`w-full border rounded-xl p-3 text-sm focus:outline-none focus:ring-2 focus:ring-white/20 transition-all resize-none font-medium min-h-[120px] ${
+                                      msg.role === 'user'
+                                        ? 'bg-black/20 border-white/10 text-white placeholder:text-white/30'
+                                        : 'bg-zinc-50 dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700 text-zinc-900 dark:text-zinc-100'
+                                    }`}
+                                    autoFocus
+                                  />
+                                  <div className="flex justify-end gap-2">
+                                    <button
+                                      onClick={() => setEditingMessageId(null)}
+                                      className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all rounded-lg ${
+                                        msg.role === 'user' ? 'text-white/60 hover:text-white' : 'text-zinc-500 hover:text-zinc-900'
+                                      }`}
+                                    >
+                                      Cancel
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        // FIX: Compare using the stable msgKey
+                                        setMessages(prev =>
+                                          prev.map((m, i) =>
+                                            getMsgKey(m, i) === msgKey ? { ...m, content: editInput } : m
+                                          )
+                                        );
+                                        setEditingMessageId(null);
+                                      }}
+                                      className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all shadow-lg ${
+                                        msg.role === 'user'
+                                          ? 'bg-white text-indigo-600 hover:bg-zinc-100'
+                                          : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-indigo-500/20'
+                                      }`}
+                                    >
+                                      Save Changes
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <ReactMarkdown
+                                  remarkPlugins={[remarkGfm]}
+                                  components={{
+                                    // FIX: Destructure `inline` out of props so it isn't forwarded to the DOM element
+                                    code({ className, children, inline, ...props }: React.ComponentPropsWithoutRef<'code'> & { inline?: boolean }) {
+                                      const match = /language-(\w+)/.exec(className || '');
+                                      const content = String(children).replace(/\n$/, '');
+                                      return !inline && match ? (
+                                        <CodeBlock language={match[1]} value={content} />
+                                      ) : (
+                                        <code
+                                          className={`${className || ''} bg-zinc-100/50 dark:bg-white/5 text-indigo-500 px-1 py-0.5 rounded font-mono text-[0.85em]`}
+                                          {...props}
+                                        >
+                                          {children}
+                                        </code>
+                                      );
+                                    }
+                                  }}
+                                >
+                                  {msg.content.replace(/\n?\n?\[Attached Files:.*?\]/g, '').trim()}
+                                </ReactMarkdown>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Actions & Timestamp Below */}
+                          <div className="flex justify-end items-center gap-1 mt-1.5 px-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            {msg.role === 'assistant' && (
+                              <span className="text-[10px] font-black text-indigo-500/50 uppercase tracking-[0.2em] mr-auto pl-1">Nexus AI</span>
                             )}
-                            <button 
-                              onClick={() => {
-                                navigator.clipboard.writeText(msg.content);
-                                setCopiedId(msg.id || index);
-                                setTimeout(() => setCopiedId(null), 2000);
-                              }}
-                              className={`p-1 px-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all ${copiedId === (msg.id || index) ? 'text-emerald-500' : 'text-zinc-400 hover:text-indigo-600'}`}
-                              title="Copy message"
-                            >
-                              {copiedId === (msg.id || index) ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                            </button>
+                            <span className="text-[9px] font-black text-zinc-400 dark:text-zinc-500 uppercase tracking-widest whitespace-nowrap mr-1">
+                              {msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Now'}
+                            </span>
+
+                            <div className="flex items-center gap-0.5">
+                              {msg.role === 'user' && (
+                                <button
+                                  onClick={() => {
+                                    // FIX: Use stable msgKey for editingMessageId
+                                    setEditingMessageId(msgKey);
+                                    setEditInput(msg.content.replace(/\n?\n?\[Attached Files:.*?\]/g, '').trim());
+                                  }}
+                                  className="p-1 px-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 hover:text-indigo-600 transition-all"
+                                  title="Edit message"
+                                >
+                                  <Edit2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                              <button
+                                onClick={() => {
+                                  navigator.clipboard.writeText(msg.content);
+                                  // FIX: Use stable msgKey for copiedId
+                                  setCopiedId(msgKey);
+                                  setTimeout(() => setCopiedId(null), 2000);
+                                }}
+                                className={`p-1 px-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all ${copiedId === msgKey ? 'text-emerald-500' : 'text-zinc-400 hover:text-indigo-600'}`}
+                                title="Copy message"
+                              >
+                                {copiedId === msgKey ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                              </button>
+                            </div>
                           </div>
                         </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
 
                 {isTyping && (
                   <div className="flex items-start gap-3">
@@ -680,9 +701,9 @@ export default function Chat({ user, onLogout }: Props) {
                     >
                       {file.isImage ? (
                         <div className="w-8 h-8 rounded-lg overflow-hidden bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700">
-                          <img 
-                            src={`${BACKEND_BASE}/uploads/${file.fileName}`} 
-                            alt={file.originalName} 
+                          <img
+                            src={`${BACKEND_BASE}/uploads/${file.fileName}`}
+                            alt={file.originalName}
                             className="w-full h-full object-cover"
                           />
                         </div>
@@ -692,8 +713,8 @@ export default function Chat({ user, onLogout }: Props) {
                         </div>
                       )}
                       <span className="text-[10px] font-black text-zinc-500 dark:text-zinc-400 uppercase tracking-widest truncate">{file.originalName}</span>
-                      <button 
-                        onClick={() => removeAttachedFile(i)} 
+                      <button
+                        onClick={() => removeAttachedFile(i)}
                         className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-zinc-900 dark:bg-white text-white dark:text-black flex items-center justify-center shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200"
                       >
                         <X className="w-3 h-3" />
@@ -739,7 +760,7 @@ export default function Chat({ user, onLogout }: Props) {
 
                 <div className="flex items-center gap-2">
                   <div className="relative">
-                    <button 
+                    <button
                       onClick={() => setIsModelMenuOpen(!isModelMenuOpen)}
                       className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-100 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors"
                     >
@@ -760,9 +781,9 @@ export default function Chat({ user, onLogout }: Props) {
                             <span className="text-[8px] font-black text-zinc-400 uppercase tracking-widest">Select Model</span>
                           </div>
                           {[
-                            'Scout 4.6 Adaptive', 
-                            'Scout 4.6 Pro', 
-                            'Scout 3.5 Mini', 
+                            'Scout 4.6 Adaptive',
+                            'Scout 4.6 Pro',
+                            'Scout 3.5 Mini',
                             'gemini-2.5-flash',
                             'llama-3.3-70b-versatile'
                           ].map((model) => (
@@ -785,10 +806,10 @@ export default function Chat({ user, onLogout }: Props) {
                     onClick={isTyping ? handleStopResponse : () => handleSendMessage()}
                     disabled={(!input.trim() && attachedFiles.length === 0 && !isUploading) && !isTyping}
                     className={`p-2.5 rounded-2xl shadow-sm transition-all flex items-center justify-center border w-11 h-11 ${
-                      isTyping 
-                        ? 'bg-white border-zinc-200 dark:bg-zinc-950 dark:border-zinc-800' 
-                        : (!input.trim() && attachedFiles.length === 0) 
-                          ? 'bg-white text-zinc-200 border-zinc-100 dark:bg-white/5 dark:text-zinc-800 dark:border-white/5' 
+                      isTyping
+                        ? 'bg-white border-zinc-200 dark:bg-zinc-950 dark:border-zinc-800'
+                        : (!input.trim() && attachedFiles.length === 0)
+                          ? 'bg-white text-zinc-200 border-zinc-100 dark:bg-white/5 dark:text-zinc-800 dark:border-white/5'
                           : 'bg-white text-zinc-900 border-zinc-200 hover:shadow-md'
                     }`}
                   >
@@ -807,7 +828,13 @@ export default function Chat({ user, onLogout }: Props) {
                 </div>
               </div>
             </div>
-            <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept="image/jpeg,image/png,image/gif,image/webp,application/pdf,text/plain" className="hidden" />
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileUpload}
+              accept="image/jpeg,image/png,image/gif,image/webp,application/pdf,text/plain"
+              className="hidden"
+            />
             <p className="mt-4 text-center text-[10px] font-medium text-[--text-muted]/40">Scout can make mistakes. Check important info.</p>
           </div>
         </div>
