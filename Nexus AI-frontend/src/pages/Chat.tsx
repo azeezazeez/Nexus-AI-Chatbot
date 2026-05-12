@@ -602,10 +602,10 @@ export default function Chat({ user, onLogout }: Props) {
                                   </div>
                                 </div>
                               ) : (
-                                <ReactMarkdown
+                               <ReactMarkdown
   remarkPlugins={[remarkGfm]}
   components={{
-    code({ className, children, inline, ...props }: any) {
+    code({ node, inline, className, children, ...props }: any) {
       const match = /language-(\w+)/.exec(className || '');
       const content = String(children).replace(/\n$/, '');
       
@@ -613,21 +613,16 @@ export default function Chat({ user, onLogout }: Props) {
         return <CodeBlock language={match[1]} value={content} />;
       }
       
-      // Inline code styling
       return (
         <code
-          className="bg-gray-800 text-blue-400 px-1.5 py-0.5 rounded font-mono text-sm"
+          className={`${className || ''} bg-zinc-100/50 dark:bg-white/5 text-indigo-500 px-1 py-0.5 rounded font-mono text-[0.85em]`}
           {...props}
         >
           {children}
         </code>
       );
-    },
-    // Optional: Style pre tags
-    pre({ children }) {
-      return <>{children}</>;
-    },
-  } as Components}
+    }
+  }}
 >
   {cleanMessageContent(msg.content)}
 </ReactMarkdown>
