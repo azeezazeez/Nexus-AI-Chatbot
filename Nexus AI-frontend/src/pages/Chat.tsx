@@ -455,12 +455,12 @@ export default function Chat({ user, onLogout }: Props) {
                         }
                       </div>
 
-                      <div className="flex flex-col gap-1 min-w-0">
-                        <div className={`px-4 py-3 rounded-2xl shadow-sm border transition-all duration-300 ${
+                      <div className="flex flex-col gap-1 min-w-0 max-w-full">
+                        <div className={`px-4 py-3 rounded-2xl shadow-sm border transition-all duration-300 w-fit ${
                           msg.role === 'assistant' 
                             ? 'bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-[--text-main]' 
                             : 'bg-indigo-600 border-indigo-500 text-white selection:bg-white/20'
-                        } ${msg.role === 'user' ? 'rounded-tr-none' : 'rounded-tl-none'}`}>
+                        } ${msg.role === 'user' ? 'rounded-tr-none ml-auto' : 'rounded-tl-none mr-auto'}`}>
                           
                           {msg.role === 'user' && msg.content.includes('[Attached Files:') && (() => {
                             const match = msg.content.match(/\[Attached Files: (.*?)\]/);
@@ -469,23 +469,32 @@ export default function Chat({ user, onLogout }: Props) {
                             const imageFiles = fileNames.filter(f => /\.(jpg|jpeg|png|gif|webp)$/i.test(f));
                             const otherFiles = fileNames.filter(f => !/\.(jpg|jpeg|png|gif|webp)$/i.test(f));
                             return (
-                              <div className="flex flex-wrap gap-2 mb-3">
+                              <div className="flex flex-col gap-3 mb-4">
                                 {imageFiles.map((fileName, idx) => (
-                                  <div key={idx} className="relative overflow-hidden rounded-lg border border-white/20 shadow-md max-w-[200px]">
+                                  <div key={idx} className="relative overflow-hidden rounded-xl border border-white/20 shadow-xl bg-black/5">
                                     <img
                                       src={`${BACKEND_BASE}/uploads/${fileName}`}
                                       alt={fileName}
-                                      className="max-h-40 w-auto object-contain cursor-zoom-in"
+                                      className="max-w-full h-auto max-h-[500px] object-contain cursor-zoom-in"
                                       onClick={() => window.open(`${BACKEND_BASE}/uploads/${fileName}`, '_blank')}
                                     />
+                                    <div className="absolute bottom-0 left-0 right-0 bg-black/40 backdrop-blur-md px-3 py-1.5 border-t border-white/10">
+                                      <p className="text-[10px] font-bold text-white truncate">{fileName}</p>
+                                    </div>
                                   </div>
                                 ))}
-                                {otherFiles.map((fileName, idx) => (
-                                  <div key={idx} className="flex items-center gap-2 px-3 py-1.5 bg-white/10 rounded-lg border border-white/20">
-                                    <FileText className="w-3.5 h-3.5 shrink-0" />
-                                    <span className="text-[10px] font-bold truncate max-w-[120px]">{fileName}</span>
+                                {otherFiles.length > 0 && (
+                                  <div className="flex flex-wrap gap-2">
+                                    {otherFiles.map((fileName, idx) => (
+                                      <div key={idx} className="flex items-center gap-2 px-3 py-2 bg-white/10 rounded-xl border border-white/20">
+                                        <FileText className="w-4 h-4 shrink-0 text-white" />
+                                        <div className="flex flex-col">
+                                          <span className="text-xs font-bold text-white truncate max-w-[200px]">{fileName}</span>
+                                        </div>
+                                      </div>
+                                    ))}
                                   </div>
-                                ))}
+                                )}
                               </div>
                             );
                           })()}
@@ -512,23 +521,23 @@ export default function Chat({ user, onLogout }: Props) {
                           </div>
                         </div>
 
-                        {/* Actions & Timestamp Below */}
-                        <div className={`flex items-center gap-3 px-1 mt-1 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
-                          <span className="text-[9px] font-black text-zinc-400 dark:text-zinc-500 uppercase tracking-widest whitespace-nowrap">
+                        {/* Actions & Timestamp Below (Right Aligned) */}
+                        <div className="flex justify-end items-center gap-1 mt-1.5 px-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <span className="text-[9px] font-black text-zinc-400 dark:text-zinc-500 uppercase tracking-widest whitespace-nowrap mr-2">
                             {msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Now'}
                           </span>
                           
-                          <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <div className="flex items-center gap-1">
                             {msg.role === 'user' && (
                               <button 
                                 onClick={() => {
                                   setInput(msg.content.replace(/\n?\n?\[Attached Files:.*?\]/g, '').trim());
                                   inputRef.current?.focus();
                                 }}
-                                className="p-1 text-zinc-400 hover:text-indigo-600 transition-colors"
+                                className="p-1 px-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 hover:text-indigo-600 transition-all"
                                 title="Edit message"
                               >
-                                <Edit2 className="w-3 h-3" />
+                                <Edit2 className="w-3.5 h-3.5" />
                               </button>
                             )}
                             <button 
@@ -537,10 +546,10 @@ export default function Chat({ user, onLogout }: Props) {
                                 setCopiedId(msg.id || index);
                                 setTimeout(() => setCopiedId(null), 2000);
                               }}
-                              className={`p-1 transition-colors ${copiedId === (msg.id || index) ? 'text-emerald-500' : 'text-zinc-400 hover:text-indigo-600'}`}
+                              className={`p-1 px-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all ${copiedId === (msg.id || index) ? 'text-emerald-500' : 'text-zinc-400 hover:text-indigo-600'}`}
                               title="Copy message"
                             >
-                              {copiedId === (msg.id || index) ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                              {copiedId === (msg.id || index) ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
                             </button>
                           </div>
                         </div>
@@ -674,15 +683,15 @@ export default function Chat({ user, onLogout }: Props) {
                     <AnimatePresence>
                       {isModelMenuOpen && (
                         <motion.div
-                          initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                          animate={{ opacity: 1, y: -8, scale: 1 }}
-                          exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                          className="absolute bottom-full right-0 mb-2 w-48 bg-white dark:bg-zinc-800 border border-zinc-100 dark:border-zinc-700 rounded-xl shadow-2xl z-50 overflow-hidden"
+                          initial={{ opacity: 0, y: -10, scale: 0.95 }}
+                          animate={{ opacity: 1, y: 8, scale: 1 }}
+                          exit={{ opacity: 0, y: -10, scale: 0.95 }}
+                          className="absolute top-full right-0 mt-2 w-48 bg-white dark:bg-zinc-800 border border-zinc-100 dark:border-zinc-700 rounded-xl shadow-2xl z-50 overflow-hidden"
                         >
                           <div className="p-2 px-3 border-b border-zinc-100 dark:border-zinc-700">
                             <span className="text-[8px] font-black text-zinc-400 uppercase tracking-widest">Select Model</span>
                           </div>
-                          {['Scout 4.6 Adaptive', 'Scout 4.6 Pro', 'Scout 3.5 Mini'].map((model) => (
+                          {['Scout 4.6 Adaptive', 'Scout 4.6 Pro', 'Scout 3.5 Mini', 'gemini-2.5-flash', 'llama-3.1-8b-instant'].map((model) => (
                             <button
                               key={model}
                               onClick={() => { setSelectedModel(model); setIsModelMenuOpen(false); }}
