@@ -18,9 +18,18 @@ export interface Session {
 }
 
 export interface Message {
-  id: number;
+  id: string | number;
   sessionId: number;
   role: 'user' | 'assistant';
   content: string;
   timestamp: string;
+}
+
+export interface UploadedFile {
+  id: number;
+  originalName: string;
+  fileName: string;
+  mimeType: string;
+  size: number;
+  isImage?: boolean; // Optional: whether the file is an image
 }
