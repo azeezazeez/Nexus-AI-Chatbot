@@ -16,7 +16,7 @@ import {
 import ReactMarkdown from 'react-markdown';
 import type { Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 
 interface Props {
@@ -36,30 +36,30 @@ const CodeBlock = ({ language, value }: { language: string; value: string }) => 
   };
 
   return (
-    <div className="group/code relative my-6 overflow-hidden rounded-xl border border-white/20 dark:border-white/10 shadow-2xl backdrop-blur-xl bg-white/5 dark:bg-black/20 transition-all">
-      <div className="flex items-center justify-between px-4 py-2.5 bg-white/10 dark:bg-black/20 border-b border-white/10">
-        <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest flex items-center gap-2">
-          <div className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
+    <div className="group/code relative my-4 overflow-hidden rounded-lg border border-gray-700 bg-gray-900 shadow-xl">
+      <div className="flex items-center justify-between px-4 py-2 bg-gray-800 border-b border-gray-700">
+        <span className="text-xs font-mono font-semibold text-gray-300 uppercase tracking-wider flex items-center gap-2">
+          <div className="w-2 h-2 rounded-full bg-blue-500" />
           {language || 'code'}
         </span>
         <button
           onClick={handleCopy}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-100 dark:bg-zinc-800 text-[10px] font-black text-zinc-500 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all hover:scale-105 active:scale-95"
+          className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-gray-700 hover:bg-gray-600 text-xs font-medium text-gray-300 transition-all"
         >
-          {copied ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
-          <span className="uppercase tracking-widest">{copied ? 'Copied' : 'Copy'}</span>
+          {copied ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
+          <span>{copied ? 'Copied!' : 'Copy'}</span>
         </button>
       </div>
-      <div className="p-0 bg-[#282c34]">
+      <div className="overflow-x-auto">
         <SyntaxHighlighter
-          style={oneDark}
+          style={vscDarkPlus}
           language={language || 'text'}
           PreTag="div"
           customStyle={{
             margin: 0,
-            padding: '1.25rem',
-            fontSize: '0.85rem',
-            background: 'transparent',
+            padding: '1rem',
+            fontSize: '0.875rem',
+            background: 'rgb(17, 24, 39)',
             lineHeight: '1.6',
           }}
         >
@@ -603,27 +603,34 @@ export default function Chat({ user, onLogout }: Props) {
                                 </div>
                               ) : (
                                 <ReactMarkdown
-                                  remarkPlugins={[remarkGfm]}
-                                  components={{
-                                    code({ className, children, ...props }: any) {
-                                      const match = /language-(\w+)/.exec(className || '');
-                                      const content = String(children).replace(/\n$/, '');
-                                      const isInline = props.inline || !className;
-                                      return !isInline && match ? (
-                                        <CodeBlock language={match[1]} value={content} />
-                                      ) : (
-                                        <code
-                                          className={`${className || ''} bg-zinc-100/50 dark:bg-white/5 text-indigo-500 px-1 py-0.5 rounded font-mono text-[0.85em]`}
-                                          {...props}
-                                        >
-                                          {children}
-                                        </code>
-                                      );
-                                    }
-                                  } as Components}
-                                >
-                                  {cleanMessageContent(msg.content)}
-                                </ReactMarkdown>
+  remarkPlugins={[remarkGfm]}
+  components={{
+    code({ className, children, inline, ...props }: any) {
+      const match = /language-(\w+)/.exec(className || '');
+      const content = String(children).replace(/\n$/, '');
+      
+      if (!inline && match) {
+        return <CodeBlock language={match[1]} value={content} />;
+      }
+      
+      // Inline code styling
+      return (
+        <code
+          className="bg-gray-800 text-blue-400 px-1.5 py-0.5 rounded font-mono text-sm"
+          {...props}
+        >
+          {children}
+        </code>
+      );
+    },
+    // Optional: Style pre tags
+    pre({ children }) {
+      return <>{children}</>;
+    },
+  } as Components}
+>
+  {cleanMessageContent(msg.content)}
+</ReactMarkdown>
                               )}
                             </div>
                           </div>
