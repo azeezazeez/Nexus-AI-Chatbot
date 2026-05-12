@@ -91,7 +91,7 @@ export default function Chat({ user, onLogout }: Props) {
   const isSendingRef = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const [attachedFiles, setAttachedFiles] = useState<UploadedFile[]>([]);
 
@@ -409,12 +409,12 @@ export default function Chat({ user, onLogout }: Props) {
             </button>
             <div className="hidden sm:flex items-center gap-2">
               <div className="w-1.5 h-1.5 md:w-2 md:h-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="text-[9px] md:text-[10px] font-bold text-[--text-muted]/60 uppercase tracking-widest">Nexus AI Online</span>
+              <span className="text-[9px] md:text-[10px] font-bold text-[--text-muted]/60 uppercase tracking-widest">Scout Online</span>
             </div>
           </div>
           <div className="flex-1 text-center px-4 overflow-hidden">
             <span className="text-[10px] md:text-xs font-bold text-[--text-main] truncate block max-w-[200px] md:max-w-md mx-auto">
-              {sessions.find(s => s.id === currentSessionId)?.sessionName || 'New Conversation'}
+              {sessions.find(s => s.id === currentSessionId)?.sessionName || 'New Chat'}
             </span>
           </div>
           <div className="w-10 md:w-20" />
@@ -582,7 +582,7 @@ export default function Chat({ user, onLogout }: Props) {
                       <StormLogo className="w-5 h-5" />
                     </div>
                     <div className="flex-1 space-y-2">
-                      <p className="text-[10px] font-bold text-[--text-muted]/60 uppercase tracking-widest">Nexus AI</p>
+                      <p className="text-[10px] font-bold text-[--text-muted]/60 uppercase tracking-widest">Scout AI</p>
                       <div className="flex gap-1.5 py-4 items-center">
                         <motion.div animate={{ scale: [1, 1.5, 1], opacity: [0.3, 1, 0.3] }} transition={{ repeat: Infinity, duration: 1 }} className="w-1.5 h-1.5 bg-indigo-600 rounded-full" />
                         <motion.div animate={{ scale: [1, 1.5, 1], opacity: [0.3, 1, 0.3] }} transition={{ repeat: Infinity, duration: 1, delay: 0.2 }} className="w-1.5 h-1.5 bg-indigo-600 rounded-full" />
@@ -685,7 +685,7 @@ export default function Chat({ user, onLogout }: Props) {
                 
                 {/* Text Area / Input */}
                 <textarea
-                  ref={inputRef as any}
+                  ref={inputRef}
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={(e) => {
@@ -760,7 +760,7 @@ export default function Chat({ user, onLogout }: Props) {
             </div>
 
             <p className="mt-4 text-center text-[10px] font-medium text-[--text-muted]/40">
-              Nexus AI can make mistakes. Check important info.
+              Scout can make mistakes. Check important info.
             </p>
           </div>
         </div>
