@@ -1,33 +1,30 @@
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
+ *
+ * Auth strategy: Spring HttpSession (cookie-based).
+ * The backend sets a JSESSIONID cookie on login.
+ * All requests send credentials: 'include' so the browser
+ * attaches that cookie automatically — NO Bearer token needed.
  */
 
 const API_BASE = 'https://nexus-ai-chatbot-arhr.onrender.com/api';
 
 export async function fetchWithAuth(url: string, options: RequestInit = {}) {
-  const token = localStorage.getItem('auth_token');
-
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...(options.headers as Record<string, string>),
-  };
-
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-
   const response = await fetch(url, {
     ...options,
-    credentials: 'include',
-    headers,
+    credentials: 'include', // sends JSESSIONID cookie on every request
+    headers: {
+      'Content-Type': 'application/json',
+      ...(options.headers as Record<string, string>),
+      // No Authorization header — backend is session-based, not JWT
+    },
   });
 
-  // Some endpoints (like /status) intentionally return 401 — let callers handle it
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    // Allow /status 401 to pass through silently so callers can check auth state
+    // Let /status 401 pass through so callers can check auth state
     if (url.includes('/status') && response.status === 401) {
       return data;
     }
@@ -43,10 +40,16 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}) {
 
 export const authApi = {
   login: (data: any) =>
-    fetchWithAuth(`${API_BASE}/auth/login`, { method: 'POST', body: JSON.stringify(data) }),
+    fetchWithAuth(`${API_BASE}/auth/login`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
 
   signup: (data: any) =>
-    fetchWithAuth(`${API_BASE}/auth/signup`, { method: 'POST', body: JSON.stringify(data) }),
+    fetchWithAuth(`${API_BASE}/auth/signup`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
 
   verifyOtp: (email: string, otpCode: string) =>
     fetchWithAuth(`${API_BASE}/auth/verify-otp`, {
@@ -89,9 +92,6 @@ export const chatApi = {
   getMessages: (sessionId: number) =>
     fetchWithAuth(`${API_BASE}/chat/history/${sessionId}`),
 
-  // NOTE: createSession is kept for any future direct use,
-  // but Chat.tsx no longer calls it on "New Chat" —
-  // the backend creates a session automatically on the first sendMessage.
   createSession: () =>
     fetchWithAuth(`${API_BASE}/chat/new-session`, { method: 'POST' }),
 
@@ -119,8 +119,6 @@ export const chatApi = {
       body: JSON.stringify({ message, sessionId }),
     }),
 
-  // searchSessions is available for future use (e.g. a search UI),
-  // but is intentionally NOT called on every keystroke.
   searchSessions: (query: string) =>
     fetchWithAuth(`${API_BASE}/chat/search?q=${encodeURIComponent(query)}`),
 };
