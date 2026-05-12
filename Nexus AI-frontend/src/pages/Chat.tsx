@@ -223,7 +223,8 @@ export default function Chat({ user, onLogout }: Props) {
         fullMessageContent,
         currentSessionId,
         fileIds,
-        controller.signal
+        controller.signal,
+        selectedModel
       );
 
       const activeSessionId = response.sessionId || currentSessionId;
@@ -391,9 +392,15 @@ export default function Chat({ user, onLogout }: Props) {
             >
               <Menu className="w-4 h-4 md:w-5 md:h-5" />
             </button>
-            <div className="hidden sm:flex items-center gap-2">
-              <div className="w-1.5 h-1.5 md:w-2 md:h-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="text-[9px] md:text-[10px] font-bold text-[--text-muted]/60 uppercase tracking-widest">Scout Online</span>
+            <div className="flex items-center gap-2 md:gap-3">
+              <StormLogo className={`w-6 h-6 text-indigo-600 dark:text-indigo-500 transition-all ${isTyping ? 'animate-spin' : ''}`} />
+              <div className="hidden sm:flex flex-col">
+                <span className="text-[10px] font-black text-[--text-main] uppercase tracking-widest leading-none mb-1">Nexus AI</span>
+                <div className="flex items-center gap-1.5">
+                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  <span className="text-[8px] font-bold text-[--text-muted]/60 uppercase tracking-widest">Scout Active</span>
+                </div>
+              </div>
             </div>
           </div>
           <div className="flex-1 text-center px-4 overflow-hidden">
@@ -451,7 +458,7 @@ export default function Chat({ user, onLogout }: Props) {
                       }`}>
                         {msg.role === 'user'
                           ? <UserAvatar name={user?.username || 'User'} className="w-full h-full text-[10px]" />
-                          : <StormLogo className="w-4 h-4 ml-[1px]" />
+                          : <StormLogo className={`w-4 h-4 ml-[1px] ${(isTyping && index === messages.length - 1 && msg.role === 'assistant') ? 'animate-spin' : ''}`} />
                         }
                       </div>
 
@@ -523,23 +530,28 @@ export default function Chat({ user, onLogout }: Props) {
 
                         {/* Actions & Timestamp Below (Right Aligned) */}
                         <div className="flex justify-end items-center gap-1 mt-1.5 px-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <span className="text-[9px] font-black text-zinc-400 dark:text-zinc-500 uppercase tracking-widest whitespace-nowrap mr-2">
+                          <span className="text-[9px] font-black text-zinc-400 dark:text-zinc-500 uppercase tracking-widest whitespace-nowrap mr-1">
                             {msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Now'}
                           </span>
                           
-                          <div className="flex items-center gap-1">
-                            {msg.role === 'user' && (
-                              <button 
-                                onClick={() => {
-                                  setInput(msg.content.replace(/\n?\n?\[Attached Files:.*?\]/g, '').trim());
-                                  inputRef.current?.focus();
-                                }}
-                                className="p-1 px-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 hover:text-indigo-600 transition-all"
-                                title="Edit message"
-                              >
-                                <Edit2 className="w-3.5 h-3.5" />
-                              </button>
-                            )}
+                          <div className="flex items-center gap-0.5">
+                            <button 
+                              onClick={() => {
+                                setInput(msg.content.replace(/\n?\n?\[Attached Files:.*?\]/g, '').trim());
+                                inputRef.current?.focus();
+                                // Optional: adjust textarea height
+                                setTimeout(() => {
+                                  if (inputRef.current) {
+                                    inputRef.current.style.height = 'auto';
+                                    inputRef.current.style.height = `${inputRef.current.scrollHeight}px`;
+                                  }
+                                }, 0);
+                              }}
+                              className="p-1 px-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 hover:text-indigo-600 transition-all"
+                              title="Edit message"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
                             <button 
                               onClick={() => {
                                 navigator.clipboard.writeText(msg.content);
@@ -686,16 +698,24 @@ export default function Chat({ user, onLogout }: Props) {
                           initial={{ opacity: 0, y: -10, scale: 0.95 }}
                           animate={{ opacity: 1, y: 8, scale: 1 }}
                           exit={{ opacity: 0, y: -10, scale: 0.95 }}
-                          className="absolute top-full right-0 mt-2 w-48 bg-white dark:bg-zinc-800 border border-zinc-100 dark:border-zinc-700 rounded-xl shadow-2xl z-50 overflow-hidden"
+                          className="absolute top-full right-0 mt-2 w-56 bg-white dark:bg-zinc-800 border border-zinc-100 dark:border-zinc-700 rounded-xl shadow-2xl z-50 overflow-hidden"
                         >
                           <div className="p-2 px-3 border-b border-zinc-100 dark:border-zinc-700">
                             <span className="text-[8px] font-black text-zinc-400 uppercase tracking-widest">Select Model</span>
                           </div>
-                          {['Scout 4.6 Adaptive', 'Scout 4.6 Pro', 'Scout 3.5 Mini', 'gemini-2.5-flash', 'llama-3.1-8b-instant'].map((model) => (
+                          {[
+                            'Scout 4.6 Adaptive', 
+                            'Scout 4.6 Pro', 
+                            'Scout 3.5 Mini', 
+                            'Google AI Studio API Modal', 
+                            'Groq Llama 3.1 8B Modal',
+                            'gemini-2.5-flash', 
+                            'llama-3.1-8b-instant'
+                          ].map((model) => (
                             <button
                               key={model}
                               onClick={() => { setSelectedModel(model); setIsModelMenuOpen(false); }}
-                              className={`w-full text-left px-3 py-2 text-xs font-bold transition-all hover:bg-indigo-50 dark:hover:bg-indigo-900/20 ${selectedModel === model ? 'text-indigo-600' : 'text-zinc-600 dark:text-zinc-400'}`}
+                              className={`w-full text-left px-3 py-2.5 text-xs font-bold transition-all hover:bg-indigo-50 dark:hover:bg-indigo-900/20 ${selectedModel === model ? 'text-indigo-600 bg-indigo-50/50 dark:bg-indigo-900/10' : 'text-zinc-600 dark:text-zinc-400'}`}
                             >
                               {model}
                             </button>
@@ -711,10 +731,25 @@ export default function Chat({ user, onLogout }: Props) {
                     onClick={isTyping ? handleStopResponse : () => handleSendMessage()}
                     disabled={(!input.trim() && attachedFiles.length === 0 && !isUploading) && !isTyping}
                     className={`p-2.5 rounded-xl shadow-md transition-all flex items-center justify-center border ${
-                      isTyping ? 'bg-red-500 text-white border-red-400' : (!input.trim() && attachedFiles.length === 0) ? 'bg-zinc-50 text-zinc-300 border-zinc-100 dark:bg-zinc-800 dark:text-zinc-600 dark:border-white/5' : 'bg-zinc-900 text-white border-zinc-800 dark:bg-white dark:text-black dark:border-white'
+                      isTyping 
+                        ? 'bg-zinc-900 text-white border-zinc-800 dark:bg-white dark:text-black dark:border-white' 
+                        : (!input.trim() && attachedFiles.length === 0) 
+                          ? 'bg-zinc-50 text-zinc-300 border-zinc-100 dark:bg-zinc-800 dark:text-zinc-600 dark:border-white/5' 
+                          : 'bg-zinc-900 text-white border-zinc-800 dark:bg-white dark:text-black dark:border-white'
                     }`}
                   >
-                    {isTyping ? <Loader2 className="w-5 h-5 animate-spin" /> : <ArrowUp className={`w-5 h-5 transition-transform ${input.trim() ? 'scale-110' : 'scale-90 opacity-40'}`} />}
+                    {isTyping ? (
+                      <div className="relative w-5 h-5 flex items-center justify-center">
+                        <div className={`absolute inset-0 border-2 rounded-full animate-spin ${
+                          document.documentElement.classList.contains('dark') ? 'border-zinc-200 border-t-zinc-900' : 'border-zinc-700/20 border-t-zinc-100'
+                        }`} />
+                        <div className={`w-1.5 h-1.5 rounded-sm ${
+                          document.documentElement.classList.contains('dark') ? 'bg-zinc-900' : 'bg-zinc-100'
+                        }`} />
+                      </div>
+                    ) : (
+                      <ArrowUp className={`w-5 h-5 transition-transform ${input.trim() ? 'scale-110' : 'scale-90 opacity-40'}`} />
+                    )}
                   </motion.button>
                 </div>
               </div>
