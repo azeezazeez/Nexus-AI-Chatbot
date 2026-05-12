@@ -13,38 +13,6 @@ interface Props {
   onLogout: () => void;
 }
 
-// ── Local autocomplete dictionary ───────────────────────────────────────────
-const SUGGESTIONS_BANK = [
-  "How can I help you today?",
-  "How to implement a responsive layout in React?",
-  "How to fix common JavaScript errors?",
-  "How to build a full-stack app with Node.js?",
-  "What is the best way to learn TypeScript?",
-  "What are the benefits of using Tailwind CSS?",
-  "What does this code do in this context?",
-  "Why is my application running slow?",
-  "Why should I use functional components?",
-  "Can you explain higher-order functions?",
-  "Can you write a unit test for this?",
-  "Explain the difference between SQL and NoSQL.",
-  "Tell me about the latest web development trends.",
-  "Write a clean code example for a login form.",
-  "Generate a sample database schema for a blog.",
-  "Fix this bug in my React hook.",
-  "Debug this layout issue on mobile devices.",
-  "I'm looking for healthy breakfast ideas.",
-  "Draft a poem about the morning rain.",
-  "Explain quantum physics to a five year old.",
-  "How to deploy a website to the cloud?",
-  "What are some creative gift ideas for developers?",
-  "Can you tell me a joke about programming?",
-  "Help me structure my project folders.",
-  "Describe the concept of 'closure' in JS.",
-  "How to optimize images for faster loading?",
-  "What is the purpose of a Docker container?",
-  "Write a professional email for a job application.",
-];
-
 export default function Chat({ user, onLogout }: Props) {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<number | null>(null);
@@ -56,7 +24,8 @@ export default function Chat({ user, onLogout }: Props) {
 
   // ── Autocomplete state ──────────────────────────────────────────────────────
   const [suggestion, setSuggestion] = useState('');
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autocompleteTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isFetchingSuggestionRef = useRef(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   // Synchronous send guard — prevents double-send from StrictMode or fast re-renders
@@ -104,65 +73,67 @@ export default function Chat({ user, onLogout }: Props) {
     return () => clearTimeout(timer);
   }, [messages, isTyping]);
 
-  // ── Cleanup debounce on unmount ─────────────────────────────────────────────
+  // ── Cleanup timeouts on unmount ─────────────────────────────────────────────
   useEffect(() => {
     return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
+      if (autocompleteTimeoutRef.current) clearTimeout(autocompleteTimeoutRef.current);
     };
   }, []);
 
-  // ── FIX #3: Fully local autocomplete — no API call, wrapped in try/catch ───
-  const fetchSuggestion = useCallback((text: string) => {
+  // ── Backend autocomplete API call ──────────────────────────────────────────
+  const fetchSuggestionFromBackend = useCallback(async (text: string) => {
+    if (text.length < 3 || isFetchingSuggestionRef.current) {
+      setSuggestion('');
+      return;
+    }
+
+    isFetchingSuggestionRef.current = true;
+    
     try {
-      if (text.length < 2) {
-        setSuggestion('');
-        return;
-      }
-
-      const lower = text.toLowerCase();
-
-      let match = SUGGESTIONS_BANK.find(s => s.toLowerCase().startsWith(lower));
-
-      if (!match) {
-        const words = lower.split(' ').filter(w => w.length > 2);
-        if (words.length > 0) {
-          match = SUGGESTIONS_BANK.find(s => {
-            const sLower = s.toLowerCase();
-            return words.every(w => sLower.includes(w));
-          });
-        }
-      }
-
-      if (match) {
-        if (match.toLowerCase().startsWith(lower)) {
-          setSuggestion(match.slice(text.length));
-        } else {
-          setSuggestion(match);
-        }
+      const response = await fetch('/api/chat/autocomplete', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ text: text }),
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setSuggestion(data.suggestion || '');
       } else {
         setSuggestion('');
       }
-    } catch {
+    } catch (error) {
+      console.error('Autocomplete error:', error);
       setSuggestion('');
+    } finally {
+      isFetchingSuggestionRef.current = false;
     }
   }, []);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     setInput(val);
-    fetchSuggestion(val);
+    
+    // Debounce autocomplete requests
+    if (autocompleteTimeoutRef.current) {
+      clearTimeout(autocompleteTimeoutRef.current);
+    }
+    
+    if (val.length >= 3) {
+      autocompleteTimeoutRef.current = setTimeout(() => {
+        fetchSuggestionFromBackend(val);
+      }, 300);
+    } else {
+      setSuggestion('');
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Tab' && suggestion) {
       e.preventDefault();
-      if (suggestion.toLowerCase().startsWith(input.toLowerCase())) {
-        setInput(input + suggestion);
-      } else if (SUGGESTIONS_BANK.includes(suggestion) && !suggestion.toLowerCase().startsWith(input.toLowerCase())) {
-        setInput(suggestion);
-      } else {
-        setInput(prev => prev + suggestion);
-      }
+      setInput(input + suggestion);
       setSuggestion('');
     }
     if (e.key === 'Escape') setSuggestion('');
@@ -180,7 +151,7 @@ export default function Chat({ user, onLogout }: Props) {
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    e.stopPropagation(); // Add this to prevent event bubbling
+    e.stopPropagation(); // Prevent event bubbling
 
     // Synchronous ref guard
     if (isSendingRef.current || !input.trim()) return;
@@ -193,8 +164,7 @@ export default function Chat({ user, onLogout }: Props) {
     setInput('');
     setIsTyping(true);
 
-    // Use crypto.randomUUID for guaranteed unique ids — Date.now() collides
-    // when two messages are created within the same millisecond
+    // Use crypto.randomUUID for guaranteed unique ids
     const tempUserMsg: Message = {
       id: crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(),
       sessionId: currentSessionId || 0,
@@ -258,11 +228,11 @@ export default function Chat({ user, onLogout }: Props) {
       // Add a small delay before releasing the lock to prevent rapid resubmissions
       setTimeout(() => {
         isSendingRef.current = false;
-      }, 300);
+      }, 500);
     }
   };
 
-  // ── FIX #1 & #2: Purely local new chat — no API call, no aggressive logout ──
+  // ── Purely local new chat — no API call, no aggressive logout ──
   const createNewSession = () => {
     setCurrentSessionId(null);
     setMessages([]);
@@ -480,7 +450,7 @@ export default function Chat({ user, onLogout }: Props) {
                 {["Explain more", "Give an example", "Summarize this", "How to fix it?", "What are alternatives?"].map((s, i) => (
                   <button
                     key={i}
-                    onClick={() => { setInput(s); fetchSuggestion(s); }}
+                    onClick={() => { setInput(s); fetchSuggestionFromBackend(s); }}
                     className="shrink-0 px-3 py-1.5 text-[9px] md:text-[10px] font-black uppercase tracking-widest bg-[--surface] dark:bg-white/5 border border-[--border] rounded-full text-[--text-muted] hover:text-indigo-500 hover:border-indigo-500/50 transition-all whitespace-nowrap"
                   >
                     {s}
@@ -505,30 +475,18 @@ export default function Chat({ user, onLogout }: Props) {
                   </span>
                   <button
                     onClick={() => {
-                      if (SUGGESTIONS_BANK.includes(suggestion)) {
-                        setInput(suggestion);
-                      } else {
-                        setInput(prev => prev + suggestion);
-                      }
+                      setInput(input + suggestion);
                       setSuggestion('');
                     }}
                     className="flex items-center gap-2 px-3 py-1.5 bg-white/60 dark:bg-white/[0.06] border border-indigo-300/40 dark:border-indigo-500/20 rounded-xl shadow-sm hover:border-indigo-400/60 hover:bg-indigo-50/60 dark:hover:bg-indigo-500/10 transition-all group max-w-[85%]"
                     title="Click or press Tab to accept"
                   >
-                    {suggestion && !suggestion.toLowerCase().startsWith(input.toLowerCase()) && SUGGESTIONS_BANK.includes(suggestion) ? (
-                      <span className="text-[11px] md:text-xs font-semibold text-indigo-500 dark:text-indigo-400 truncate">
-                        {suggestion}
-                      </span>
-                    ) : (
-                      <>
-                        <span className="text-[11px] md:text-xs font-medium text-[--text-muted]/40 truncate shrink-0 max-w-[120px] hidden sm:inline">
-                          {input}
-                        </span>
-                        <span className="text-[11px] md:text-xs font-semibold text-indigo-500 dark:text-indigo-400 truncate">
-                          {suggestion}
-                        </span>
-                      </>
-                    )}
+                    <span className="text-[11px] md:text-xs font-medium text-[--text-muted]/40 truncate shrink-0 max-w-[120px] hidden sm:inline">
+                      {input}
+                    </span>
+                    <span className="text-[11px] md:text-xs font-semibold text-indigo-500 dark:text-indigo-400 truncate">
+                      {suggestion}
+                    </span>
                     <span className="shrink-0 ml-1 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-widest border border-[--border] rounded-md text-[--text-muted]/50 group-hover:border-indigo-400/40 group-hover:text-indigo-400 transition-all hidden sm:inline-block">
                       Tab
                     </span>
@@ -553,7 +511,7 @@ export default function Chat({ user, onLogout }: Props) {
                 <span className="font-medium text-xs md:text-sm tracking-wide whitespace-pre text-transparent select-none">
                   {input}
                 </span>
-                {suggestion && !isTyping && suggestion.toLowerCase().startsWith(input.toLowerCase()) && (
+                {suggestion && !isTyping && (
                   <span className="font-medium text-xs md:text-sm tracking-wide whitespace-pre text-[--text-muted]/30 select-none">
                     {suggestion}
                   </span>
