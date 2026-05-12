@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import React from 'react';
-import { User, Session, Message } from '../types';
+import { User, Session, Message, UploadedFile } from '../types';
 import Sidebar from '../components/Sidebar';
-import { chatApi, authApi, UploadedFile } from '../lib/api';
+import { chatApi, authApi } from '../lib/api';
 import { motion, AnimatePresence } from 'motion/react';
 import StormLogo from '../components/StormLogo';
 import UserAvatar from '../components/UserAvatar';
@@ -14,6 +14,8 @@ import {
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 
 interface Props {
   user: User;
@@ -21,6 +23,50 @@ interface Props {
 }
 
 const BACKEND_BASE = 'https://nexus-ai-chatbot-arhr.onrender.com';
+
+const CodeBlock = ({ language, value }: { language: string; value: string }) => {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(value);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="group/code relative my-6 overflow-hidden rounded-xl border border-zinc-200/50 dark:border-zinc-800/50 shadow-lg transition-all">
+      <div className="flex items-center justify-between px-4 py-2.5 bg-white dark:bg-zinc-900 border-b border-zinc-200/50 dark:border-zinc-800/50">
+        <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest flex items-center gap-2">
+          <div className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
+          {language || 'code'}
+        </span>
+        <button
+          onClick={handleCopy}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-100 dark:bg-zinc-800 text-[10px] font-black text-zinc-500 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all hover:scale-105 active:scale-95"
+        >
+          {copied ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
+          <span className="uppercase tracking-widest">{copied ? 'Copied' : 'Copy'}</span>
+        </button>
+      </div>
+      <div className="p-0 bg-[#282c34]">
+        <SyntaxHighlighter
+          style={oneDark}
+          language={language || 'text'}
+          PreTag="div"
+          customStyle={{
+            margin: 0,
+            padding: '1.25rem',
+            fontSize: '0.85rem',
+            background: 'transparent',
+            lineHeight: '1.6',
+          }}
+        >
+          {value}
+        </SyntaxHighlighter>
+      </div>
+    </div>
+  );
+};
 
 export default function Chat({ user, onLogout }: Props) {
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -414,25 +460,25 @@ export default function Chat({ user, onLogout }: Props) {
       <main className="flex-1 flex flex-col min-w-0 bg-transparent relative z-20">
 
         {/* Header */}
-        <header className="sticky top-0 z-30 h-16 bg-white/80 dark:bg-black/40 backdrop-blur-2xl border-b border-[--border] flex items-center justify-between px-4 md:px-6 shrink-0">
+        <header className="sticky top-0 z-30 h-14 md:h-16 bg-white/80 dark:bg-black/40 backdrop-blur-2xl border-b border-[--border] flex items-center justify-between px-4 md:px-6 shrink-0">
           <div className="flex items-center gap-4 min-w-0">
             <button
               onClick={() => setIsSidebarOpen(true)}
               className="lg:hidden p-2 bg-black/5 dark:bg-white/5 rounded-lg border border-[--border] text-[--text-muted]"
             >
-              <Menu className="w-5 h-5" />
+              <Menu className="w-4 h-4 md:w-5 md:h-5" />
             </button>
             <div className="hidden sm:flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="text-[10px] font-bold text-[--text-muted]/60 uppercase tracking-widest">Nexus AI Online</span>
+              <div className="w-1.5 h-1.5 md:w-2 md:h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span className="text-[9px] md:text-[10px] font-bold text-[--text-muted]/60 uppercase tracking-widest">Nexus AI Online</span>
             </div>
           </div>
-          <div className="flex-1 text-center px-4">
-            <span className="text-xs font-bold text-[--text-main] truncate block">
+          <div className="flex-1 text-center px-4 overflow-hidden">
+            <span className="text-[10px] md:text-xs font-bold text-[--text-main] truncate block max-w-[200px] md:max-w-md mx-auto">
               {sessions.find(s => s.id === currentSessionId)?.sessionName || 'New Conversation'}
             </span>
           </div>
-          <div className="w-20" />
+          <div className="w-10 md:w-20" />
         </header>
 
         {/* Messages */}
@@ -469,10 +515,17 @@ export default function Chat({ user, onLogout }: Props) {
                 </div>
               </div>
             ) : (
-              <div className="space-y-12 pb-32 pt-4">
+              <div className="space-y-4 pb-32 pt-4">
                 {messages.map((msg, index) => (
-                  <div key={msg.id || index} className="group relative">
-                    <div className="flex gap-4 md:gap-6 items-start">
+                  <div 
+                    key={msg.id || index} 
+                    className={`group relative py-6 md:py-8 px-4 md:px-6 -mx-2 md:-mx-4 rounded-2xl md:rounded-[2rem] transition-all duration-500 hover:shadow-sm border border-transparent ${
+                      msg.role === 'assistant' 
+                        ? 'bg-indigo-50/40 dark:bg-indigo-500/[0.03] border-indigo-100/20 dark:border-indigo-500/10' 
+                        : ''
+                    }`}
+                  >
+                    <div className="flex gap-4 md:gap-6 items-start max-w-3xl mx-auto">
                       <div className={`w-8 h-8 md:w-10 md:h-10 rounded-full shrink-0 flex items-center justify-center border shadow-sm transition-all ${
                         msg.role === 'user'
                           ? 'bg-zinc-100 dark:bg-zinc-800 border-[--border]'
@@ -532,7 +585,22 @@ export default function Chat({ user, onLogout }: Props) {
 
                         {/* Message text (hide the [Attached Files:...] tag) */}
                         <div className="text-sm md:text-base text-[--text-main] leading-relaxed markdown-body max-w-none">
-                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          <ReactMarkdown 
+                            remarkPlugins={[remarkGfm]}
+                            components={{
+                              code({ node, inline, className, children, ...props }: any) {
+                                const match = /language-(\w+)/.exec(className || '');
+                                const content = String(children).replace(/\n$/, '');
+                                return !inline && match ? (
+                                  <CodeBlock language={match[1]} value={content} />
+                                ) : (
+                                  <code className={`${className} bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-indigo-500 font-mono text-[0.9em]`} {...props}>
+                                    {children}
+                                  </code>
+                                );
+                              }
+                            }}
+                          >
                             {msg.content.replace(/\n?\n?\[Attached Files:.*?\]/g, '').trim()}
                           </ReactMarkdown>
                         </div>
