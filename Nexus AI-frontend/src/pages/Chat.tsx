@@ -28,7 +28,8 @@ export default function Chat({ user, onLogout }: Props) {
   const isFetchingSuggestionRef = useRef(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  // Synchronous send guard — prevents double-send from StrictMode or fast re-renders
+  // Use a more reliable lock with timestamp
+  const lastSendTimeRef = useRef<number>(0);
   const isSendingRef = useRef(false);
 
   const loadSessions = useCallback(async () => {
@@ -37,7 +38,6 @@ export default function Chat({ user, onLogout }: Props) {
       setSessions(response.sessions || []);
     } catch (err: any) {
       console.error('Failed to load sessions:', err);
-      // 401 means the session cookie expired or was invalidated — log out
       if (err.status === 401) {
         onLogout();
       }
@@ -73,14 +73,12 @@ export default function Chat({ user, onLogout }: Props) {
     return () => clearTimeout(timer);
   }, [messages, isTyping]);
 
-  // ── Cleanup timeouts on unmount ─────────────────────────────────────────────
   useEffect(() => {
     return () => {
       if (autocompleteTimeoutRef.current) clearTimeout(autocompleteTimeoutRef.current);
     };
   }, []);
 
-  // ── Backend autocomplete API call ──────────────────────────────────────────
   const fetchSuggestionFromBackend = useCallback(async (text: string) => {
     if (text.length < 3 || isFetchingSuggestionRef.current) {
       setSuggestion('');
@@ -116,7 +114,6 @@ export default function Chat({ user, onLogout }: Props) {
     const val = e.target.value;
     setInput(val);
     
-    // Debounce autocomplete requests
     if (autocompleteTimeoutRef.current) {
       clearTimeout(autocompleteTimeoutRef.current);
     }
@@ -141,30 +138,44 @@ export default function Chat({ user, onLogout }: Props) {
 
   const handleLogout = async () => {
     try {
-      await authApi.logout(); // backend invalidates the session cookie
+      await authApi.logout();
     } catch (err) {
       console.error('Logout failed:', err);
     } finally {
-      onLogout(); // always clear frontend state
+      onLogout();
     }
   };
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    e.stopPropagation(); // Prevent event bubbling
+    e.stopPropagation();
 
-    // Synchronous ref guard
-    if (isSendingRef.current || !input.trim()) return;
+    // Multiple layers of protection against double-sends
+    const now = Date.now();
     
-    // Set the lock immediately
+    // Check if we're already sending
+    if (isSendingRef.current) {
+      console.log('Already sending, ignoring duplicate');
+      return;
+    }
+    
+    // Check if we sent recently (within last 2 seconds)
+    if (lastSendTimeRef.current && (now - lastSendTimeRef.current) < 2000) {
+      console.log('Recent send detected, ignoring duplicate');
+      return;
+    }
+    
+    if (!input.trim()) return;
+    
+    // Set both locks
     isSendingRef.current = true;
+    lastSendTimeRef.current = now;
 
     const userMessage = input.trim();
     setSuggestion('');
     setInput('');
     setIsTyping(true);
 
-    // Use crypto.randomUUID for guaranteed unique ids
     const tempUserMsg: Message = {
       id: crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(),
       sessionId: currentSessionId || 0,
@@ -172,10 +183,10 @@ export default function Chat({ user, onLogout }: Props) {
       content: userMessage,
       timestamp: new Date().toISOString(),
     };
+    
     setMessages(prev => [...prev, tempUserMsg]);
 
     try {
-      // Backend creates a new session automatically when sessionId is null
       const response = await chatApi.sendMessage(userMessage, currentSessionId);
       const activeSessionId = response.sessionId || currentSessionId;
 
@@ -184,7 +195,6 @@ export default function Chat({ user, onLogout }: Props) {
         await loadSessions();
       }
 
-      // Smart Naming: generate a title for new or untitled sessions
       const currentSession = sessions.find(s => s.id === activeSessionId);
       if (
         (!currentSessionId || (currentSession && currentSession.sessionName === 'New Chat')) &&
@@ -225,14 +235,13 @@ export default function Chat({ user, onLogout }: Props) {
       setMessages(prev => [...prev, errMsg]);
     } finally {
       setIsTyping(false);
-      // Add a small delay before releasing the lock to prevent rapid resubmissions
+      // Release the send lock after a longer delay
       setTimeout(() => {
         isSendingRef.current = false;
-      }, 500);
+      }, 1000);
     }
   };
 
-  // ── Purely local new chat — no API call, no aggressive logout ──
   const createNewSession = () => {
     setCurrentSessionId(null);
     setMessages([]);
@@ -378,9 +387,9 @@ export default function Chat({ user, onLogout }: Props) {
               </div>
             ) : (
               <AnimatePresence initial={false}>
-                {messages.map((msg) => (
+                {messages.map((msg, index) => (
                   <motion.div
-                    key={msg.id}
+                    key={msg.id || index}
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
                     className={`flex gap-3 md:gap-6 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}
@@ -523,7 +532,7 @@ export default function Chat({ user, onLogout }: Props) {
                 value={input}
                 onChange={handleInputChange}
                 onKeyDown={handleKeyDown}
-                disabled={isTyping}
+                disabled={isTyping || isSendingRef.current}
                 placeholder={isTyping ? "Thinking..." : "Type a message..."}
                 className="w-full pl-6 md:pl-8 pr-16 md:pr-20 py-4 md:py-6 bg-white dark:bg-white/5 border border-[--border] rounded-2xl md:rounded-[2.5rem] shadow-2xl focus:outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all font-medium text-[--text-main] placeholder:text-[--text-muted]/30 tracking-wide text-xs md:text-sm"
               />
