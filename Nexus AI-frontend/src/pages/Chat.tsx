@@ -105,9 +105,9 @@ export default function Chat({ user, onLogout }: Props) {
     try {
       const response = await chatApi.getSessions();
       setSessions(response.sessions || []);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to load sessions:', err);
-      if (err.status === 401) onLogout();
+      if (err && typeof err === 'object' && 'status' in err && err.status === 401) onLogout();
     } finally {
       setLoading(false);
     }
@@ -117,9 +117,9 @@ export default function Chat({ user, onLogout }: Props) {
     try {
       const response = await chatApi.getMessages(sid);
       setMessages(response.messages || []);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to load messages:', err);
-      if (err.status === 401) onLogout();
+      if (err && typeof err === 'object' && 'status' in err && err.status === 401) onLogout();
     }
   }, [onLogout]);
 
@@ -168,9 +168,10 @@ export default function Chat({ user, onLogout }: Props) {
     try {
       const response = await chatApi.uploadFile(file);
       setAttachedFiles(prev => [...prev, response.file]);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('File upload failed:', err);
-      setUploadError(err.message || 'File upload failed. Please try again.');
+      const message = err instanceof Error ? err.message : 'File upload failed. Please try again.';
+      setUploadError(message);
     } finally {
       setIsUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -254,12 +255,12 @@ export default function Chat({ user, onLogout }: Props) {
           const { title } = await chatApi.generateTitle(messageText);
           await chatApi.renameSession(activeSessionId, title);
           await loadSessions();
-        } catch (renameErr) {
+        } catch (renameErr: unknown) {
           console.error('Rename failed:', renameErr);
         }
       }
-    } catch (err: any) {
-      if (err.name === 'AbortError') {
+    } catch (err: unknown) {
+      if (err && typeof err === 'object' && 'name' in err && err.name === 'AbortError') {
         console.log('Chat aborted');
       } else {
         console.error('Chat error:', err);
@@ -312,9 +313,9 @@ export default function Chat({ user, onLogout }: Props) {
         setMessages([]);
       }
       await loadSessions();
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to delete session:', err);
-      if (err.status === 401) onLogout();
+      if (err && typeof err === 'object' && 'status' in err && err.status === 401) onLogout();
     } finally {
       setSessionIdToDelete(null);
       setModalType('none');
@@ -326,9 +327,9 @@ export default function Chat({ user, onLogout }: Props) {
     try {
       await chatApi.renameSession(sid, newName);
       await loadSessions();
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to rename session:', err);
-      if (err.status === 401) onLogout();
+      if (err && typeof err === 'object' && 'status' in err && err.status === 401) onLogout();
     }
   };
 
@@ -338,9 +339,9 @@ export default function Chat({ user, onLogout }: Props) {
       setCurrentSessionId(null);
       setMessages([]);
       await loadSessions();
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to clear sessions:', err);
-      if (err.status === 401) onLogout();
+      if (err && typeof err === 'object' && 'status' in err && err.status === 401) onLogout();
     } finally {
       setModalType('none');
     }
@@ -456,7 +457,7 @@ export default function Chat({ user, onLogout }: Props) {
                       <div className={`w-7 h-7 md:w-8 md:h-8 rounded-full shrink-0 flex items-center justify-center border shadow-sm ${
                         msg.role === 'user'
                           ? 'bg-white dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700'
-                          : 'bg-indigo-600 text-white border-indigo-500'
+                          : 'bg-white dark:bg-zinc-950 border-white/10'
                       }`}>
                         {msg.role === 'user'
                           ? <UserAvatar name={user?.username || 'User'} className="w-full h-full text-[10px]" />
@@ -551,13 +552,13 @@ export default function Chat({ user, onLogout }: Props) {
                               <ReactMarkdown 
                                 remarkPlugins={[remarkGfm]}
                                 components={{
-  code({ inline, className, children, ...props }: any) {
+                                  code({ className, children, ...props }: React.ComponentPropsWithoutRef<'code'> & { inline?: boolean }) {
                                     const match = /language-(\w+)/.exec(className || '');
                                     const content = String(children).replace(/\n$/, '');
-                                    return !inline && match ? (
+                                    return !props.inline && match ? (
                                       <CodeBlock language={match[1]} value={content} />
                                     ) : (
-                                    <code className={`${className || ''} bg-zinc-100/50 dark:bg-white/5 text-indigo-500 px-1 py-0.5 rounded font-mono text-[0.85em]`} {...props}>
+                                      <code className={`${className || ''} bg-zinc-100/50 dark:bg-white/5 text-indigo-500 px-1 py-0.5 rounded font-mono text-[0.85em]`} {...props}>
                                         {children}
                                       </code>
                                     );
@@ -612,10 +613,10 @@ export default function Chat({ user, onLogout }: Props) {
 
                 {isTyping && (
                   <div className="flex items-start gap-3">
-                    <div className="w-7 h-7 md:w-8 md:h-8 rounded-full shrink-0 flex items-center justify-center bg-indigo-600 text-white shadow-sm">
+                    <div className="w-7 h-7 md:w-8 md:h-8 rounded-full shrink-0 flex items-center justify-center bg-white dark:bg-zinc-950 border border-white/10 shadow-sm">
                       <StormLogo className="w-4 h-4 ml-[1px] animate-spin" />
                     </div>
-                    <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 px-4 py-3 rounded-2xl rounded-tl-none shadow-sm flex items-center gap-2">
+                    <div className="bg-white/90 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 px-4 py-3 rounded-2xl rounded-tl-none shadow-sm flex items-center gap-2 backdrop-blur-xl">
                       <motion.div animate={{ scale: [1, 1.2, 1], opacity: [0.3, 1, 0.3] }} transition={{ repeat: Infinity, duration: 1 }} className="w-1.5 h-1.5 bg-indigo-600 rounded-full" />
                       <motion.div animate={{ scale: [1, 1.2, 1], opacity: [0.3, 1, 0.3] }} transition={{ repeat: Infinity, duration: 1, delay: 0.2 }} className="w-1.5 h-1.5 bg-indigo-600 rounded-full" />
                       <motion.div animate={{ scale: [1, 1.2, 1], opacity: [0.3, 1, 0.3] }} transition={{ repeat: Infinity, duration: 1, delay: 0.4 }} className="w-1.5 h-1.5 bg-indigo-600 rounded-full" />
