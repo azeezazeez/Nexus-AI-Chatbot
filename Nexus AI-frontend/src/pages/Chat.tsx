@@ -621,7 +621,7 @@ export default function Chat({ user, onLogout }: Props) {
           {children}
         </code>
       );
-    }
+    } 
   }}
 >
   {cleanMessageContent(msg.content)}
