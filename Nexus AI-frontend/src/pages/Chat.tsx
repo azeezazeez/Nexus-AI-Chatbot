@@ -69,7 +69,8 @@ export default function Chat({ user, onLogout }: Props) {
       setSessions(response.sessions || []);
     } catch (err: any) {
       console.error('Failed to load sessions:', err);
-      if (err.status === 401) onLogout();
+      // More lenient auth handling on load sessions
+      if (err.status === 401 && !localStorage.getItem('auth_token')) onLogout();
     } finally {
       setLoading(false);
     }
@@ -81,7 +82,7 @@ export default function Chat({ user, onLogout }: Props) {
       setMessages(response.messages || []);
     } catch (err: any) {
       console.error('Failed to load messages:', err);
-      if (err.status === 401) onLogout();
+      if (err.status === 401 && !localStorage.getItem('auth_token')) onLogout();
     }
   }, [onLogout]);
 
@@ -122,12 +123,11 @@ export default function Chat({ user, onLogout }: Props) {
 
     const lower = text.toLowerCase();
     
-    // Find first match that contains the current input (smarter than starting with)
-    // but prefer starting matches for UX
+    // Find first match that starts with the current input or contains the words
     let match = SUGGESTIONS_BANK.find(s => s.toLowerCase().startsWith(lower));
     
-    // Fallback: look for keyword match if no prefix match
     if (!match) {
+      // Smarter matching: if user types words that are in the suggestion bank
       const words = lower.split(' ').filter(w => w.length > 2);
       if (words.length > 0) {
         match = SUGGESTIONS_BANK.find(s => {
@@ -138,13 +138,15 @@ export default function Chat({ user, onLogout }: Props) {
     }
     
     if (match) {
-      // If it starts with the input, suggest the tail
+      // Suggestion pill will show the full 'match'
+      // but ghost text (setSuggestion) only works effectively if it's a suffix
       if (match.toLowerCase().startsWith(lower)) {
         setSuggestion(match.slice(text.length));
       } else {
-        // Otherwise suggest the whole phrase but it's harder to "ghost"
-        // so for now we only ghost prefixes for clean UI
-        setSuggestion(''); 
+        // If it's a keyword match but not a prefix, we'll set suggestion to the full string
+        // so the pill can show it, but we won't show ghost text in the input.
+        // To distinguish, we'll adjust the render logic.
+        setSuggestion(match); 
       }
     } else {
       setSuggestion('');
@@ -160,7 +162,14 @@ export default function Chat({ user, onLogout }: Props) {
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Tab' && suggestion) {
       e.preventDefault();
-      setInput(prev => prev + suggestion);
+      // If suggestion is a suffix, append it. If it's the full string, replace/complete it.
+      if (suggestion.toLowerCase().startsWith(input.toLowerCase())) {
+        setInput(suggestion);
+      } else if (SUGGESTIONS_BANK.includes(suggestion) && !suggestion.toLowerCase().startsWith(input.toLowerCase())) {
+        setInput(suggestion);
+      } else {
+        setInput(prev => prev + suggestion);
+      }
       setSuggestion('');
     }
     if (e.key === 'Escape') setSuggestion('');
@@ -238,11 +247,14 @@ export default function Chat({ user, onLogout }: Props) {
       // Smart Naming: generate title and rename if needed
       const currentSession = sessions.find(s => s.id === activeSessionId);
       if ((!currentSessionId || (currentSession && (currentSession.sessionName === "New Chat" || currentSession.sessionName.includes('...')))) && activeSessionId) {
+        // Use a flag to avoid multiple overlapping naming requests
         chatApi.generateTitle(userMessage)
           .then(async ({ title }) => {
-            if (title) {
+            if (title && title !== "New Chat") {
               await chatApi.renameSession(activeSessionId, title);
-              await loadSessions();
+              // Ensure we reload to show the new name
+              const refreshedSessions = await chatApi.getSessions();
+              setSessions(refreshedSessions.sessions || []);
             }
           })
           .catch(err => console.error("Smart renaming background failed:", err));
@@ -259,7 +271,7 @@ export default function Chat({ user, onLogout }: Props) {
 
     } catch (err: any) {
       console.error('Chat error:', err);
-      if (err.status === 401) { onLogout(); return; }
+      if (err.status === 401 && !localStorage.getItem('auth_token')) { onLogout(); return; }
 
       const getErrorMessage = (err: any): string => {
         const status = err?.status || err?.response?.status;
@@ -293,13 +305,21 @@ export default function Chat({ user, onLogout }: Props) {
       justCreatedSessionRef.current = response.id; 
       setMessages([]); // Clear locally immediately
       setCurrentSessionId(response.id);
-      await loadSessions();
+      
+      // Load sessions but don't strictly enforce logout here if it fails
+      const sessResponse = await chatApi.getSessions();
+      setSessions(sessResponse.sessions || []);
+      
       setIsSidebarOpen(false);
     } catch (err: any) {
       console.error('Failed to create session:', err);
-      // Only logout if it's explicitly 401 and we are sure we aren't in a middle of a re-auth
-      if (err.status === 401) {
+      // Only logout if we're sure the token is gone
+      if (err.status === 401 && !localStorage.getItem('auth_token')) {
         onLogout();
+      } else {
+        // Fallback for mobile: maybe token is still there but request failed
+        // We can try to reload the page or show an error
+        alert("Session creation failed. Please check your connection.");
       }
     }
   };
@@ -311,7 +331,7 @@ export default function Chat({ user, onLogout }: Props) {
       await loadSessions();
     } catch (err: any) {
       console.error('Failed to delete session:', err);
-      if (err.status === 401) onLogout();
+      if (err.status === 401 && !localStorage.getItem('auth_token')) onLogout();
     }
   };
 
@@ -323,7 +343,7 @@ export default function Chat({ user, onLogout }: Props) {
       await loadSessions();
     } catch (err: any) {
       console.error('Failed to clear sessions:', err);
-      if (err.status === 401) onLogout();
+      if (err.status === 401 && !localStorage.getItem('auth_token')) onLogout();
     }
   };
 
@@ -536,18 +556,32 @@ export default function Chat({ user, onLogout }: Props) {
 
                   {/* Suggestion chip — click to accept */}
                   <button
-                    onClick={() => { setInput(prev => prev + suggestion); setSuggestion(''); }}
+                    onClick={() => { 
+                      if (SUGGESTIONS_BANK.includes(suggestion)) {
+                        setInput(suggestion);
+                      } else {
+                        setInput(prev => prev + suggestion);
+                      }
+                      setSuggestion(''); 
+                    }}
                     className="flex items-center gap-2 px-3 py-1.5 bg-white/60 dark:bg-white/[0.06] border border-indigo-300/40 dark:border-indigo-500/20 rounded-xl shadow-sm hover:border-indigo-400/60 hover:bg-indigo-50/60 dark:hover:bg-indigo-500/10 transition-all group max-w-[85%]"
                     title="Click or press Tab to accept"
                   >
-                    {/* What the user already typed — muted */}
-                    <span className="text-[11px] md:text-xs font-medium text-[--text-muted]/40 truncate shrink-0 max-w-[120px] hidden sm:inline">
-                      {input}
-                    </span>
-                    {/* Ghost completion */}
-                    <span className="text-[11px] md:text-xs font-semibold text-indigo-500 dark:text-indigo-400 truncate">
-                      {suggestion}
-                    </span>
+                    {/* What the user already typed — muted (only if it matches prefix) */}
+                    {suggestion.toLowerCase().startsWith(input.toLowerCase()) === false && SUGGESTIONS_BANK.includes(suggestion) ? (
+                      <span className="text-[11px] md:text-xs font-semibold text-indigo-500 dark:text-indigo-400 truncate">
+                        {suggestion}
+                      </span>
+                    ) : (
+                      <>
+                        <span className="text-[11px] md:text-xs font-medium text-[--text-muted]/40 truncate shrink-0 max-w-[120px] hidden sm:inline">
+                          {input}
+                        </span>
+                        <span className="text-[11px] md:text-xs font-semibold text-indigo-500 dark:text-indigo-400 truncate">
+                          {suggestion}
+                        </span>
+                      </>
+                    )}
                     {/* Tab hint badge */}
                     <span className="shrink-0 ml-1 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-widest border border-[--border] rounded-md text-[--text-muted]/50 group-hover:border-indigo-400/40 group-hover:text-indigo-400 transition-all hidden sm:inline-block">
                       Tab
@@ -579,7 +613,7 @@ export default function Chat({ user, onLogout }: Props) {
                 <span className="font-medium text-xs md:text-sm tracking-wide whitespace-pre text-transparent select-none">
                   {input}
                 </span>
-                {suggestion && !isTyping && (
+                {suggestion && !isTyping && suggestion.toLowerCase().startsWith(input.toLowerCase()) && (
                   <span className="font-medium text-xs md:text-sm tracking-wide whitespace-pre text-[--text-muted]/30 select-none">
                     {suggestion}
                   </span>
