@@ -470,7 +470,7 @@ export default function Chat({ user, onLogout }: Props) {
                         }`}>
                           {msg.role === 'user'
                             ? <UserAvatar name={user?.username || 'User'} className="w-full h-full text-[10px]" />
-                            : <StormLogo className={`w-4 h-4 ml-[1px] ${(isTyping && index === messages.length - 1 && msg.role === 'assistant') ? 'animate-spin' : ''}`} />
+                            : <StormLogo className={`w-4 h-4 ml-[1px] ${(isTyping && index === messages.length - 1) ? 'animate-spin' : ''}`} />
                           }
                         </div>
 
@@ -635,7 +635,7 @@ export default function Chat({ user, onLogout }: Props) {
                 {isTyping && (
                   <div className="flex items-start gap-3">
                     <div className="w-7 h-7 md:w-8 md:h-8 rounded-full shrink-0 flex items-center justify-center bg-zinc-900 border border-zinc-800 text-white shadow-xl shadow-indigo-500/10">
-                      <StormLogo className="w-4 h-4 ml-[0px] animate-pulse" />
+                      <StormLogo className="w-4 h-4 ml-[0px] animate-spin" />
                     </div>
                     <div className="bg-white/90 dark:bg-zinc-900/90 border border-zinc-200 dark:border-zinc-800 px-4 py-3 rounded-2xl rounded-tl-none shadow-sm flex items-center gap-2 backdrop-blur-xl">
                       <motion.div animate={{ scale: [1, 1.2, 1], opacity: [0.3, 1, 0.3] }} transition={{ repeat: Infinity, duration: 1 }} className="w-1.5 h-1.5 bg-indigo-600 rounded-full" />
@@ -817,12 +817,16 @@ export default function Chat({ user, onLogout }: Props) {
                     }`}
                   >
                     {isTyping ? (
-                      <div className="relative w-full h-full flex items-center justify-center scale-90">
-                        {/* Rotating ring */}
-                        <div className="absolute inset-0.5 border-[2px] border-zinc-100 dark:border-zinc-800 rounded-full" />
-                        <div className="absolute inset-0.5 border-[2px] border-t-zinc-900 dark:border-t-white rounded-full animate-spin" />
-                        {/* Central square stop icon */}
-                        <div className="w-2.5 h-2.5 bg-zinc-900 dark:bg-zinc-100 rounded-[2px]" />
+                      <div className="relative w-full h-full flex items-center justify-center">
+                        <motion.div
+                          animate={{ scale: [1, 1.15, 1] }}
+                          transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
+                          className="absolute inset-0 flex items-center justify-center"
+                        >
+                          <div className="w-8 h-8 border-[2px] border-zinc-100 dark:border-zinc-800 rounded-full" />
+                          <div className="absolute w-8 h-8 border-[2px] border-t-zinc-900 dark:border-t-white rounded-full animate-spin" />
+                        </motion.div>
+                        <div className="w-2.5 h-2.5 bg-zinc-900 dark:bg-zinc-100 rounded-[2px] relative z-10" />
                       </div>
                     ) : (
                       <ArrowUp className={`w-5 h-5 transition-transform ${input.trim() ? 'scale-110' : 'scale-90 opacity-40'}`} />
