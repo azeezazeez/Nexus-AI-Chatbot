@@ -13,8 +13,6 @@ interface Props {
   onLogout: () => void;
 }
 
-// ── Local autocomplete dictionary ───────────────────────────────────────────
-// A broad set of phrases to provide "smart" feel without backend calls
 const SUGGESTIONS_BANK = [
   "How can I help you today?",
   "How to implement a responsive layout in React?",
@@ -46,6 +44,16 @@ const SUGGESTIONS_BANK = [
   "Write a professional email for a job application.",
 ];
 
+// ── Helper: only log out on hard auth failures ────────────────────────────────
+// A 401 on /auth/me or /auth/status means the session is truly gone.
+// A 401 on chat routes is likely a transient error — do NOT log out.
+function isHardAuthFailure(err: any, url?: string): boolean {
+  if (err?.status !== 401) return false;
+  // Only treat as hard failure when explicitly checking auth
+  if (url?.includes('/auth/me') || url?.includes('/auth/status')) return true;
+  return false;
+}
+
 export default function Chat({ user, onLogout }: Props) {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<number | null>(null);
@@ -54,6 +62,7 @@ export default function Chat({ user, onLogout }: Props) {
   const [isTyping, setIsTyping] = useState(false);
   const [loading, setLoading] = useState(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [sessionError, setSessionError] = useState<string | null>(null);
 
   // ── Autocomplete state ──────────────────────────────────────────────────────
   const [suggestion, setSuggestion] = useState('');
@@ -69,8 +78,8 @@ export default function Chat({ user, onLogout }: Props) {
       setSessions(response.sessions || []);
     } catch (err: any) {
       console.error('Failed to load sessions:', err);
-      // More lenient auth handling on load sessions
-      if (err.status === 401 && !localStorage.getItem('auth_token')) onLogout();
+      // Only logout if the dedicated auth check confirms session is gone
+      if (isHardAuthFailure(err)) onLogout();
     } finally {
       setLoading(false);
     }
@@ -82,11 +91,26 @@ export default function Chat({ user, onLogout }: Props) {
       setMessages(response.messages || []);
     } catch (err: any) {
       console.error('Failed to load messages:', err);
-      if (err.status === 401 && !localStorage.getItem('auth_token')) onLogout();
+      // Don't logout here — message load failure should NOT kick user out
     }
-  }, [onLogout]);
+  }, []);
 
-  useEffect(() => { loadSessions(); }, [loadSessions]);
+  // On mount: verify auth first, then load sessions
+  useEffect(() => {
+    const init = async () => {
+      try {
+        await authApi.getProfile(); // /auth/me — confirms cookie is valid
+        await loadSessions();
+      } catch (err: any) {
+        if (err?.status === 401) {
+          onLogout(); // Cookie genuinely expired/missing
+        } else {
+          setLoading(false); // Network error — stay on page
+        }
+      }
+    };
+    init();
+  }, [loadSessions, onLogout]);
 
   useEffect(() => {
     if (currentSessionId) {
@@ -107,27 +131,18 @@ export default function Chat({ user, onLogout }: Props) {
     return () => clearTimeout(timer);
   }, [messages, isTyping]);
 
-  // ── Cleanup debounce on unmount ─────────────────────────────────────────────
   useEffect(() => {
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, []);
 
-  // ── Improved local autocomplete ──────────────────────────────────────────────
+  // ── Autocomplete ────────────────────────────────────────────────────────────
   const fetchSuggestion = useCallback((text: string) => {
-    if (text.length < 2) {
-      setSuggestion('');
-      return;
-    }
-
+    if (text.length < 2) { setSuggestion(''); return; }
     const lower = text.toLowerCase();
-    
-    // Find first match that starts with the current input or contains the words
     let match = SUGGESTIONS_BANK.find(s => s.toLowerCase().startsWith(lower));
-    
     if (!match) {
-      // Smarter matching: if user types words that are in the suggestion bank
       const words = lower.split(' ').filter(w => w.length > 2);
       if (words.length > 0) {
         match = SUGGESTIONS_BANK.find(s => {
@@ -136,22 +151,16 @@ export default function Chat({ user, onLogout }: Props) {
         });
       }
     }
-    
     if (match) {
-      // Suggestion pill will show the full 'match'
-      // but ghost text (setSuggestion) only works effectively if it's a suffix
       if (match.toLowerCase().startsWith(lower)) {
         setSuggestion(match.slice(text.length));
       } else {
-        // If it's a keyword match but not a prefix, we'll set suggestion to the full string
-        // so the pill can show it, but we won't show ghost text in the input.
-        // To distinguish, we'll adjust the render logic.
-        setSuggestion(match); 
+        setSuggestion(match);
       }
     } else {
       setSuggestion('');
     }
-  }, []); 
+  }, []);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
@@ -162,7 +171,6 @@ export default function Chat({ user, onLogout }: Props) {
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Tab' && suggestion) {
       e.preventDefault();
-      // If suggestion is a suffix, append it. If it's the full string, replace/complete it.
       if (suggestion.toLowerCase().startsWith(input.toLowerCase())) {
         setInput(suggestion);
       } else if (SUGGESTIONS_BANK.includes(suggestion) && !suggestion.toLowerCase().startsWith(input.toLowerCase())) {
@@ -186,7 +194,7 @@ export default function Chat({ user, onLogout }: Props) {
     }
   };
 
-  // ── Send message ────────────────────────────────────────────────────────────
+  // ── Sensitive message guard ─────────────────────────────────────────────────
   const isSensitiveMessage = (text: string) => {
     const BLOCKED_PATTERNS = [
       /\b(show|send|give|share|print|display|reveal|expose|leak|dump|export|output)\b.{0,40}\b(source\s*code|backend|\.env|config|secret|api\s*key|private\s*key|password|token|database\s*schema|schema|credentials|auth\s*token|jwt\s*secret|server\s*code|internal\s*code|system\s*prompt)\b/i,
@@ -200,6 +208,7 @@ export default function Chat({ user, onLogout }: Props) {
     return BLOCKED_PATTERNS.some(p => p.test(text));
   };
 
+  // ── Send message ────────────────────────────────────────────────────────────
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || isTyping) return;
@@ -244,20 +253,21 @@ export default function Chat({ user, onLogout }: Props) {
         await loadSessions();
       }
 
-      // Smart Naming: generate title and rename if needed
+      // Smart naming in background — don't await, don't crash on failure
       const currentSession = sessions.find(s => s.id === activeSessionId);
-      if ((!currentSessionId || (currentSession && (currentSession.sessionName === "New Chat" || currentSession.sessionName.includes('...')))) && activeSessionId) {
-        // Use a flag to avoid multiple overlapping naming requests
+      if (
+        activeSessionId &&
+        (!currentSessionId || (currentSession && (currentSession.sessionName === 'New Chat' || currentSession.sessionName.includes('...'))))
+      ) {
         chatApi.generateTitle(userMessage)
           .then(async ({ title }) => {
-            if (title && title !== "New Chat") {
+            if (title && title !== 'New Chat') {
               await chatApi.renameSession(activeSessionId, title);
-              // Ensure we reload to show the new name
-              const refreshedSessions = await chatApi.getSessions();
-              setSessions(refreshedSessions.sessions || []);
+              const refreshed = await chatApi.getSessions();
+              setSessions(refreshed.sessions || []);
             }
           })
-          .catch(err => console.error("Smart renaming background failed:", err));
+          .catch(err => console.error('Smart renaming failed (non-critical):', err));
       }
 
       const aiMsg: Message = {
@@ -270,19 +280,29 @@ export default function Chat({ user, onLogout }: Props) {
       setMessages(prev => [...prev, aiMsg]);
 
     } catch (err: any) {
-      console.error('Chat error:', err);
-      if (err.status === 401 && !localStorage.getItem('auth_token')) { onLogout(); return; }
+      console.error('Chat send error:', err);
+
+      // ── Only logout on hard auth failure — NOT on every 401 ──
+      if (err?.status === 401) {
+        // Verify the session is actually gone before logging out
+        try {
+          await authApi.getProfile();
+          // If getProfile succeeds, it was a transient error — don't logout
+        } catch (authErr: any) {
+          if (authErr?.status === 401) { onLogout(); return; }
+        }
+      }
 
       const getErrorMessage = (err: any): string => {
         const status = err?.status || err?.response?.status;
         if (!navigator.onLine) return "📡 You appear to be offline. Please check your internet connection and try again.";
         if (status === 429) return "⏳ You're sending messages too fast. Please wait a moment and try again.";
-        if (status === 500 || status === 502 || status === 503) return "🔧 The server ran into an issue on our end. This is temporary — please try again in a few seconds.";
+        if (status === 500 || status === 502 || status === 503) return "🔧 The server ran into an issue. This is temporary — please try again in a few seconds.";
         if (status === 504) return "⌛ The request timed out. Please try again.";
         if (status === 403) return "🚫 You don't have permission to perform this action. Please log in again.";
-        if (status === 404) return "🔍 The session or resource could not be found. Try starting a new chat.";
-        if (err?.message?.toLowerCase().includes('network') || err?.message?.toLowerCase().includes('fetch')) return "🌐 Network error — couldn't reach the server.";
-        return "⚠️ Something went wrong on our end. Please try again in a moment.";
+        if (status === 404) return "🔍 The session could not be found. Try starting a new chat.";
+        if (err?.message?.toLowerCase().includes('network') || err?.message?.toLowerCase().includes('fetch')) return "🌐 Network error — couldn't reach the server. Please check your connection.";
+        return "⚠️ Something went wrong. Please try again in a moment.";
       };
 
       setMessages(prev => [...prev, {
@@ -299,27 +319,29 @@ export default function Chat({ user, onLogout }: Props) {
 
   // ── Session management ──────────────────────────────────────────────────────
   const createNewSession = async () => {
+    setSessionError(null);
     try {
       const response = await chatApi.createSession();
-      // Set ref BEFORE setting ID to prevent loadMessages from firing
-      justCreatedSessionRef.current = response.id; 
-      setMessages([]); // Clear locally immediately
+      justCreatedSessionRef.current = response.id;
+      setMessages([]);
       setCurrentSessionId(response.id);
-      
-      // Load sessions but don't strictly enforce logout here if it fails
       const sessResponse = await chatApi.getSessions();
       setSessions(sessResponse.sessions || []);
-      
       setIsSidebarOpen(false);
     } catch (err: any) {
       console.error('Failed to create session:', err);
-      // Only logout if we're sure the token is gone
-      if (err.status === 401 && !localStorage.getItem('auth_token')) {
-        onLogout();
+
+      if (err?.status === 401) {
+        // Verify before logging out
+        try {
+          await authApi.getProfile();
+          // Session is fine — show error without logging out
+          setSessionError('Could not create chat. Please try again.');
+        } catch (authErr: any) {
+          if (authErr?.status === 401) onLogout();
+        }
       } else {
-        // Fallback for mobile: maybe token is still there but request failed
-        // We can try to reload the page or show an error
-        alert("Session creation failed. Please check your connection.");
+        setSessionError('Could not create chat. Please check your connection.');
       }
     }
   };
@@ -327,11 +349,13 @@ export default function Chat({ user, onLogout }: Props) {
   const deleteSession = async (sid: number) => {
     try {
       await chatApi.deleteSession(sid);
-      if (currentSessionId === sid) setCurrentSessionId(null);
+      if (currentSessionId === sid) {
+        setCurrentSessionId(null);
+        setMessages([]);
+      }
       await loadSessions();
     } catch (err: any) {
       console.error('Failed to delete session:', err);
-      if (err.status === 401 && !localStorage.getItem('auth_token')) onLogout();
     }
   };
 
@@ -340,10 +364,10 @@ export default function Chat({ user, onLogout }: Props) {
     try {
       await chatApi.clearSessions();
       setCurrentSessionId(null);
+      setMessages([]);
       await loadSessions();
     } catch (err: any) {
       console.error('Failed to clear sessions:', err);
-      if (err.status === 401 && !localStorage.getItem('auth_token')) onLogout();
     }
   };
 
@@ -389,8 +413,6 @@ export default function Chat({ user, onLogout }: Props) {
 
         {/* ── Header ───────────────────────────────────────────────────────── */}
         <header className="sticky top-0 z-30 h-20 bg-white/80 dark:bg-black/40 backdrop-blur-2xl border-b border-[--border] flex items-center justify-between px-4 md:px-10 shrink-0 relative">
-
-          {/* Left: hamburger + status */}
           <div className="flex items-center gap-4 md:gap-6 min-w-0 z-10">
             <button
               onClick={(e) => { e.preventDefault(); e.stopPropagation(); setIsSidebarOpen(true); loadSessions(); }}
@@ -405,7 +427,6 @@ export default function Chat({ user, onLogout }: Props) {
             </div>
           </div>
 
-          {/* Centre: session title pill — absolutely centred in the header */}
           <AnimatePresence mode="wait">
             {currentSessionId && currentSessionName && (
               <motion.div
@@ -416,12 +437,7 @@ export default function Chat({ user, onLogout }: Props) {
                 transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
                 className="absolute left-1/2 -translate-x-1/2 flex items-center gap-2.5 pointer-events-none select-none"
               >
-                <div className="flex items-center gap-2 px-4 py-2 rounded-2xl
-                  bg-white/70 dark:bg-white/[0.06]
-                  border border-indigo-200/60 dark:border-indigo-500/20
-                  shadow-[0_2px_16px_0_rgba(99,102,241,0.10)]
-                  backdrop-blur-md"
-                >
+                <div className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-white/70 dark:bg-white/[0.06] border border-indigo-200/60 dark:border-indigo-500/20 shadow-[0_2px_16px_0_rgba(99,102,241,0.10)] backdrop-blur-md">
                   <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 opacity-70 shrink-0" />
                   <span className="text-[11px] md:text-xs font-bold text-[--text-main] tracking-wide truncate max-w-[140px] sm:max-w-[260px] md:max-w-xs">
                     {currentSessionName}
@@ -431,9 +447,23 @@ export default function Chat({ user, onLogout }: Props) {
             )}
           </AnimatePresence>
 
-          {/* Right: intentionally empty */}
           <div className="flex items-center gap-4 z-10" />
         </header>
+
+        {/* ── Session error banner ──────────────────────────────────────────── */}
+        <AnimatePresence>
+          {sessionError && (
+            <motion.div
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              className="mx-4 md:mx-10 mt-3 px-4 py-3 bg-red-500/10 border border-red-500/20 rounded-2xl text-xs font-semibold text-red-400 flex items-center justify-between"
+            >
+              <span>{sessionError}</span>
+              <button onClick={() => setSessionError(null)} className="ml-4 text-red-400/60 hover:text-red-400 transition-colors">✕</button>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* ── Messages ─────────────────────────────────────────────────────── */}
         <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 md:px-10 lg:px-20 py-8 md:py-12 scroll-hide">
@@ -526,7 +556,6 @@ export default function Chat({ user, onLogout }: Props) {
         <div className="p-4 md:p-10 lg:p-16 pt-2 shrink-0 bg-gradient-to-t from-[--bg-main] via-[--bg-main] to-transparent">
           <div className="max-w-4xl mx-auto relative">
 
-            {/* Quick-reply chips (only when no suggestion is showing) */}
             {!isTyping && messages.length > 0 && !suggestion && (
               <div className="flex gap-2 mb-3 overflow-x-auto pb-1 scroll-hide">
                 {["Explain more", "Give an example", "Summarize this", "How to fix it?", "What are alternatives?"].map((s, i) => (
@@ -538,7 +567,6 @@ export default function Chat({ user, onLogout }: Props) {
               </div>
             )}
 
-            {/* ── Autocomplete suggestion pill ─────────────────────────────── */}
             <AnimatePresence>
               {suggestion && !isTyping && (
                 <motion.div
@@ -549,25 +577,21 @@ export default function Chat({ user, onLogout }: Props) {
                   transition={{ duration: 0.18 }}
                   className="mb-2.5 flex items-center gap-2 overflow-x-auto scroll-hide"
                 >
-                  {/* AI badge */}
                   <span className="shrink-0 px-2 py-1 text-[8px] font-black uppercase tracking-[0.2em] text-indigo-400 bg-indigo-500/10 border border-indigo-500/20 rounded-full">
                     AI
                   </span>
-
-                  {/* Suggestion chip — click to accept */}
                   <button
-                    onClick={() => { 
+                    onClick={() => {
                       if (SUGGESTIONS_BANK.includes(suggestion)) {
                         setInput(suggestion);
                       } else {
                         setInput(prev => prev + suggestion);
                       }
-                      setSuggestion(''); 
+                      setSuggestion('');
                     }}
                     className="flex items-center gap-2 px-3 py-1.5 bg-white/60 dark:bg-white/[0.06] border border-indigo-300/40 dark:border-indigo-500/20 rounded-xl shadow-sm hover:border-indigo-400/60 hover:bg-indigo-50/60 dark:hover:bg-indigo-500/10 transition-all group max-w-[85%]"
                     title="Click or press Tab to accept"
                   >
-                    {/* What the user already typed — muted (only if it matches prefix) */}
                     {suggestion.toLowerCase().startsWith(input.toLowerCase()) === false && SUGGESTIONS_BANK.includes(suggestion) ? (
                       <span className="text-[11px] md:text-xs font-semibold text-indigo-500 dark:text-indigo-400 truncate">
                         {suggestion}
@@ -582,13 +606,10 @@ export default function Chat({ user, onLogout }: Props) {
                         </span>
                       </>
                     )}
-                    {/* Tab hint badge */}
                     <span className="shrink-0 ml-1 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-widest border border-[--border] rounded-md text-[--text-muted]/50 group-hover:border-indigo-400/40 group-hover:text-indigo-400 transition-all hidden sm:inline-block">
                       Tab
                     </span>
                   </button>
-
-                  {/* Dismiss */}
                   <button
                     onClick={() => setSuggestion('')}
                     className="shrink-0 text-[--text-muted]/30 hover:text-[--text-muted]/60 text-xs transition-colors px-1"
@@ -600,12 +621,7 @@ export default function Chat({ user, onLogout }: Props) {
               )}
             </AnimatePresence>
 
-            {/* ── Text input ───────────────────────────────────────────────── */}
             <form onSubmit={handleSendMessage} className="relative group">
-              {/*
-                Ghost-text layer: mirrors the input font/padding exactly so
-                the ghost completion appears to continue inline from the cursor.
-              */}
               <div
                 aria-hidden="true"
                 className="pointer-events-none absolute inset-0 flex items-center pl-6 md:pl-8 pr-16 md:pr-20 overflow-hidden rounded-2xl md:rounded-[2.5rem]"
@@ -646,7 +662,6 @@ export default function Chat({ user, onLogout }: Props) {
               </button>
             </form>
 
-            {/* Tab hint below input when suggestion is active */}
             {suggestion && (
               <p className="mt-2 text-center text-[8px] font-bold text-[--text-muted]/30 uppercase tracking-[0.25em]">
                 Press <kbd className="px-1 py-0.5 border border-[--border] rounded text-[8px] font-mono">Tab</kbd> to accept · <kbd className="px-1 py-0.5 border border-[--border] rounded text-[8px] font-mono">Esc</kbd> to dismiss
