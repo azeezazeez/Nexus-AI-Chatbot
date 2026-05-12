@@ -35,8 +35,8 @@ const CodeBlock = ({ language, value }: { language: string; value: string }) => 
   };
 
   return (
-    <div className="group/code relative my-6 overflow-hidden rounded-xl border border-zinc-200/50 dark:border-zinc-800/50 shadow-lg transition-all">
-      <div className="flex items-center justify-between px-4 py-2.5 bg-white dark:bg-zinc-900 border-b border-zinc-200/50 dark:border-zinc-800/50">
+    <div className="group/code relative my-6 overflow-hidden rounded-xl border border-white/20 dark:border-white/10 shadow-2xl backdrop-blur-xl bg-white/5 dark:bg-black/20 transition-all">
+      <div className="flex items-center justify-between px-4 py-2.5 bg-white/10 dark:bg-black/20 border-b border-white/10">
         <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest flex items-center gap-2">
           <div className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
           {language || 'code'}
@@ -465,10 +465,10 @@ export default function Chat({ user, onLogout }: Props) {
                       </div>
 
                       <div className="flex flex-col gap-1 min-w-0 max-w-full">
-                        <div className={`px-4 py-3 rounded-2xl shadow-sm border transition-all duration-300 w-fit ${
+                        <div className={`px-4 py-3 rounded-2xl shadow-sm border transition-all duration-300 w-fit backdrop-blur-md ${
                           msg.role === 'assistant' 
-                            ? 'bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-[--text-main]' 
-                            : 'bg-indigo-600 border-indigo-500 text-white selection:bg-white/20'
+                            ? 'bg-white/90 dark:bg-zinc-900/60 border-zinc-200/50 dark:border-zinc-800/50 text-[--text-main]' 
+                            : 'bg-white/70 dark:bg-zinc-800/40 border-zinc-200/50 dark:border-zinc-700/50 text-[--text-main] selection:bg-indigo-500/10'
                         } ${msg.role === 'user' ? 'rounded-tr-none ml-auto' : 'rounded-tl-none mr-auto'}`}>
                           
                           {msg.role === 'user' && msg.content.includes('[Attached Files:') && (() => {
@@ -508,7 +508,7 @@ export default function Chat({ user, onLogout }: Props) {
                             );
                           })()}
 
-                          <div className={`text-sm md:text-base leading-relaxed markdown-body max-w-none ${msg.role === 'user' ? 'prose-invert' : ''}`}>
+                          <div className={`text-sm md:text-base leading-relaxed markdown-body max-w-none`}>
                             {editingMessageId === (msg.id || index) ? (
                               <div className="flex flex-col gap-3 min-w-[240px] sm:min-w-[400px] p-1">
                                 <textarea
@@ -555,7 +555,7 @@ export default function Chat({ user, onLogout }: Props) {
                                     return !inline && match ? (
                                       <CodeBlock language={match[1]} value={content} />
                                     ) : (
-                                      <code className={`${className} ${msg.role === 'user' ? 'bg-indigo-700/50 text-white' : 'bg-zinc-100 dark:bg-zinc-800 text-indigo-500'} px-1 py-0.5 rounded font-mono text-[0.85em]`} {...props}>
+                                    <code className={`${className} bg-zinc-100/50 dark:bg-white/5 text-indigo-500 px-1 py-0.5 rounded font-mono text-[0.85em]`} {...props}>
                                         {children}
                                       </code>
                                     );
@@ -763,19 +763,19 @@ export default function Chat({ user, onLogout }: Props) {
                     disabled={(!input.trim() && attachedFiles.length === 0 && !isUploading) && !isTyping}
                     className={`p-2.5 rounded-2xl shadow-sm transition-all flex items-center justify-center border w-11 h-11 ${
                       isTyping 
-                        ? 'bg-white border-zinc-200 dark:bg-zinc-800 dark:border-zinc-700' 
+                        ? 'bg-white border-zinc-200 dark:bg-zinc-900 dark:border-zinc-800' 
                         : (!input.trim() && attachedFiles.length === 0) 
-                          ? 'bg-white text-zinc-200 border-zinc-100 dark:bg-zinc-800/30 dark:text-zinc-800' 
-                          : 'bg-white text-zinc-900 border-zinc-200 dark:bg-zinc-200 dark:text-zinc-900 dark:border-white'
+                          ? 'bg-zinc-50 text-zinc-300 border-zinc-100 dark:bg-zinc-800/30' 
+                          : 'bg-white text-zinc-900 border-zinc-200 hover:shadow-md'
                     }`}
                   >
                     {isTyping ? (
-                      <div className="relative w-full h-full flex items-center justify-center">
+                      <div className="relative w-full h-full flex items-center justify-center scale-90">
                         {/* Rotating ring */}
-                        <div className="absolute inset-1.5 border-[1.5px] border-zinc-300 dark:border-zinc-500 rounded-full" />
-                        <div className="absolute inset-1.5 border-[1.5px] border-t-indigo-600 dark:border-t-indigo-400 rounded-full animate-spin" />
+                        <div className="absolute inset-0.5 border-[2px] border-zinc-100 dark:border-zinc-800 rounded-full" />
+                        <div className="absolute inset-0.5 border-[2px] border-t-zinc-900 dark:border-t-white rounded-full animate-spin" />
                         {/* Central square stop icon */}
-                        <div className="w-2.5 h-2.5 bg-zinc-900 dark:bg-zinc-100 rounded-sm" />
+                        <div className="w-2.5 h-2.5 bg-zinc-900 dark:bg-zinc-100 rounded-[2px]" />
                       </div>
                     ) : (
                       <ArrowUp className={`w-5 h-5 transition-transform ${input.trim() ? 'scale-110' : 'scale-90 opacity-40'}`} />
