@@ -711,7 +711,7 @@ export default function Chat({ user, onLogout }: Props) {
                   disabled={isUploading}
                   className={`p-2 rounded-lg transition-all ${isUploading ? 'text-indigo-400 animate-pulse' : 'text-zinc-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20'}`}
                 >
-                  <Paperclip className="w-5 h-5" />
+                  <Plus className="w-5 h-5" />
                 </button>
 
                 <div className="flex items-center gap-2">
@@ -741,9 +741,7 @@ export default function Chat({ user, onLogout }: Props) {
                             'Scout 4.6 Pro', 
                             'Scout 3.5 Mini', 
                             'gemini-2.5-flash',
-                            'llama-3.3-70b-versatile',
-                            'Google AI Studio API',
-                            'Groq Llama 3 70B'
+                            'llama-3.3-70b-versatile'
                           ].map((model) => (
                             <button
                               key={model}
@@ -767,7 +765,7 @@ export default function Chat({ user, onLogout }: Props) {
                       isTyping 
                         ? 'bg-white border-zinc-200 dark:bg-zinc-800 dark:border-zinc-700' 
                         : (!input.trim() && attachedFiles.length === 0) 
-                          ? 'bg-zinc-50 text-zinc-300 border-zinc-100 dark:bg-zinc-800/50 dark:text-zinc-700 dark:border-white/5' 
+                          ? 'bg-white text-zinc-200 border-zinc-100 dark:bg-zinc-800/30 dark:text-zinc-800' 
                           : 'bg-white text-zinc-900 border-zinc-200 dark:bg-zinc-200 dark:text-zinc-900 dark:border-white'
                     }`}
                   >
