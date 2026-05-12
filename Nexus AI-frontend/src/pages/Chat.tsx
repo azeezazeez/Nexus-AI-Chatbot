@@ -11,7 +11,7 @@ import {
   Send, ArrowDown, ArrowUp, Menu, Square,
   Paperclip, Copy, Check, Plus, Mic, MicOff,
   Volume2, VolumeX, X, FileText, Image as ImageIcon,
-  Circle, ChevronDown,
+  Circle, ChevronDown, Edit2, Loader2,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -82,6 +82,8 @@ export default function Chat({ user, onLogout }: Props) {
   const [copiedId, setCopiedId] = useState<number | string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [isModelMenuOpen, setIsModelMenuOpen] = useState(false);
+  const [selectedModel, setSelectedModel] = useState('Scout 4.6 Adaptive');
 
   // Modal state
   const [modalType, setModalType] = useState<'none' | 'delete-all' | 'delete-single'>('none');
@@ -146,7 +148,6 @@ export default function Chat({ user, onLogout }: Props) {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Client-side validation
     const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'application/pdf', 'text/plain'];
     if (!allowedTypes.includes(file.type)) {
       setUploadError('Only images, PDFs and text files are allowed.');
@@ -196,8 +197,6 @@ export default function Chat({ user, onLogout }: Props) {
     abortControllerRef.current = controller;
 
     const files = [...attachedFiles];
-
-    // Build display content for the message bubble
     let fullMessageContent = messageText;
     if (files.length > 0) {
       const fileNames = files.map(f => f.originalName).join(', ');
@@ -247,7 +246,6 @@ export default function Chat({ user, onLogout }: Props) {
         return [...prev, aiMsg];
       });
 
-      // Auto-rename new sessions
       if ((isNewSession || sessions.find(s => s.id === activeSessionId)?.sessionName === 'New Chat') && activeSessionId) {
         try {
           const { title } = await chatApi.generateTitle(messageText);
@@ -287,15 +285,6 @@ export default function Chat({ user, onLogout }: Props) {
     abortControllerRef.current = null;
     window.speechSynthesis?.cancel();
   };
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' && !isTyping) {
-      e.preventDefault();
-      handleSendMessage();
-    }
-  };
-
-  // ── Session Management ────────────────────────────────────────────────────
 
   const createNewSession = () => {
     setCurrentSessionId(null);
@@ -359,8 +348,6 @@ export default function Chat({ user, onLogout }: Props) {
     finally { onLogout(); }
   };
 
-  // ── Loading Screen ────────────────────────────────────────────────────────
-
   if (loading) {
     return (
       <div className="flex items-center justify-center h-screen font-sans text-zinc-400 bg-[--bg-main]">
@@ -375,8 +362,6 @@ export default function Chat({ user, onLogout }: Props) {
       </div>
     );
   }
-
-  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div className="flex h-screen h-[100dvh] overflow-hidden bg-[--bg-main] relative transition-colors duration-300 font-sans">
@@ -397,7 +382,6 @@ export default function Chat({ user, onLogout }: Props) {
       />
 
       <main className="flex-1 flex flex-col min-w-0 bg-transparent relative z-20">
-
         {/* Header */}
         <header className="sticky top-0 z-30 h-14 md:h-16 bg-white/80 dark:bg-black/40 backdrop-blur-2xl border-b border-[--border] flex items-center justify-between px-4 md:px-6 shrink-0">
           <div className="flex items-center gap-4 min-w-0">
@@ -423,13 +407,12 @@ export default function Chat({ user, onLogout }: Props) {
         {/* Messages */}
         <div className="flex-1 overflow-y-auto px-4 py-8 md:py-12 scroll-hide" onScroll={handleScroll}>
           <div className="max-w-3xl mx-auto">
-
             {messages.length === 0 && !isTyping ? (
               <div className="flex flex-col items-center justify-center min-h-[70vh] text-center px-4 max-w-2xl mx-auto">
                 <motion.div
                   initial={{ scale: 0.8, opacity: 0 }}
                   animate={{ scale: 1, opacity: 1 }}
-                  className="w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center mb-10 text-white shadow-2xl"
+                  className="w-16 h-16 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl flex items-center justify-center mb-10 text-indigo-600 shadow-2xl overflow-hidden"
                 >
                   <StormLogo className="w-10 h-10" />
                 </motion.div>
@@ -446,7 +429,7 @@ export default function Chat({ user, onLogout }: Props) {
                     <button
                       key={i}
                       onClick={() => handleSendMessage(undefined, s)}
-                      className="group p-4 bg-white dark:bg-zinc-900 border border-[--border] rounded-xl text-sm font-medium text-[--text-muted] hover:text-indigo-600 hover:border-indigo-600/30 transition-all text-left"
+                      className="group p-4 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm font-medium text-[--text-muted] hover:text-indigo-600 hover:border-indigo-600/30 transition-all text-left shadow-sm"
                     >
                       <span className="block truncate">{s}</span>
                     </button>
@@ -454,141 +437,127 @@ export default function Chat({ user, onLogout }: Props) {
                 </div>
               </div>
             ) : (
-              <div className="space-y-4 pb-32 pt-4">
+              <div className="space-y-8 pb-32 pt-4">
                 {messages.map((msg, index) => (
                   <div 
                     key={msg.id || index} 
-                    className={`group relative py-4 md:py-6 px-4 rounded-2xl transition-all duration-300 ${
-                      msg.role === 'assistant' 
-                        ? 'bg-indigo-50/50 dark:bg-white/[0.03] border border-indigo-100/50 dark:border-white/5' 
-                        : 'bg-zinc-100/50 dark:bg-zinc-900/50 border border-zinc-200/50 dark:border-zinc-800/50'
-                    }`}
+                    className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} group`}
                   >
-                    <div className="flex gap-4 md:gap-6 items-start max-w-3xl mx-auto">
-                      <div className={`w-8 h-8 md:w-10 md:h-10 rounded-full shrink-0 flex items-center justify-center border shadow-sm transition-all ${
+                    <div className={`flex gap-3 max-w-[90%] md:max-w-[80%] ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
+                      <div className={`w-7 h-7 md:w-8 md:h-8 rounded-full shrink-0 flex items-center justify-center border shadow-sm ${
                         msg.role === 'user'
-                          ? 'bg-white dark:bg-zinc-800 border-zinc-200/50 dark:border-zinc-700/50'
+                          ? 'bg-white dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700'
                           : 'bg-indigo-600 text-white border-indigo-500'
                       }`}>
                         {msg.role === 'user'
-                          ? <UserAvatar name={user?.username || 'User'} className="w-full h-full text-xs" />
-                          : <StormLogo className="w-5 h-5" />
+                          ? <UserAvatar name={user?.username || 'User'} className="w-full h-full text-[10px]" />
+                          : <StormLogo className="w-4 h-4 ml-[1px]" />
                         }
                       </div>
 
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="flex items-center gap-2">
-                            <p className="text-[10px] font-bold text-[--text-muted]/60 uppercase tracking-widest flex items-center gap-1.5">
-                              {msg.role === 'user' ? 'You' : (
-                                <>
-                                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" />
-                                  Scout AI
-                                </>
-                              )}
-                            </p>
-                            <span className="text-[8px] font-medium opacity-30 tracking-tight">
-                              • {msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Now'}
-                            </span>
-                          </div>
+                      <div className="flex flex-col gap-1 min-w-0">
+                        <div className={`px-4 py-3 rounded-2xl shadow-sm border transition-all duration-300 ${
+                          msg.role === 'assistant' 
+                            ? 'bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-[--text-main]' 
+                            : 'bg-indigo-600 border-indigo-500 text-white selection:bg-white/20'
+                        } ${msg.role === 'user' ? 'rounded-tr-none' : 'rounded-tl-none'}`}>
+                          
+                          {msg.role === 'user' && msg.content.includes('[Attached Files:') && (() => {
+                            const match = msg.content.match(/\[Attached Files: (.*?)\]/);
+                            if (!match) return null;
+                            const fileNames = match[1].split(', ');
+                            const imageFiles = fileNames.filter(f => /\.(jpg|jpeg|png|gif|webp)$/i.test(f));
+                            const otherFiles = fileNames.filter(f => !/\.(jpg|jpeg|png|gif|webp)$/i.test(f));
+                            return (
+                              <div className="flex flex-wrap gap-2 mb-3">
+                                {imageFiles.map((fileName, idx) => (
+                                  <div key={idx} className="relative overflow-hidden rounded-lg border border-white/20 shadow-md max-w-[200px]">
+                                    <img
+                                      src={`${BACKEND_BASE}/uploads/${fileName}`}
+                                      alt={fileName}
+                                      className="max-h-40 w-auto object-contain cursor-zoom-in"
+                                      onClick={() => window.open(`${BACKEND_BASE}/uploads/${fileName}`, '_blank')}
+                                    />
+                                  </div>
+                                ))}
+                                {otherFiles.map((fileName, idx) => (
+                                  <div key={idx} className="flex items-center gap-2 px-3 py-1.5 bg-white/10 rounded-lg border border-white/20">
+                                    <FileText className="w-3.5 h-3.5 shrink-0" />
+                                    <span className="text-[10px] font-bold truncate max-w-[120px]">{fileName}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            );
+                          })()}
 
+                          <div className={`text-sm md:text-base leading-relaxed markdown-body max-w-none ${msg.role === 'user' ? 'prose-invert' : ''}`}>
+                            <ReactMarkdown 
+                              remarkPlugins={[remarkGfm]}
+                              components={{
+                                code({ node, inline, className, children, ...props }: any) {
+                                  const match = /language-(\w+)/.exec(className || '');
+                                  const content = String(children).replace(/\n$/, '');
+                                  return !inline && match ? (
+                                    <CodeBlock language={match[1]} value={content} />
+                                  ) : (
+                                    <code className={`${className} ${msg.role === 'user' ? 'bg-indigo-700/50 text-white' : 'bg-zinc-100 dark:bg-zinc-800 text-indigo-500'} px-1 py-0.5 rounded font-mono text-[0.85em]`} {...props}>
+                                      {children}
+                                    </code>
+                                  );
+                                }
+                              }}
+                            >
+                              {msg.content.replace(/\n?\n?\[Attached Files:.*?\]/g, '').trim()}
+                            </ReactMarkdown>
+                          </div>
+                        </div>
+
+                        {/* Actions & Timestamp Below */}
+                        <div className={`flex items-center gap-3 px-1 mt-1 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
+                          <span className="text-[9px] font-black text-zinc-400 dark:text-zinc-500 uppercase tracking-widest whitespace-nowrap">
+                            {msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Now'}
+                          </span>
+                          
                           <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <motion.button
-                              whileHover={{ scale: 1.1 }}
-                              whileTap={{ scale: 0.9 }}
+                            {msg.role === 'user' && (
+                              <button 
+                                onClick={() => {
+                                  setInput(msg.content.replace(/\n?\n?\[Attached Files:.*?\]/g, '').trim());
+                                  inputRef.current?.focus();
+                                }}
+                                className="p-1 text-zinc-400 hover:text-indigo-600 transition-colors"
+                                title="Edit message"
+                              >
+                                <Edit2 className="w-3 h-3" />
+                              </button>
+                            )}
+                            <button 
                               onClick={() => {
                                 navigator.clipboard.writeText(msg.content);
                                 setCopiedId(msg.id || index);
                                 setTimeout(() => setCopiedId(null), 2000);
                               }}
-                              className="p-1 px-2 flex items-center gap-1.5 rounded-md bg-white border border-zinc-200 dark:bg-zinc-800 dark:border-zinc-700 text-[10px] font-bold text-zinc-500 hover:text-indigo-600 transition-all shadow-sm"
+                              className={`p-1 transition-colors ${copiedId === (msg.id || index) ? 'text-emerald-500' : 'text-zinc-400 hover:text-indigo-600'}`}
                               title="Copy message"
                             >
-                              {copiedId === (msg.id || index)
-                                ? <Check className="w-2.5 h-2.5 text-emerald-500" />
-                                : <Copy className="w-2.5 h-2.5" />
-                              }
-                              <span>{copiedId === (msg.id || index) ? 'Copied' : 'Copy'}</span>
-                            </motion.button>
+                              {copiedId === (msg.id || index) ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                            </button>
                           </div>
-                        </div>
-
-                        {/* ── Image Attachments in Message ── */}
-                        {msg.role === 'user' && msg.content.includes('[Attached Files:') && (() => {
-                          const match = msg.content.match(/\[Attached Files: (.*?)\]/);
-                          if (!match) return null;
-                          const fileNames = match[1].split(', ');
-                          const imageFiles = fileNames.filter(f => /\.(jpg|jpeg|png|gif|webp)$/i.test(f));
-                          const otherFiles = fileNames.filter(f => !/\.(jpg|jpeg|png|gif|webp)$/i.test(f));
-                          return (
-                            <div className="flex flex-wrap gap-2 mt-2 mb-3">
-                              {imageFiles.map((fileName, idx) => (
-                                <div
-                                  key={idx}
-                                  className="relative overflow-hidden rounded-xl border border-[--border] shadow-lg max-w-[240px] bg-white dark:bg-zinc-900"
-                                >
-                                  <img
-                                    src={`${BACKEND_BASE}/uploads/${fileName}`}
-                                    alt={fileName}
-                                    className="max-h-48 w-auto object-contain hover:scale-105 transition-transform duration-500 cursor-zoom-in"
-                                    onClick={() => window.open(`${BACKEND_BASE}/uploads/${fileName}`, '_blank')}
-                                    onError={(e) => {
-                                      (e.target as HTMLImageElement).style.display = 'none';
-                                    }}
-                                  />
-                                  <p className="text-[9px] text-center text-[--text-muted] py-1 truncate px-2">{fileName}</p>
-                                </div>
-                              ))}
-                              {otherFiles.map((fileName, idx) => (
-                                <div key={idx} className="flex items-center gap-2 px-3 py-2 bg-white dark:bg-zinc-800 rounded-xl border border-[--border]">
-                                  <FileText className="w-4 h-4 text-indigo-500 shrink-0" />
-                                  <span className="text-xs text-[--text-muted] truncate max-w-[150px]">{fileName}</span>
-                                </div>
-                              ))}
-                            </div>
-                          );
-                        })()}
-
-                        {/* Message text */}
-                        <div className="text-sm md:text-base text-[--text-main] leading-relaxed markdown-body max-w-none">
-                          <ReactMarkdown 
-                            remarkPlugins={[remarkGfm]}
-                            components={{
-                              code({ node, inline, className, children, ...props }: any) {
-                                const match = /language-(\w+)/.exec(className || '');
-                                const content = String(children).replace(/\n$/, '');
-                                return !inline && match ? (
-                                  <CodeBlock language={match[1]} value={content} />
-                                ) : (
-                                  <code className={`${className} bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-indigo-500 font-mono text-[0.9em]`} {...props}>
-                                    {children}
-                                  </code>
-                                );
-                              }
-                            }}
-                          >
-                            {msg.content.replace(/\n?\n?\[Attached Files:.*?\]/g, '').trim()}
-                          </ReactMarkdown>
                         </div>
                       </div>
                     </div>
                   </div>
                 ))}
 
-                {/* Typing indicator */}
                 {isTyping && (
-                  <div className="flex gap-4 md:gap-6 items-start">
-                    <div className="w-8 h-8 md:w-10 md:h-10 rounded-full shrink-0 flex items-center justify-center bg-indigo-600 text-white border border-indigo-500 shadow-sm">
-                      <StormLogo className="w-5 h-5" />
+                  <div className="flex items-start gap-3">
+                    <div className="w-7 h-7 md:w-8 md:h-8 rounded-full shrink-0 flex items-center justify-center bg-indigo-600 text-white shadow-sm">
+                      <StormLogo className="w-4 h-4 ml-[1px]" />
                     </div>
-                    <div className="flex-1 space-y-2">
-                      <p className="text-[10px] font-bold text-[--text-muted]/60 uppercase tracking-widest">Scout AI</p>
-                      <div className="flex gap-1.5 py-4 items-center">
-                        <motion.div animate={{ scale: [1, 1.5, 1], opacity: [0.3, 1, 0.3] }} transition={{ repeat: Infinity, duration: 1 }} className="w-1.5 h-1.5 bg-indigo-600 rounded-full" />
-                        <motion.div animate={{ scale: [1, 1.5, 1], opacity: [0.3, 1, 0.3] }} transition={{ repeat: Infinity, duration: 1, delay: 0.2 }} className="w-1.5 h-1.5 bg-indigo-600 rounded-full" />
-                        <motion.div animate={{ scale: [1, 1.5, 1], opacity: [0.3, 1, 0.3] }} transition={{ repeat: Infinity, duration: 1, delay: 0.4 }} className="w-1.5 h-1.5 bg-indigo-600 rounded-full" />
-                        <span className="ml-2 text-xs font-bold text-indigo-600/30 tracking-widest uppercase">Thinking</span>
-                      </div>
+                    <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 px-4 py-3 rounded-2xl rounded-tl-none shadow-sm flex items-center gap-2">
+                      <motion.div animate={{ scale: [1, 1.2, 1], opacity: [0.3, 1, 0.3] }} transition={{ repeat: Infinity, duration: 1 }} className="w-1.5 h-1.5 bg-indigo-600 rounded-full" />
+                      <motion.div animate={{ scale: [1, 1.2, 1], opacity: [0.3, 1, 0.3] }} transition={{ repeat: Infinity, duration: 1, delay: 0.2 }} className="w-1.5 h-1.5 bg-indigo-600 rounded-full" />
+                      <motion.div animate={{ scale: [1, 1.2, 1], opacity: [0.3, 1, 0.3] }} transition={{ repeat: Infinity, duration: 1, delay: 0.4 }} className="w-1.5 h-1.5 bg-indigo-600 rounded-full" />
                     </div>
                   </div>
                 )}
@@ -615,8 +584,6 @@ export default function Chat({ user, onLogout }: Props) {
         {/* Input Area */}
         <div className="p-4 md:p-8 shrink-0">
           <div className="max-w-3xl mx-auto">
-
-            {/* Upload Error */}
             <AnimatePresence>
               {uploadError && (
                 <motion.div
@@ -633,7 +600,6 @@ export default function Chat({ user, onLogout }: Props) {
               )}
             </AnimatePresence>
 
-            {/* Attached Files Preview */}
             <AnimatePresence>
               {attachedFiles.length > 0 && (
                 <motion.div
@@ -650,19 +616,9 @@ export default function Chat({ user, onLogout }: Props) {
                       exit={{ scale: 0.8, opacity: 0 }}
                       className="flex items-center gap-2 px-3 py-2 bg-indigo-50 dark:bg-indigo-900/10 border border-indigo-200 dark:border-indigo-500/20 rounded-xl max-w-[200px]"
                     >
-                      {file.isImage ? (
-                        <ImageIcon className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
-                      ) : (
-                        <FileText className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
-                      )}
-                      <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 truncate">
-                        {file.originalName}
-                      </span>
-                      <button
-                        onClick={() => removeAttachedFile(i)}
-                        className="text-indigo-400 hover:text-red-500 transition-colors shrink-0"
-                        title="Remove file"
-                      >
+                      {file.isImage ? <ImageIcon className="w-3.5 h-3.5 text-indigo-500 shrink-0" /> : <FileText className="w-3.5 h-3.5 text-indigo-500 shrink-0" />}
+                      <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 truncate">{file.originalName}</span>
+                      <button onClick={() => removeAttachedFile(i)} className="text-indigo-400 hover:text-red-500 transition-colors shrink-0">
                         <X className="w-3 h-3" />
                       </button>
                     </motion.div>
@@ -671,97 +627,91 @@ export default function Chat({ user, onLogout }: Props) {
               )}
             </AnimatePresence>
 
-            {/* Input Box */}
-            <div className="relative group">
-              <input
-                type="file"
-                ref={fileInputRef}
-                onChange={handleFileUpload}
-                accept="image/jpeg,image/png,image/gif,image/webp,application/pdf,text/plain"
-                className="hidden"
+            <div className={`relative flex flex-col bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl md:rounded-3xl shadow-2xl transition-all overflow-hidden ${justFinished ? 'animate-blink' : ''}`}>
+              <textarea
+                ref={inputRef}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey && !isTyping) {
+                    e.preventDefault();
+                    handleSendMessage();
+                  }
+                }}
+                disabled={isTyping}
+                placeholder={isUploading ? 'Uploading file...' : 'Write a message...'}
+                rows={1}
+                className="w-full px-5 pt-5 pb-2 bg-transparent focus:outline-none font-medium text-[--text-main] placeholder:text-zinc-400 dark:placeholder:text-zinc-500 text-base leading-relaxed resize-none min-h-[60px] max-h-[200px]"
+                style={{ height: 'auto' }}
+                onInput={(e) => {
+                  const target = e.target as HTMLTextAreaElement;
+                  target.style.height = 'auto';
+                  target.style.height = `${target.scrollHeight}px`;
+                }}
               />
 
-              <div className={`relative flex flex-col bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl md:rounded-3xl shadow-2xl transition-all overflow-hidden ${justFinished ? 'animate-blink' : ''}`}>
-                
-                {/* Text Area / Input */}
-                <textarea
-                  ref={inputRef}
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey && !isTyping) {
-                      e.preventDefault();
-                      handleSendMessage();
-                    }
-                  }}
-                  disabled={isTyping}
-                  placeholder={isUploading ? 'Uploading file...' : 'Write a message...'}
-                  rows={1}
-                  className="w-full px-5 pt-5 pb-2 bg-transparent focus:outline-none font-medium text-[--text-main] placeholder:text-zinc-400 dark:placeholder:text-zinc-500 text-base leading-relaxed resize-none min-h-[60px] max-h-[200px]"
-                  style={{ height: 'auto' }}
-                  onInput={(e) => {
-                    const target = e.target as HTMLTextAreaElement;
-                    target.style.height = 'auto';
-                    target.style.height = `${target.scrollHeight}px`;
-                  }}
-                />
+              <div className="flex items-center justify-between px-3 pb-3 pt-1">
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isUploading}
+                  className={`p-2 rounded-lg transition-all ${isUploading ? 'text-indigo-400 animate-pulse' : 'text-zinc-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20'}`}
+                >
+                  <Plus className="w-5 h-5" />
+                </button>
 
-                {/* Bottom Bar */}
-                <div className="flex items-center justify-between px-3 pb-3 pt-1">
-                  <div className="flex items-center gap-1">
-                    <motion.button
-                      whileHover={{ scale: 1.1 }}
-                      whileTap={{ scale: 0.9 }}
-                      type="button"
-                      onClick={() => fileInputRef.current?.click()}
-                      disabled={isUploading}
-                      className={`p-2 rounded-lg transition-all ${isUploading ? 'text-indigo-400 animate-pulse' : 'text-zinc-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20'}`}
-                      title={isUploading ? 'Uploading...' : 'Attach image or file'}
+                <div className="flex items-center gap-2">
+                  <div className="relative">
+                    <button 
+                      onClick={() => setIsModelMenuOpen(!isModelMenuOpen)}
+                      className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-100 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors"
                     >
-                      <Plus className="w-5 h-5" />
-                    </motion.button>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    {/* Model Selector Label */}
-                    <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-100 dark:border-zinc-700">
-                      <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest flex items-center gap-1.5">
-                        Scout 4.6 Adaptive
-                        <ChevronDown className="w-3 h-3 opacity-30" />
+                      <span className="text-[10px] font-black text-zinc-500 dark:text-zinc-400 uppercase tracking-widest flex items-center gap-1.5">
+                        {selectedModel}
+                        <ChevronDown className={`w-3 h-3 transition-transform ${isModelMenuOpen ? 'rotate-180' : ''}`} />
                       </span>
-                    </div>
-
-                    {/* Send / Stop Button */}
-                    <motion.button
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
-                      onClick={isTyping ? handleStopResponse : () => handleSendMessage()}
-                      disabled={(!input.trim() && attachedFiles.length === 0 && !isUploading) && !isTyping}
-                      className={`p-2.5 rounded-xl shadow-md transition-all flex items-center justify-center border ${
-                        isTyping
-                          ? 'bg-red-500 text-white border-red-400'
-                          : (!input.trim() && attachedFiles.length === 0)
-                            ? 'bg-zinc-50 text-zinc-300 border-zinc-100 dark:bg-zinc-800 dark:text-zinc-600 dark:border-white/5'
-                            : 'bg-zinc-900 text-white border-zinc-800 dark:bg-white dark:text-black dark:border-white'
-                      }`}
-                    >
-                      {isTyping ? (
-                        <Square className="w-4 h-4 fill-current" />
-                      ) : (
-                        <div className="relative flex items-center justify-center">
-                          <Circle className="w-5 h-5 opacity-20" />
-                          <div className="absolute w-2 h-2 rounded-full bg-current" />
-                        </div>
+                    </button>
+                    <AnimatePresence>
+                      {isModelMenuOpen && (
+                        <motion.div
+                          initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                          animate={{ opacity: 1, y: -8, scale: 1 }}
+                          exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                          className="absolute bottom-full right-0 mb-2 w-48 bg-white dark:bg-zinc-800 border border-zinc-100 dark:border-zinc-700 rounded-xl shadow-2xl z-50 overflow-hidden"
+                        >
+                          <div className="p-2 px-3 border-b border-zinc-100 dark:border-zinc-700">
+                            <span className="text-[8px] font-black text-zinc-400 uppercase tracking-widest">Select Model</span>
+                          </div>
+                          {['Scout 4.6 Adaptive', 'Scout 4.6 Pro', 'Scout 3.5 Mini'].map((model) => (
+                            <button
+                              key={model}
+                              onClick={() => { setSelectedModel(model); setIsModelMenuOpen(false); }}
+                              className={`w-full text-left px-3 py-2 text-xs font-bold transition-all hover:bg-indigo-50 dark:hover:bg-indigo-900/20 ${selectedModel === model ? 'text-indigo-600' : 'text-zinc-600 dark:text-zinc-400'}`}
+                            >
+                              {model}
+                            </button>
+                          ))}
+                        </motion.div>
                       )}
-                    </motion.button>
+                    </AnimatePresence>
                   </div>
+
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={isTyping ? handleStopResponse : () => handleSendMessage()}
+                    disabled={(!input.trim() && attachedFiles.length === 0 && !isUploading) && !isTyping}
+                    className={`p-2.5 rounded-xl shadow-md transition-all flex items-center justify-center border ${
+                      isTyping ? 'bg-red-500 text-white border-red-400' : (!input.trim() && attachedFiles.length === 0) ? 'bg-zinc-50 text-zinc-300 border-zinc-100 dark:bg-zinc-800 dark:text-zinc-600 dark:border-white/5' : 'bg-zinc-900 text-white border-zinc-800 dark:bg-white dark:text-black dark:border-white'
+                    }`}
+                  >
+                    {isTyping ? <Loader2 className="w-5 h-5 animate-spin" /> : <ArrowUp className={`w-5 h-5 transition-transform ${input.trim() ? 'scale-110' : 'scale-90 opacity-40'}`} />}
+                  </motion.button>
                 </div>
               </div>
             </div>
-
-            <p className="mt-4 text-center text-[10px] font-medium text-[--text-muted]/40">
-              Scout can make mistakes. Check important info.
-            </p>
+            <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept="image/jpeg,image/png,image/gif,image/webp,application/pdf,text/plain" className="hidden" />
+            <p className="mt-4 text-center text-[10px] font-medium text-[--text-muted]/40">Scout can make mistakes. Check important info.</p>
           </div>
         </div>
       </main>
