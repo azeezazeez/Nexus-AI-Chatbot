@@ -85,8 +85,9 @@ export default function Chat({ user, onLogout }: Props) {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [isModelMenuOpen, setIsModelMenuOpen] = useState(false);
   const [selectedModel, setSelectedModel] = useState('Scout 4.6 Adaptive');
-  // FIX: Use a consistent type (string) for editing message ID
-  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  
+  // FIX: Use a proper editing message state with id and content
+  const [editingMessage, setEditingMessage] = useState<{id: string | number; content: string} | null>(null);
   const [editInput, setEditInput] = useState('');
 
   // Modal state
@@ -299,6 +300,7 @@ export default function Chat({ user, onLogout }: Props) {
     setAttachedFiles([]);
     setUploadError(null);
     setIsSidebarOpen(false);
+    setEditingMessage(null); // Clear editing state
   };
 
   const deleteSession = async (sid: number) => {
@@ -354,9 +356,54 @@ export default function Chat({ user, onLogout }: Props) {
     finally { onLogout(); }
   };
 
-  // FIX: Helper to get a stable string key for each message
-  const getMsgKey = (msg: Message, index: number): string =>
-    msg.id != null ? String(msg.id) : `index-${index}`;
+  // FIX: Helper to clean message content for display
+  const cleanMessageContent = (content: string): string => {
+    return content.replace(/\n?\n?\[Attached Files:.*?\]/g, '').trim();
+  };
+
+  // FIX: Handle editing a message
+  const handleStartEdit = (msg: Message) => {
+    setEditingMessage({
+      id: msg.id,
+      content: cleanMessageContent(msg.content)
+    });
+    setEditInput(cleanMessageContent(msg.content));
+  };
+
+  const handleCancelEdit = () => {
+    setEditingMessage(null);
+    setEditInput('');
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingMessage || !editInput.trim()) return;
+
+    // Update message in UI
+    setMessages(prev =>
+      prev.map(m =>
+        m.id === editingMessage.id ? { ...m, content: editInput } : m
+      )
+    );
+
+    // Optional: If you have an API endpoint to edit messages on the backend
+    // Uncomment this section and implement the API call
+    /*
+    try {
+      await chatApi.editMessage(editingMessage.id, editInput);
+    } catch (err) {
+      console.error('Failed to edit message:', err);
+      // Revert on error
+      setMessages(prev =>
+        prev.map(m =>
+          m.id === editingMessage.id ? { ...m, content: editingMessage.content } : m
+        )
+      );
+    }
+    */
+
+    setEditingMessage(null);
+    setEditInput('');
+  };
 
   if (loading) {
     return (
@@ -455,12 +502,11 @@ export default function Chat({ user, onLogout }: Props) {
             ) : (
               <div className="space-y-8 pb-32 pt-4">
                 {messages.map((msg, index) => {
-                  // FIX: Use a stable string key for all ID comparisons
-                  const msgKey = getMsgKey(msg, index);
-
+                  const isEditing = editingMessage?.id === msg.id;
+                  
                   return (
                     <div
-                      key={msgKey}
+                      key={msg.id || `msg-${index}`}
                       className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} group`}
                     >
                       <div className={`flex gap-3 max-w-[90%] md:max-w-[80%] ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
@@ -522,7 +568,7 @@ export default function Chat({ user, onLogout }: Props) {
                             })()}
 
                             <div className={`text-sm md:text-base leading-relaxed markdown-body max-w-none`}>
-                              {editingMessageId === msgKey ? (
+                              {isEditing ? (
                                 <div className="flex flex-col gap-3 min-w-[240px] sm:min-w-[400px] p-1">
                                   <textarea
                                     value={editInput}
@@ -536,7 +582,7 @@ export default function Chat({ user, onLogout }: Props) {
                                   />
                                   <div className="flex justify-end gap-2">
                                     <button
-                                      onClick={() => setEditingMessageId(null)}
+                                      onClick={handleCancelEdit}
                                       className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all rounded-lg ${
                                         msg.role === 'user' ? 'text-white/60 hover:text-white' : 'text-zinc-500 hover:text-zinc-900'
                                       }`}
@@ -544,15 +590,7 @@ export default function Chat({ user, onLogout }: Props) {
                                       Cancel
                                     </button>
                                     <button
-                                      onClick={() => {
-                                        // FIX: Compare using the stable msgKey
-                                        setMessages(prev =>
-                                          prev.map((m, i) =>
-                                            getMsgKey(m, i) === msgKey ? { ...m, content: editInput } : m
-                                          )
-                                        );
-                                        setEditingMessageId(null);
-                                      }}
+                                      onClick={handleSaveEdit}
                                       className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all shadow-lg ${
                                         msg.role === 'user'
                                           ? 'bg-white text-indigo-600 hover:bg-zinc-100'
@@ -570,7 +608,6 @@ export default function Chat({ user, onLogout }: Props) {
                                     code({ className, children, ...props }: any) {
                                       const match = /language-(\w+)/.exec(className || '');
                                       const content = String(children).replace(/\n$/, '');
-                                      // @ts-ignore - inline is passed by react-markdown v8+ but not always in types
                                       const isInline = props.inline || !className;
                                       return !isInline && match ? (
                                         <CodeBlock language={match[1]} value={content} />
@@ -585,7 +622,7 @@ export default function Chat({ user, onLogout }: Props) {
                                     }
                                   } as Components}
                                 >
-                                  {msg.content.replace(/\n?\n?\[Attached Files:.*?\]/g, '').trim()}
+                                  {cleanMessageContent(msg.content)}
                                 </ReactMarkdown>
                               )}
                             </div>
@@ -601,13 +638,9 @@ export default function Chat({ user, onLogout }: Props) {
                             </span>
 
                             <div className="flex items-center gap-0.5">
-                              {msg.role === 'user' && (
+                              {msg.role === 'user' && !isEditing && (
                                 <button
-                                  onClick={() => {
-                                    // FIX: Use stable msgKey for editingMessageId
-                                    setEditingMessageId(msgKey);
-                                    setEditInput(msg.content.replace(/\n?\n?\[Attached Files:.*?\]/g, '').trim());
-                                  }}
+                                  onClick={() => handleStartEdit(msg)}
                                   className="p-1 px-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 hover:text-indigo-600 transition-all"
                                   title="Edit message"
                                 >
@@ -616,15 +649,14 @@ export default function Chat({ user, onLogout }: Props) {
                               )}
                               <button
                                 onClick={() => {
-                                  navigator.clipboard.writeText(msg.content);
-                                  // FIX: Use stable msgKey for copiedId
-                                  setCopiedId(msgKey);
+                                  navigator.clipboard.writeText(cleanMessageContent(msg.content));
+                                  setCopiedId(msg.id);
                                   setTimeout(() => setCopiedId(null), 2000);
                                 }}
-                                className={`p-1 px-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all ${copiedId === msgKey ? 'text-emerald-500' : 'text-zinc-400 hover:text-indigo-600'}`}
+                                className={`p-1 px-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all ${copiedId === msg.id ? 'text-emerald-500' : 'text-zinc-400 hover:text-indigo-600'}`}
                                 title="Copy message"
                               >
-                                {copiedId === msgKey ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                                {copiedId === msg.id ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
                               </button>
                             </div>
                           </div>
