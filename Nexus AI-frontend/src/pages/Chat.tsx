@@ -83,7 +83,7 @@ export default function Chat({ user, onLogout }: Props) {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [isModelMenuOpen, setIsModelMenuOpen] = useState(false);
-  const [selectedModel, setSelectedModel] = useState('Scout 4.6 Adaptive');
+  const [selectedModel, setSelectedModel] = useState('Nexus 4.6 Adaptive');
   // FIX: Use a consistent type (string) for editing message ID
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editInput, setEditInput] = useState('');
@@ -349,7 +349,7 @@ export default function Chat({ user, onLogout }: Props) {
   };
 
   const handleLogout = async () => {
-    try { await authApi.logout(); } catch (err) { console.error('Logout failed:', err); }
+    try { await authApi.logout(); } catch (err: unknown) { console.error('Logout failed:', err); }
     finally { onLogout(); }
   };
 
@@ -406,7 +406,7 @@ export default function Chat({ user, onLogout }: Props) {
                 <span className="text-[10px] font-black text-[--text-main] uppercase tracking-widest leading-none mb-1">Nexus AI</span>
                 <div className="flex items-center gap-1.5">
                   <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  <span className="text-[8px] font-bold text-[--text-muted]/60 uppercase tracking-widest">Scout Active</span>
+                  <span className="text-[8px] font-bold text-[--text-muted]/60 uppercase tracking-widest">Nexus Active</span>
                 </div>
               </div>
             </div>
@@ -784,9 +784,9 @@ export default function Chat({ user, onLogout }: Props) {
                             <span className="text-[8px] font-black text-zinc-400 uppercase tracking-widest">Select Model</span>
                           </div>
                           {[
-                            'Scout 4.6 Adaptive',
-                            'Scout 4.6 Pro',
-                            'Scout 3.5 Mini',
+                            'Nexus 4.6 Adaptive',
+                            'Nexus 4.6 Pro',
+                            'Nexus 3.5 Mini',
                             'gemini-2.5-flash',
                             'llama-3.3-70b-versatile'
                           ].map((model) => (
@@ -838,7 +838,7 @@ export default function Chat({ user, onLogout }: Props) {
               accept="image/jpeg,image/png,image/gif,image/webp,application/pdf,text/plain"
               className="hidden"
             />
-            <p className="mt-4 text-center text-[10px] font-medium text-[--text-muted]/40">Scout can make mistakes. Check important info.</p>
+            <p className="mt-4 text-center text-[10px] font-medium text-[--text-muted]/40">Nexus AI can make mistakes. Check important info.</p>
           </div>
         </div>
       </main>
