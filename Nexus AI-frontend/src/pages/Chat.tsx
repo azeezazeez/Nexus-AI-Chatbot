@@ -510,29 +510,38 @@ export default function Chat({ user, onLogout }: Props) {
 
                           <div className={`text-sm md:text-base leading-relaxed markdown-body max-w-none ${msg.role === 'user' ? 'prose-invert' : ''}`}>
                             {editingMessageId === (msg.id || index) ? (
-                              <div className="flex flex-col gap-2 min-w-[200px] sm:min-w-[300px]">
+                              <div className="flex flex-col gap-3 min-w-[240px] sm:min-w-[400px] p-1">
                                 <textarea
                                   value={editInput}
                                   onChange={(e) => setEditInput(e.target.value)}
-                                  className="w-full bg-black/10 dark:bg-black/20 border border-white/20 rounded-lg p-2 text-sm focus:outline-none focus:ring-1 focus:ring-white/30 resize-none text-white selection:bg-white/20"
-                                  rows={3}
+                                  className={`w-full border rounded-xl p-3 text-sm focus:outline-none focus:ring-2 focus:ring-white/20 transition-all resize-none font-medium min-h-[120px] ${
+                                    msg.role === 'user' 
+                                      ? 'bg-black/20 border-white/10 text-white placeholder:text-white/30' 
+                                      : 'bg-zinc-50 dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700 text-zinc-900 dark:text-zinc-100'
+                                  }`}
                                   autoFocus
                                 />
                                 <div className="flex justify-end gap-2">
                                   <button
                                     onClick={() => setEditingMessageId(null)}
-                                    className="px-2 py-1 text-[10px] font-bold uppercase tracking-widest text-white/60 hover:text-white transition-colors"
+                                    className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all rounded-lg ${
+                                      msg.role === 'user' ? 'text-white/60 hover:text-white' : 'text-zinc-500 hover:text-zinc-900'
+                                    }`}
                                   >
                                     Cancel
                                   </button>
                                   <button
                                     onClick={() => {
-                                      setMessages(prev => prev.map(m => (m.id === msg.id || (m.role === 'user' && !m.id && index === index)) ? { ...m, content: editInput } : m));
+                                      setMessages(prev => prev.map((m, i) => (m.id === msg.id || (index === i)) ? { ...m, content: editInput } : m));
                                       setEditingMessageId(null);
                                     }}
-                                    className="px-3 py-1 bg-white text-indigo-600 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-zinc-100 transition-colors"
+                                    className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all shadow-lg ${
+                                      msg.role === 'user' 
+                                        ? 'bg-white text-indigo-600 hover:bg-zinc-100' 
+                                        : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-indigo-500/20'
+                                    }`}
                                   >
-                                    Save
+                                    Save Changes
                                   </button>
                                 </div>
                               </div>
@@ -597,7 +606,7 @@ export default function Chat({ user, onLogout }: Props) {
                 {isTyping && (
                   <div className="flex items-start gap-3">
                     <div className="w-7 h-7 md:w-8 md:h-8 rounded-full shrink-0 flex items-center justify-center bg-indigo-600 text-white shadow-sm">
-                      <StormLogo className="w-4 h-4 ml-[1px]" />
+                      <StormLogo className="w-4 h-4 ml-[1px] animate-spin" />
                     </div>
                     <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 px-4 py-3 rounded-2xl rounded-tl-none shadow-sm flex items-center gap-2">
                       <motion.div animate={{ scale: [1, 1.2, 1], opacity: [0.3, 1, 0.3] }} transition={{ repeat: Infinity, duration: 1 }} className="w-1.5 h-1.5 bg-indigo-600 rounded-full" />
@@ -731,11 +740,7 @@ export default function Chat({ user, onLogout }: Props) {
                             'Scout 4.6 Adaptive', 
                             'Scout 4.6 Pro', 
                             'Scout 3.5 Mini', 
-                            'Google AI Studio API Modal', 
-                            'Groq Llama 3.1 8B Modal',
-                            'gemini-2.1-flash', 
                             'gemini-2.5-flash',
-                            'llama-3.1-8b-instant',
                             'llama-3.3-70b-versatile'
                           ].map((model) => (
                             <button
