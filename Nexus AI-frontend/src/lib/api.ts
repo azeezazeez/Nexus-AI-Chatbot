@@ -77,7 +77,7 @@ export const chatApi = {
     const headers: Record<string, string> = {};
     if (token) headers['Authorization'] = `Bearer ${token}`;
 
-    const response = await fetch(`${API_BASE}/chat/upload`, {
+    const response = await fetch(`${API_BASE}/files/upload`, {
       method: 'POST',
       headers,
       body: formData,
