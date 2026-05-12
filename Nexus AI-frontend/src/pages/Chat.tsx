@@ -13,6 +13,38 @@ interface Props {
   onLogout: () => void;
 }
 
+// ── Local autocomplete dictionary ───────────────────────────────────────────
+const SUGGESTIONS_BANK = [
+  "How can I help you today?",
+  "How to implement a responsive layout in React?",
+  "How to fix common JavaScript errors?",
+  "How to build a full-stack app with Node.js?",
+  "What is the best way to learn TypeScript?",
+  "What are the benefits of using Tailwind CSS?",
+  "What does this code do in this context?",
+  "Why is my application running slow?",
+  "Why should I use functional components?",
+  "Can you explain higher-order functions?",
+  "Can you write a unit test for this?",
+  "Explain the difference between SQL and NoSQL.",
+  "Tell me about the latest web development trends.",
+  "Write a clean code example for a login form.",
+  "Generate a sample database schema for a blog.",
+  "Fix this bug in my React hook.",
+  "Debug this layout issue on mobile devices.",
+  "I'm looking for healthy breakfast ideas.",
+  "Draft a poem about the morning rain.",
+  "Explain quantum physics to a five year old.",
+  "How to deploy a website to the cloud?",
+  "What are some creative gift ideas for developers?",
+  "Can you tell me a joke about programming?",
+  "Help me structure my project folders.",
+  "Describe the concept of 'closure' in JS.",
+  "How to optimize images for faster loading?",
+  "What is the purpose of a Docker container?",
+  "Write a professional email for a job application.",
+];
+
 export default function Chat({ user, onLogout }: Props) {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<number | null>(null);
@@ -22,7 +54,12 @@ export default function Chat({ user, onLogout }: Props) {
   const [loading, setLoading] = useState(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
+  // ── Autocomplete state ──────────────────────────────────────────────────────
+  const [suggestion, setSuggestion] = useState('');
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const justCreatedSessionRef = useRef<number | null>(null);
 
   const loadSessions = useCallback(async () => {
     try {
@@ -30,7 +67,7 @@ export default function Chat({ user, onLogout }: Props) {
       setSessions(response.sessions || []);
     } catch (err: any) {
       console.error('Failed to load sessions:', err);
-      if (err.status === 401) {
+      if (err.status === 401 && !localStorage.getItem('auth_token')) {
         onLogout();
       }
     } finally {
@@ -46,7 +83,7 @@ export default function Chat({ user, onLogout }: Props) {
       setMessages(response.messages || []);
     } catch (err: any) {
       console.error('Failed to load messages:', err);
-      if (err.status === 401) onLogout();
+      if (err.status === 401 && !localStorage.getItem('auth_token')) onLogout();
     }
   }, [onLogout]);
 
@@ -54,6 +91,10 @@ export default function Chat({ user, onLogout }: Props) {
 
   useEffect(() => {
     if (currentSessionId) {
+      if (justCreatedSessionRef.current === currentSessionId) {
+        justCreatedSessionRef.current = null;
+        return;
+      }
       loadMessages(currentSessionId);
     } else {
       setMessages([]);
@@ -66,6 +107,74 @@ export default function Chat({ user, onLogout }: Props) {
     }, 100);
     return () => clearTimeout(timer);
   }, [messages, isTyping]);
+
+  // ── Cleanup debounce on unmount ─────────────────────────────────────────────
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, []);
+
+  // ── Improved local autocomplete ──────────────────────────────────────────────
+  const fetchSuggestion = useCallback((text: string) => {
+    if (text.length < 2) {
+      setSuggestion('');
+      return;
+    }
+
+    const lower = text.toLowerCase();
+    
+    // Find first match that starts with the current input or contains the words
+    let match = SUGGESTIONS_BANK.find(s => s.toLowerCase().startsWith(lower));
+    
+    if (!match) {
+      // Smarter matching: if user types words that are in the suggestion bank
+      const words = lower.split(' ').filter(w => w.length > 2);
+      if (words.length > 0) {
+        match = SUGGESTIONS_BANK.find(s => {
+          const sLower = s.toLowerCase();
+          return words.every(w => sLower.includes(w));
+        });
+      }
+    }
+    
+    if (match) {
+      // Suggestion pill will show the full 'match'
+      // but ghost text (setSuggestion) only works effectively if it's a suffix
+      if (match.toLowerCase().startsWith(lower)) {
+        setSuggestion(match.slice(text.length));
+      } else {
+        // If it's a keyword match but not a prefix, we'll set suggestion to the full string
+        // so the pill can show it, but we won't show ghost text in the input.
+        // To distinguish, we'll use local state in render.
+        setSuggestion(match); 
+      }
+    } else {
+      setSuggestion('');
+    }
+  }, []); 
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setInput(val);
+    fetchSuggestion(val);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Tab' && suggestion) {
+      e.preventDefault();
+      // If suggestion is a suffix, append it. If it's the full string, replace/complete it.
+      if (suggestion.toLowerCase().startsWith(input.toLowerCase())) {
+        setInput(input + suggestion);
+      } else if (SUGGESTIONS_BANK.includes(suggestion) && !suggestion.toLowerCase().startsWith(input.toLowerCase())) {
+        setInput(suggestion);
+      } else {
+        setInput(prev => prev + suggestion);
+      }
+      setSuggestion('');
+    }
+    if (e.key === 'Escape') setSuggestion('');
+  };
 
   const handleLogout = async () => {
     try {
@@ -84,6 +193,7 @@ export default function Chat({ user, onLogout }: Props) {
     if (!input.trim() || isTyping) return;
 
     const userMessage = input.trim();
+    setSuggestion('');
     setInput('');
 
     const tempUserMsg: Message = {
@@ -151,13 +261,23 @@ export default function Chat({ user, onLogout }: Props) {
   const createNewSession = async () => {
     try {
       const response = await chatApi.createSession();
+      // Set ref BEFORE setting ID to prevent loadMessages from firing redundant requests
+      justCreatedSessionRef.current = response.id;
       setCurrentSessionId(response.id);
       await loadSessions();
       setIsSidebarOpen(false); // Close sidebar on mobile after creating new chat
     } catch (err: any) {
       console.error('Failed to create session:', err);
+      // Double check auth status before forcing logout
       if (err.status === 401) {
-        onLogout();
+        try {
+          const statusResult = await authApi.getStatus();
+          if (!statusResult.authenticated) {
+            onLogout();
+          }
+        } catch (e) {
+          onLogout();
+        }
       }
     }
   };
@@ -369,11 +489,102 @@ export default function Chat({ user, onLogout }: Props) {
 
         <div className="p-4 md:p-10 lg:p-16 pt-2 shrink-0 bg-gradient-to-t from-[--bg-main] via-[--bg-main] to-transparent">
           <div className="max-w-4xl mx-auto relative">
+
+            {/* Quick-reply chips (only when no suggestion is showing) */}
+            {!isTyping && messages.length > 0 && !suggestion && (
+              <div className="flex gap-2 mb-3 overflow-x-auto pb-1 scroll-hide">
+                {["Explain more", "Give an example", "Summarize this", "How to fix it?", "What are alternatives?"].map((s, i) => (
+                  <button key={i} onClick={() => { setInput(s); fetchSuggestion(s); }}
+                    className="shrink-0 px-3 py-1.5 text-[9px] md:text-[10px] font-black uppercase tracking-widest bg-[--surface] dark:bg-white/5 border border-[--border] rounded-full text-[--text-muted] hover:text-indigo-500 hover:border-indigo-500/50 transition-all whitespace-nowrap">
+                    {s}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* ── Autocomplete suggestion pill ─────────────────────────────── */}
+            <AnimatePresence>
+              {suggestion && !isTyping && (
+                <motion.div
+                  key="suggestion-pill"
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 4 }}
+                  transition={{ duration: 0.18 }}
+                  className="mb-2.5 flex items-center gap-2 overflow-x-auto scroll-hide"
+                >
+                  {/* AI badge */}
+                  <span className="shrink-0 px-2 py-1 text-[8px] font-black uppercase tracking-[0.2em] text-indigo-400 bg-indigo-500/10 border border-indigo-500/20 rounded-full">
+                    AI
+                  </span>
+
+                  {/* Suggestion chip — click to accept */}
+                  <button
+                    onClick={() => { 
+                      if (SUGGESTIONS_BANK.includes(suggestion)) {
+                        setInput(suggestion);
+                      } else {
+                        setInput(prev => prev + suggestion);
+                      }
+                      setSuggestion(''); 
+                    }}
+                    className="flex items-center gap-2 px-3 py-1.5 bg-white/60 dark:bg-white/[0.06] border border-indigo-300/40 dark:border-indigo-500/20 rounded-xl shadow-sm hover:border-indigo-400/60 hover:bg-indigo-50/60 dark:hover:bg-indigo-500/10 transition-all group max-w-[85%]"
+                    title="Click or press Tab to accept"
+                  >
+                    {/* What the user already typed — muted (only if it matches prefix) */}
+                    {suggestion && suggestion.toLowerCase() && !suggestion.toLowerCase().startsWith(input.toLowerCase()) && SUGGESTIONS_BANK.includes(suggestion) ? (
+                      <span className="text-[11px] md:text-xs font-semibold text-indigo-500 dark:text-indigo-400 truncate">
+                        {suggestion}
+                      </span>
+                    ) : (
+                      <>
+                        <span className="text-[11px] md:text-xs font-medium text-[--text-muted]/40 truncate shrink-0 max-w-[120px] hidden sm:inline">
+                          {input}
+                        </span>
+                        <span className="text-[11px] md:text-xs font-semibold text-indigo-500 dark:text-indigo-400 truncate">
+                          {suggestion}
+                        </span>
+                      </>
+                    )}
+                    {/* Tab hint badge */}
+                    <span className="shrink-0 ml-1 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-widest border border-[--border] rounded-md text-[--text-muted]/50 group-hover:border-indigo-400/40 group-hover:text-indigo-400 transition-all hidden sm:inline-block">
+                      Tab
+                    </span>
+                  </button>
+
+                  {/* Dismiss */}
+                  <button
+                    onClick={() => setSuggestion('')}
+                    className="shrink-0 text-[--text-muted]/30 hover:text-[--text-muted]/60 text-xs transition-colors px-1"
+                    aria-label="Dismiss suggestion"
+                  >
+                    ✕
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
             <form onSubmit={handleSendMessage} className="relative group">
+              {/* Ghost-text layer */}
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-0 flex items-center pl-6 md:pl-8 pr-16 md:pr-20 overflow-hidden rounded-2xl md:rounded-[2.5rem]"
+              >
+                <span className="font-medium text-xs md:text-sm tracking-wide whitespace-pre text-transparent select-none">
+                  {input}
+                </span>
+                {suggestion && !isTyping && suggestion.toLowerCase().startsWith(input.toLowerCase()) && (
+                  <span className="font-medium text-xs md:text-sm tracking-wide whitespace-pre text-[--text-muted]/30 select-none">
+                    {suggestion}
+                  </span>
+                )}
+              </div>
+
               <input
                 type="text"
                 value={input}
-                onChange={(e) => setInput(e.target.value)}
+                onChange={handleInputChange}
+                onKeyDown={handleKeyDown}
                 disabled={isTyping}
                 placeholder={isTyping ? "Thinking..." : "Type a message..."}
                 className="w-full pl-6 md:pl-8 pr-16 md:pr-20 py-4 md:py-6 bg-white dark:bg-white/5 border border-[--border] rounded-2xl md:rounded-[2.5rem] shadow-2xl focus:outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all font-medium text-[--text-main] placeholder:text-[--text-muted]/30 tracking-wide text-xs md:text-sm"
