@@ -6,7 +6,9 @@ import { chatApi, authApi } from '../lib/api';
 import { motion, AnimatePresence } from 'motion/react';
 import StormLogo from '../components/StormLogo';
 import UserAvatar from '../components/UserAvatar';
-import { Send, ArrowDown, Menu } from 'lucide-react';
+import ConfirmationModal from '../components/ConfirmationModal';
+import { Send, ArrowDown, ArrowUp, Menu, Square, Paperclip, Copy, Check, Plus, Mic, MicOff, Volume2, VolumeX } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
 
 interface Props {
   user: User;
@@ -21,6 +23,17 @@ export default function Chat({ user, onLogout }: Props) {
   const [isTyping, setIsTyping] = useState(false);
   const [loading, setLoading] = useState(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [justFinished, setJustFinished] = useState(false);
+  const [showScrollBottom, setShowScrollBottom] = useState(false);
+  const [copiedId, setCopiedId] = useState<number | string | null>(null);
+  const [isListening, setIsListening] = useState(false);
+  const [isVoiceEnabled, setIsVoiceEnabled] = useState(false);
+  const recognitionRef = useRef<any>(null);
+  const synthesisRef = useRef<SpeechSynthesisUtterance | null>(null);
+
+  // --- Modal state ---
+  const [modalType, setModalType] = useState<'none' | 'delete-all' | 'delete-single'>('none');
+  const [sessionIdToDelete, setSessionIdToDelete] = useState<number | null>(null);
 
   // ── Autocomplete state ──────────────────────────────────────────────────────
   const [suggestion, setSuggestion] = useState('');
@@ -28,9 +41,11 @@ export default function Chat({ user, onLogout }: Props) {
   const isFetchingSuggestionRef = useRef(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  // Use a more reliable lock with timestamp
-  const lastSendTimeRef = useRef<number>(0);
   const isSendingRef = useRef(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [attachedFiles, setAttachedFiles] = useState<any[]>([]);
 
   const loadSessions = useCallback(async () => {
     try {
@@ -38,9 +53,7 @@ export default function Chat({ user, onLogout }: Props) {
       setSessions(response.sessions || []);
     } catch (err: any) {
       console.error('Failed to load sessions:', err);
-      if (err.status === 401) {
-        onLogout();
-      }
+      if (err.status === 401) onLogout();
     } finally {
       setLoading(false);
     }
@@ -67,44 +80,87 @@ export default function Chat({ user, onLogout }: Props) {
   }, [currentSessionId, loadMessages]);
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, 100);
-    return () => clearTimeout(timer);
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isTyping]);
 
   useEffect(() => {
-    return () => {
-      if (autocompleteTimeoutRef.current) clearTimeout(autocompleteTimeoutRef.current);
-    };
+    if ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window) {
+      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      recognitionRef.current = new SpeechRecognition();
+      recognitionRef.current.continuous = true; // Changed to true for live listening
+      recognitionRef.current.interimResults = true; // Show text as spoken
+      recognitionRef.current.lang = 'en-US';
+
+      recognitionRef.current.onresult = (event: any) => {
+        let finalTranscript = '';
+        let interimTranscript = '';
+        
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          const transcript = event.results[i][0].transcript;
+          if (event.results[i].isFinal) {
+            finalTranscript += transcript;
+          } else {
+            interimTranscript += transcript;
+          }
+        }
+
+        if (finalTranscript) {
+          setInput(prev => prev + (prev && !prev.endsWith(' ') ? ' ' : '') + finalTranscript.trim());
+        }
+        
+        // We can use the interimTranscript to give visual feedback if we wanted, 
+        // but for now, we'll just log it or we could append it temporarily.
+      };
+
+      recognitionRef.current.onerror = (event: any) => {
+        console.error('Speech recognition error:', event.error);
+        setIsListening(false);
+      };
+
+      recognitionRef.current.onend = () => {
+        // Only stop if we explicitly turned it off
+      };
+    }
   }, []);
+
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+    const isAtBottom = scrollHeight - scrollTop - clientHeight < 100;
+    setShowScrollBottom(!isAtBottom);
+  };
+
+  const toggleListening = () => {
+    if (isListening) {
+      recognitionRef.current?.stop();
+      setIsListening(false);
+    } else {
+      try {
+        recognitionRef.current?.start();
+        setIsListening(true);
+      } catch (err) {
+        console.error('Failed to start speech recognition:', err);
+      }
+    }
+  };
 
   const fetchSuggestionFromBackend = useCallback(async (text: string) => {
     if (text.length < 3 || isFetchingSuggestionRef.current) {
       setSuggestion('');
       return;
     }
-
     isFetchingSuggestionRef.current = true;
-    
     try {
       const response = await fetch('/api/chat/autocomplete', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ text: text }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
       });
-      
       if (response.ok) {
         const data = await response.json();
         setSuggestion(data.suggestion || '');
-      } else {
-        setSuggestion('');
       }
     } catch (error) {
       console.error('Autocomplete error:', error);
-      setSuggestion('');
     } finally {
       isFetchingSuggestionRef.current = false;
     }
@@ -113,15 +169,9 @@ export default function Chat({ user, onLogout }: Props) {
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     setInput(val);
-    
-    if (autocompleteTimeoutRef.current) {
-      clearTimeout(autocompleteTimeoutRef.current);
-    }
-    
+    if (autocompleteTimeoutRef.current) clearTimeout(autocompleteTimeoutRef.current);
     if (val.length >= 3) {
-      autocompleteTimeoutRef.current = setTimeout(() => {
-        fetchSuggestionFromBackend(val);
-      }, 300);
+      autocompleteTimeoutRef.current = setTimeout(() => fetchSuggestionFromBackend(val), 300);
     } else {
       setSuggestion('');
     }
@@ -134,6 +184,10 @@ export default function Chat({ user, onLogout }: Props) {
       setSuggestion('');
     }
     if (e.key === 'Escape') setSuggestion('');
+    if (e.key === 'Enter' && !isTyping) {
+      e.preventDefault();
+      handleSendMessage();
+    }
   };
 
   const handleLogout = async () => {
@@ -146,99 +200,142 @@ export default function Chat({ user, onLogout }: Props) {
     }
   };
 
-  const handleSendMessage = async (e: React.FormEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
+  const handleStopResponse = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      setIsTyping(false);
+      isSendingRef.current = false;
+      abortControllerRef.current = null;
+    }
+    if (window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
+  };
 
-    // Multiple layers of protection against double-sends
-    const now = Date.now();
+  const speak = (text: string) => {
+    if (!isVoiceEnabled || !window.speechSynthesis) return;
     
-    // Check if we're already sending
-    if (isSendingRef.current) {
-      console.log('Already sending, ignoring duplicate');
-      return;
+    window.speechSynthesis.cancel();
+
+    const utterance = new SpeechSynthesisUtterance(text);
+    const voices = window.speechSynthesis.getVoices();
+    // Prefer Google English voices for better quality
+    const premiumVoice = voices.find(v => v.name.includes('Google') && v.lang.startsWith('en')) || voices[0];
+    if (premiumVoice) utterance.voice = premiumVoice;
+    
+    utterance.rate = 1.05;
+    utterance.pitch = 1.0;
+    
+    window.speechSynthesis.speak(utterance);
+    synthesisRef.current = utterance;
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const response = await chatApi.uploadFile(file);
+      setAttachedFiles(prev => [...prev, response.file]);
+    } catch (err) {
+      console.error('File upload failed:', err);
+      alert('File upload failed');
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
-    
-    // Check if we sent recently (within last 2 seconds)
-    if (lastSendTimeRef.current && (now - lastSendTimeRef.current) < 2000) {
-      console.log('Recent send detected, ignoring duplicate');
-      return;
+  };
+
+  const handleSendMessage = async (e?: React.FormEvent, directMessage?: string) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
     }
+
+    const messageText = directMessage || input.trim();
+    if (!messageText && attachedFiles.length === 0) return;
     
-    if (!input.trim()) return;
-    
-    // Set both locks
+    if (isSendingRef.current) return;
     isSendingRef.current = true;
-    lastSendTimeRef.current = now;
-
-    const userMessage = input.trim();
-    setSuggestion('');
-    setInput('');
     setIsTyping(true);
+    setSuggestion('');
+    setJustFinished(false);
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    const files = [...attachedFiles];
+    let fullMessageContent = messageText;
+    if (files.length > 0) {
+      fullMessageContent += `\n\n[Attached Files: ${files.map(f => f.originalName).join(', ')}]`;
+    }
 
     const tempUserMsg: Message = {
-      id: crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(),
+      id: 'temp-' + Date.now(),
       sessionId: currentSessionId || 0,
       role: 'user',
-      content: userMessage,
+      content: fullMessageContent,
       timestamp: new Date().toISOString(),
     };
     
     setMessages(prev => [...prev, tempUserMsg]);
+    setInput('');
+    setAttachedFiles([]);
+
+    const isNewSession = !currentSessionId;
+    const fileIds = attachedFiles.map(f => f.id);
 
     try {
-      const response = await chatApi.sendMessage(userMessage, currentSessionId);
+      const response = await chatApi.sendMessage(fullMessageContent, currentSessionId, fileIds, controller.signal);
       const activeSessionId = response.sessionId || currentSessionId;
 
-      if (!currentSessionId && activeSessionId) {
+      if (isNewSession && activeSessionId) {
         setCurrentSessionId(activeSessionId);
         await loadSessions();
       }
 
-      const currentSession = sessions.find(s => s.id === activeSessionId);
-      if (
-        (!currentSessionId || (currentSession && currentSession.sessionName === 'New Chat')) &&
-        activeSessionId
-      ) {
-        try {
-          const { title } = await chatApi.generateTitle(userMessage);
-          await chatApi.renameSession(activeSessionId, title);
-          await loadSessions();
-        } catch (renameErr) {
-          console.error('Smart renaming failed:', renameErr);
-          if (response.isNewSessionHeader) await loadSessions();
-        }
-      }
-
       const aiMsg: Message = {
-        id: crypto.randomUUID ? crypto.randomUUID() : (Date.now() + 1).toString(),
+        id: response.messageId || 'ai-' + Date.now(),
         sessionId: activeSessionId,
         role: 'assistant',
         content: response.response,
         timestamp: new Date().toISOString(),
       };
-      setMessages(prev => [...prev, aiMsg]);
+      
+      setMessages(prev => {
+        if (prev.some(m => m.id === aiMsg.id)) return prev;
+        return [...prev, aiMsg];
+      });
 
-    } catch (err: any) {
-      console.error('Chat error:', err);
-      if (err.status === 401) {
-        onLogout();
-        return;
+      speak(response.response);
+
+      if ((isNewSession || sessions.find(s => s.id === activeSessionId)?.sessionName === 'New Chat') && activeSessionId) {
+        try {
+          const { title } = await chatApi.generateTitle(messageText);
+          await chatApi.renameSession(activeSessionId, title);
+          await loadSessions();
+        } catch (renameErr) {
+          console.error('Rename failed:', renameErr);
+        }
       }
-      const errMsg: Message = {
-        id: crypto.randomUUID ? crypto.randomUUID() : (Date.now() + 1).toString(),
-        sessionId: currentSessionId || 0,
-        role: 'assistant',
-        content: 'Sorry, I encountered an error. Please try again.',
-        timestamp: new Date().toISOString(),
-      };
-      setMessages(prev => [...prev, errMsg]);
+    } catch (err: any) {
+      if (err.name === 'AbortError') {
+        console.log('Chat aborted');
+      } else {
+        console.error('Chat error:', err);
+        setMessages(prev => [...prev, {
+          id: 'error-' + Date.now(),
+          sessionId: currentSessionId || 0,
+          role: 'assistant',
+          content: 'Sorry, I encountered an error. Please try again.',
+          timestamp: new Date().toISOString(),
+        }]);
+      }
     } finally {
       setIsTyping(false);
-      // Release the send lock after a longer delay
-      setTimeout(() => {
-        isSendingRef.current = false;
-      }, 1000);
+      isSendingRef.current = false;
+      abortControllerRef.current = null;
+      setJustFinished(true);
+      setTimeout(() => setJustFinished(false), 3000);
+      inputRef.current?.focus();
     }
   };
 
@@ -251,23 +348,44 @@ export default function Chat({ user, onLogout }: Props) {
   };
 
   const deleteSession = async (sid: number) => {
+    setSessionIdToDelete(sid);
+    setModalType('delete-single');
+  };
+
+  const confirmDeleteSession = async () => {
+    if (!sessionIdToDelete) return;
     try {
-      await chatApi.deleteSession(sid);
-      if (currentSessionId === sid) {
+      await chatApi.deleteSession(sessionIdToDelete);
+      if (currentSessionId === sessionIdToDelete) {
         setCurrentSessionId(null);
         setMessages([]);
       }
       await loadSessions();
     } catch (err: any) {
       console.error('Failed to delete session:', err);
-      if (err.status === 401) {
-        onLogout();
-      }
+      if (err.status === 401) onLogout();
+    } finally {
+      setSessionIdToDelete(null);
+      setModalType('none');
     }
   };
 
-  const handleClearAll = async () => {
-    if (!confirm('Are you sure you want to delete all chats? This cannot be undone.')) return;
+  const renameSession = async (sid: number, newName: string) => {
+    if (!newName.trim()) return;
+    try {
+      await chatApi.renameSession(sid, newName);
+      await loadSessions();
+    } catch (err: any) {
+      console.error('Failed to rename session:', err);
+      if (err.status === 401) onLogout();
+    }
+  };
+
+  const handleClearAll = () => {
+    setModalType('delete-all');
+  };
+
+  const confirmClearAll = async () => {
     try {
       await chatApi.clearSessions();
       setCurrentSessionId(null);
@@ -275,9 +393,9 @@ export default function Chat({ user, onLogout }: Props) {
       await loadSessions();
     } catch (err: any) {
       console.error('Failed to clear sessions:', err);
-      if (err.status === 401) {
-        onLogout();
-      }
+      if (err.status === 401) onLogout();
+    } finally {
+      setModalType('none');
     }
   };
 
@@ -300,10 +418,9 @@ export default function Chat({ user, onLogout }: Props) {
   }
 
   return (
-    <div className="flex h-screen h-[100dvh] overflow-hidden bg-[--bg-main] relative transition-colors duration-300">
+    <div className="flex h-screen h-[100dvh] overflow-hidden bg-[--bg-main] relative transition-colors duration-300 font-sans">
       <div className="absolute top-0 right-0 w-[800px] h-[800px] bg-indigo-500/5 rounded-full blur-[160px] pointer-events-none" />
-      <div className="absolute bottom-0 left-80 w-[600px] h-[600px] bg-purple-500/5 rounded-full blur-[140px] pointer-events-none" />
-
+      
       <Sidebar
         user={user}
         sessions={sessions}
@@ -314,6 +431,7 @@ export default function Chat({ user, onLogout }: Props) {
         }}
         onNewSession={createNewSession}
         onDeleteSession={deleteSession}
+        onRenameSession={renameSession}
         onClearAll={handleClearAll}
         onLogout={handleLogout}
         isOpen={isSidebarOpen}
@@ -321,236 +439,267 @@ export default function Chat({ user, onLogout }: Props) {
       />
 
       <main className="flex-1 flex flex-col min-w-0 bg-transparent relative z-20">
-        <header className="sticky top-0 z-30 h-20 bg-white/80 dark:bg-black/40 backdrop-blur-2xl border-b border-[--border] flex items-center justify-between px-4 md:px-10 shrink-0">
-          <div className="flex items-center gap-4 md:gap-6 min-w-0">
+        <header className="sticky top-0 z-30 h-16 bg-white/80 dark:bg-black/40 backdrop-blur-2xl border-b border-[--border] flex items-center justify-between px-4 md:px-6 shrink-0">
+          <div className="flex items-center gap-4 min-w-0">
             <button
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                setIsSidebarOpen(true);
-                loadSessions();
-              }}
-              className="lg:hidden p-2.5 -ml-1 bg-black/5 dark:bg-white/5 rounded-xl border border-[--border] text-[--text-muted] hover:text-indigo-600 transition-all flex items-center gap-2 active:scale-95 shrink-0 cursor-pointer"
+              onClick={() => setIsSidebarOpen(true)}
+              className="lg:hidden p-2 bg-black/5 dark:bg-white/5 rounded-lg border border-[--border] text-[--text-muted]"
             >
               <Menu className="w-5 h-5" />
-              <span className="text-[10px] font-black uppercase tracking-widest hidden sm:inline-block">Chats</span>
             </button>
-            <div className="hidden sm:flex items-center gap-2.5 shrink-0">
-              <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.4)] animate-pulse" />
-              <span className="text-[10px] font-black text-[--text-muted]/40 uppercase tracking-[0.25em]">Online</span>
+            <div className="hidden sm:flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span className="text-[10px] font-bold text-[--text-muted]/60 uppercase tracking-widest">Nexus AI Online</span>
             </div>
-            {currentSessionId && (
-              <>
-                <div className="hidden sm:block h-4 w-px bg-[--border] shrink-0" />
-                <span className="text-xs font-bold text-[--text-main] tracking-wide truncate max-w-[120px] sm:max-w-xs px-1">
-                  {sessions.find(s => s.id === currentSessionId)?.sessionName || 'Chatting...'}
-                </span>
-              </>
-            )}
           </div>
+          <div className="flex-1 text-center px-4">
+             <span className="text-xs font-bold text-[--text-main] truncate block">
+                {sessions.find(s => s.id === currentSessionId)?.sessionName || 'New Conversation'}
+             </span>
+          </div>
+          <div className="w-20" /> {/* Spacer */}
         </header>
 
-        <div className="flex-1 overflow-y-auto px-4 md:px-10 lg:px-20 py-8 md:py-12 scroll-hide">
-          <div className="max-w-4xl mx-auto space-y-8 md:space-y-12">
+        <div className="flex-1 overflow-y-auto px-4 py-8 md:py-12 scroll-hide" onScroll={handleScroll}>
+          <div className="max-w-3xl mx-auto">
             {messages.length === 0 && !isTyping ? (
-              <div className="flex flex-col items-center justify-center h-full pt-10 md:pt-20 text-center px-4">
+              <div className="flex flex-col items-center justify-center min-h-[70vh] text-center px-4 max-w-2xl mx-auto">
                 <motion.div
                   initial={{ scale: 0.8, opacity: 0 }}
                   animate={{ scale: 1, opacity: 1 }}
-                  className="w-16 h-16 md:w-24 md:h-24 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-3xl md:rounded-[2.5rem] shadow-2xl shadow-indigo-500/20 flex items-center justify-center mb-6 md:mb-10 relative text-white p-4 md:p-6"
+                  className="w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center mb-10 text-white shadow-2xl"
                 >
-                  <div className="absolute inset-0 rounded-3xl md:rounded-[2.5rem] bg-indigo-500/20 animate-ping opacity-20" />
-                  <StormLogo className="w-full h-full" />
+                  <StormLogo className="w-10 h-10" />
                 </motion.div>
-                <h2 className="text-2xl md:text-4xl font-extrabold tracking-tight text-[--text-main] mb-4">
-                  Welcome, {user?.name?.split(' ')[0] || user?.username || 'User'}
+                <h2 className="text-3xl font-bold text-[--text-main] mb-8 tracking-tight">
+                  How can I help you today?
                 </h2>
-                <p className="text-[--text-muted] max-w-sm md:max-w-md leading-relaxed text-xs md:text-sm font-medium">
-                  I'm here to help you. What would you like to chat about today?
-                </p>
-                <div className="mt-8 md:mt-16 grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4 w-full max-w-2xl text-left">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full">
                   {[
-                    "Healthy breakfast ideas",
-                    "How to build a React app",
-                    "Write a poem about rain",
-                    "Explain quantum physics"
+                    "Plan a 3-day trip to Tokyo",
+                    "How to build a SaaS with React?",
+                    "Write a professional covering letter",
+                    "Explain the theory of relativity"
                   ].map((s, i) => (
                     <button
                       key={i}
-                      onClick={() => setInput(s)}
-                      className="p-4 md:p-5 bg-[--surface] dark:bg-white/5 border border-[--border] rounded-2xl md:rounded-[1.5rem] text-[9px] md:text-[10px] font-black uppercase tracking-widest text-[--text-muted] hover:text-[--text-main] hover:border-indigo-500/50 transition-all shadow-sm hover:shadow-lg"
+                      onClick={() => handleSendMessage(undefined, s)}
+                      className="group p-4 bg-white dark:bg-zinc-900 border border-[--border] rounded-xl text-sm font-medium text-[--text-muted] hover:text-indigo-600 hover:border-indigo-600/30 transition-all text-left"
                     >
-                      {s}
+                      <span className="block truncate">{s}</span>
                     </button>
                   ))}
                 </div>
               </div>
             ) : (
-              <AnimatePresence initial={false}>
+              <div className="space-y-12 pb-32 pt-4">
                 {messages.map((msg, index) => (
-                  <motion.div
-                    key={msg.id || index}
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className={`flex gap-3 md:gap-6 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}
-                  >
-                    <div className={`w-9 h-9 md:w-12 md:h-12 rounded-xl md:rounded-2xl shrink-0 flex items-center justify-center border shadow-xl transition-all ${msg.role === 'user'
-                      ? 'p-0 shadow-indigo-500/10'
-                      : 'bg-[--surface] dark:bg-zinc-800 border-[--border] text-indigo-500 p-2 md:p-2.5'
-                      }`}>
-                      {msg.role === 'user'
-                        ? <UserAvatar name={user?.username || 'User'} className="w-full h-full text-sm md:text-lg" />
-                        : <StormLogo className="w-full h-full" />}
-                    </div>
-                    <div className={`flex flex-col max-w-[85%] md:max-w-[75%] ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
-                      <div className={`p-4 md:p-6 rounded-2xl md:rounded-[2rem] border transition-colors shadow-sm ${msg.role === 'user'
-                        ? 'bg-indigo-600 text-white border-indigo-500 font-medium'
-                        : 'bg-white dark:bg-white/5 text-[--text-main] border-[--border] leading-relaxed'
-                        } ${msg.role === 'user' ? 'rounded-tr-none' : 'rounded-tl-none'}`}>
-                        <p className="text-sm md:text-base whitespace-pre-wrap">{msg.content}</p>
+                  <div key={msg.id || index} className="group relative">
+                    <div className="flex gap-4 md:gap-6 items-start">
+                      <div className={`w-8 h-8 md:w-10 md:h-10 rounded-full shrink-0 flex items-center justify-center border shadow-sm transition-all ${msg.role === 'user' 
+                        ? 'bg-zinc-100 dark:bg-zinc-800 border-[--border]' 
+                        : 'bg-indigo-600 text-white border-indigo-500'}`}>
+                        {msg.role === 'user' ? (
+                          <UserAvatar name={user?.username || 'User'} className="w-full h-full text-xs" />
+                        ) : (
+                          <StormLogo className="w-5 h-5" />
+                        )}
                       </div>
-                      <span className="mt-2 md:mt-3 text-[8px] md:text-[9px] font-black text-[--text-muted]/40 uppercase tracking-[0.2em] px-2 md:px-3">
-                        {msg.role === 'user' ? 'You' : 'Nexus AI'} • {msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Just now'}
-                      </span>
+                      <div className="flex-1 min-w-0 space-y-2">
+                        <div className="flex items-center gap-2">
+                          <p className="text-[10px] font-bold text-[--text-muted]/60 uppercase tracking-widest">
+                            {msg.role === 'user' ? 'You' : 'Nexus AI'}
+                          </p>
+                          <span className="text-[8px] font-medium opacity-30 tracking-tight">• {msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Now'}</span>
+                        </div>
+
+                        {/* Image Preview in Message */}
+                        {msg.role === 'user' && msg.content.includes('[Attached Files:') && (
+                          <div className="flex flex-wrap gap-2 mt-2 mb-3">
+                            {msg.content.match(/\[Attached Files: (.*?)\]/)?.[1].split(', ').map((fileName, idx) => {
+                              const isImage = /\.(jpg|jpeg|png|gif|webp)$/i.test(fileName);
+                              if (!isImage) return null;
+                              return (
+                                <div key={idx} className="relative group/img overflow-hidden rounded-xl border border-[--border] shadow-lg max-w-[240px] bg-zinc-100 dark:bg-zinc-900">
+                                  <img 
+                                    src={`/uploads/${fileName}`} 
+                                    alt={fileName} 
+                                    className="max-h-48 w-auto object-contain hover:scale-105 transition-transform duration-500 cursor-zoom-in"
+                                    onClick={() => window.open(`/uploads/${fileName}`, '_blank')}
+                                  />
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        <div className="text-sm md:text-base text-[--text-main] leading-relaxed markdown-body max-w-none">
+                          <ReactMarkdown>{msg.content}</ReactMarkdown>
+                        </div>
+                        <div className="flex items-center gap-3 opacity-0 group-hover:opacity-100 transition-opacity pt-2">
+                          <motion.button 
+                            whileHover={{ scale: 1.1, backgroundColor: 'rgba(0,0,0,0.05)' }}
+                            whileTap={{ scale: 0.9 }}
+                            onClick={() => {
+                              navigator.clipboard.writeText(msg.content);
+                              setCopiedId(msg.id || index);
+                              setTimeout(() => setCopiedId(null), 2000);
+                            }}
+                            className="p-1.5 rounded text-[--text-muted] transition-colors"
+                            title="Copy message"
+                          >
+                            {copiedId === (msg.id || index) ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+                          </motion.button>
+                        </div>
+                      </div>
                     </div>
-                  </motion.div>
+                  </div>
                 ))}
 
                 {isTyping && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="flex gap-6"
-                  >
-                    <div className="w-12 h-12 rounded-2xl shrink-0 flex items-center justify-center bg-[--surface] dark:bg-zinc-800 border border-[--border] text-indigo-500 p-2.5 shadow-xl">
-                      <StormLogo className="w-full h-full" />
+                  <div className="flex gap-4 md:gap-6 items-start">
+                    <div className="w-8 h-8 md:w-10 md:h-10 rounded-full shrink-0 flex items-center justify-center bg-indigo-600 text-white border border-indigo-500 shadow-sm">
+                      <StormLogo className="w-5 h-5" />
                     </div>
-                    <div className="flex flex-col items-start max-w-[75%]">
-                      <motion.div
-                        className="p-6 rounded-[2rem] bg-white dark:bg-white/5 border border-indigo-500/20 text-[--text-main] leading-relaxed rounded-tl-none flex items-center gap-4 shadow-sm"
-                      >
-                        <div className="flex gap-1.5">
-                          {[0, 0.2, 0.4].map((delay, i) => (
-                            <motion.div
-                              key={i}
-                              animate={{ scale: [1, 1.5, 1], opacity: [0.5, 1, 0.5] }}
-                              transition={{ repeat: Infinity, duration: 1, delay }}
-                              className="w-1.5 h-1.5 bg-indigo-500 rounded-full"
-                            />
-                          ))}
-                        </div>
-                        <span className="text-[10px] font-black uppercase tracking-widest text-indigo-500">Thinking...</span>
-                      </motion.div>
+                    <div className="flex-1 space-y-2">
+                      <p className="text-[10px] font-bold text-[--text-muted]/60 uppercase tracking-widest">Nexus AI</p>
+                      <div className="flex gap-1.5 py-4 items-center">
+                        <motion.div animate={{ scale: [1, 1.5, 1], opacity: [0.3, 1, 0.3] }} transition={{ repeat: Infinity, duration: 1 }} className="w-1.5 h-1.5 bg-indigo-600 rounded-full" />
+                        <motion.div animate={{ scale: [1, 1.5, 1], opacity: [0.3, 1, 0.3] }} transition={{ repeat: Infinity, duration: 1, delay: 0.2 }} className="w-1.5 h-1.5 bg-indigo-600 rounded-full" />
+                        <motion.div animate={{ scale: [1, 1.5, 1], opacity: [0.3, 1, 0.3] }} transition={{ repeat: Infinity, duration: 1, delay: 0.4 }} className="w-1.5 h-1.5 bg-indigo-600 rounded-full" />
+                        <span className="ml-2 text-xs font-bold text-indigo-600/30 tracking-widest uppercase">Thinking</span>
+                      </div>
                     </div>
-                  </motion.div>
+                  </div>
                 )}
-              </AnimatePresence>
+              </div>
             )}
             <div ref={messagesEndRef} />
           </div>
+
+          <AnimatePresence>
+            {showScrollBottom && (
+              <motion.button
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 10 }}
+                onClick={() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })}
+                className="fixed bottom-32 right-1/2 translate-x-1/2 p-3 bg-white dark:bg-zinc-800 border border-[--border] rounded-full shadow-2xl text-[--text-muted] hover:text-indigo-600 transition-all z-40 group"
+              >
+                <ArrowDown className="w-5 h-5 group-hover:translate-y-0.5 transition-transform" />
+              </motion.button>
+            )}
+          </AnimatePresence>
         </div>
 
-        <div className="p-4 md:p-10 lg:p-16 pt-2 shrink-0 bg-gradient-to-t from-[--bg-main] via-[--bg-main] to-transparent">
-          <div className="max-w-4xl mx-auto relative">
+        <div className="p-4 md:p-8 shrink-0">
+          <div className="max-w-3xl mx-auto relative">
+            
+            {/* Stop Button handled via Send button */}
 
-            {/* Quick-reply chips */}
-            {!isTyping && messages.length > 0 && !suggestion && (
-              <div className="flex gap-2 mb-3 overflow-x-auto pb-1 scroll-hide">
-                {["Explain more", "Give an example", "Summarize this", "How to fix it?", "What are alternatives?"].map((s, i) => (
-                  <button
-                    key={i}
-                    onClick={() => { setInput(s); fetchSuggestionFromBackend(s); }}
-                    className="shrink-0 px-3 py-1.5 text-[9px] md:text-[10px] font-black uppercase tracking-widest bg-[--surface] dark:bg-white/5 border border-[--border] rounded-full text-[--text-muted] hover:text-indigo-500 hover:border-indigo-500/50 transition-all whitespace-nowrap"
-                  >
-                    {s}
-                  </button>
+            {/* Attached Files Preview */}
+            {attachedFiles.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-3 px-4">
+                {attachedFiles.map((file, i) => (
+                  <div key={i} className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 dark:bg-indigo-900/10 border border-indigo-200 dark:border-indigo-500/20 rounded-xl">
+                    <Paperclip className="w-3 h-3 text-indigo-500" />
+                    <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 truncate max-w-[150px]">{file.originalName}</span>
+                    <button 
+                      onClick={() => setAttachedFiles(prev => prev.filter((_, idx) => idx !== i))}
+                      className="text-xs text-indigo-400 hover:text-red-500 transition-colors"
+                    >
+                      ✕
+                    </button>
+                  </div>
                 ))}
               </div>
             )}
 
-            {/* Autocomplete suggestion pill */}
-            <AnimatePresence>
-              {suggestion && !isTyping && (
-                <motion.div
-                  key="suggestion-pill"
-                  initial={{ opacity: 0, y: 6 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: 4 }}
-                  transition={{ duration: 0.18 }}
-                  className="mb-2.5 flex items-center gap-2 overflow-x-auto scroll-hide"
-                >
-                  <span className="shrink-0 px-2 py-1 text-[8px] font-black uppercase tracking-[0.2em] text-indigo-400 bg-indigo-500/10 border border-indigo-500/20 rounded-full">
-                    AI
-                  </span>
-                  <button
-                    onClick={() => {
-                      setInput(input + suggestion);
-                      setSuggestion('');
-                    }}
-                    className="flex items-center gap-2 px-3 py-1.5 bg-white/60 dark:bg-white/[0.06] border border-indigo-300/40 dark:border-indigo-500/20 rounded-xl shadow-sm hover:border-indigo-400/60 hover:bg-indigo-50/60 dark:hover:bg-indigo-500/10 transition-all group max-w-[85%]"
-                    title="Click or press Tab to accept"
-                  >
-                    <span className="text-[11px] md:text-xs font-medium text-[--text-muted]/40 truncate shrink-0 max-w-[120px] hidden sm:inline">
-                      {input}
-                    </span>
-                    <span className="text-[11px] md:text-xs font-semibold text-indigo-500 dark:text-indigo-400 truncate">
-                      {suggestion}
-                    </span>
-                    <span className="shrink-0 ml-1 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-widest border border-[--border] rounded-md text-[--text-muted]/50 group-hover:border-indigo-400/40 group-hover:text-indigo-400 transition-all hidden sm:inline-block">
-                      Tab
-                    </span>
-                  </button>
-                  <button
-                    onClick={() => setSuggestion('')}
-                    className="shrink-0 text-[--text-muted]/30 hover:text-[--text-muted]/60 text-xs transition-colors px-1"
-                    aria-label="Dismiss suggestion"
-                  >
-                    ✕
-                  </button>
-                </motion.div>
-              )}
-            </AnimatePresence>
-
-            <form onSubmit={handleSendMessage} className="relative group">
-              {/* Ghost-text layer */}
-              <div
-                aria-hidden="true"
-                className="pointer-events-none absolute inset-0 flex items-center pl-6 md:pl-8 pr-16 md:pr-20 overflow-hidden rounded-2xl md:rounded-[2.5rem]"
-              >
-                <span className="font-medium text-xs md:text-sm tracking-wide whitespace-pre text-transparent select-none">
-                  {input}
-                </span>
+            <div className="relative group">
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileUpload}
+                className="hidden"
+              />
+              {/* Ghost Layer for Autocomplete */}
+              <div className="absolute inset-0 pointer-events-none flex items-center px-14 py-4 z-0">
+                <span className="text-sm font-medium text-transparent leading-relaxed">{input}</span>
                 {suggestion && !isTyping && (
-                  <span className="font-medium text-xs md:text-sm tracking-wide whitespace-pre text-[--text-muted]/30 select-none">
-                    {suggestion}
-                  </span>
+                  <span className="text-sm font-medium text-[--text-muted]/30 leading-relaxed">{suggestion}</span>
                 )}
               </div>
+              
+              <div className={`relative flex items-center bg-zinc-50 dark:bg-zinc-900/50 border border-[--border] rounded-2xl shadow-xl focus-within:ring-4 focus-within:ring-indigo-500/5 focus-within:border-indigo-600/50 transition-all z-10 backdrop-blur-sm ${justFinished ? 'animate-blink' : ''}`}>
+                <motion.button
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.9 }}
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="p-4 text-[--text-muted] hover:text-indigo-600 transition-colors"
+                  title="Attach file"
+                >
+                  <Paperclip className="w-5 h-5" />
+                </motion.button>
+                <input
+                  type="text"
+                  ref={inputRef}
+                  value={input}
+                  onChange={handleInputChange}
+                  onKeyDown={handleKeyDown}
+                  disabled={isTyping}
+                  placeholder="Ask anything..."
+                  className="flex-1 py-4 bg-transparent focus:outline-none font-medium text-[--text-main] placeholder:text-[--text-muted]/30 text-sm leading-relaxed"
+                />
+                
+                {/* Voice Recognition Button */}
+                <motion.button
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.9 }}
+                  type="button"
+                  onClick={() => setIsVoiceEnabled(!isVoiceEnabled)}
+                  className={`p-2 mr-1 rounded-lg transition-all ${isVoiceEnabled ? 'text-indigo-600 bg-indigo-50 dark:bg-indigo-900/20' : 'text-[--text-muted] hover:text-indigo-600'}`}
+                  title={isVoiceEnabled ? 'Voice feedback ON' : 'Voice feedback OFF'}
+                >
+                  {isVoiceEnabled ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
+                </motion.button>
 
-              <input
-                type="text"
-                value={input}
-                onChange={handleInputChange}
-                onKeyDown={handleKeyDown}
-                disabled={isTyping || isSendingRef.current}
-                placeholder={isTyping ? "Thinking..." : "Type a message..."}
-                className="w-full pl-6 md:pl-8 pr-16 md:pr-20 py-4 md:py-6 bg-white dark:bg-white/5 border border-[--border] rounded-2xl md:rounded-[2.5rem] shadow-2xl focus:outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all font-medium text-[--text-main] placeholder:text-[--text-muted]/30 tracking-wide text-xs md:text-sm"
-              />
-              <button
-                type="submit"
-                disabled={!input.trim() || isTyping || isSendingRef.current}
-                className="absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 md:w-14 md:h-14 bg-indigo-600 text-white dark:bg-white dark:text-black rounded-full flex items-center justify-center shadow-2xl hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed transition-all active:scale-95 group"
-              >
-                <div className="group-hover:translate-x-0.5 transition-transform">
-                  <Send className="w-4 h-4 md:w-5 md:h-5" />
-                </div>
-              </button>
-            </form>
-          </div>
-          <div className="mt-4 md:mt-6 flex items-center justify-center gap-4 md:gap-6">
-            <p className="text-[7px] md:text-[8px] font-bold text-[--text-muted]/30 uppercase tracking-[0.3em]">AI-Powered Assistant</p>
-            <div className="w-1 h-1 rounded-full bg-[--border]" />
-            <p className="text-[7px] md:text-[8px] font-bold text-[--text-muted]/30 uppercase tracking-[0.3em]">Built with Nexus AI</p>
+                <motion.button
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.9 }}
+                  type="button"
+                  onClick={toggleListening}
+                  className={`p-2 mr-2 rounded-lg transition-all ${isListening ? 'text-red-500 bg-red-50 dark:bg-red-900/20 animate-pulse outline-2 outline-red-200 outline-offset-2' : 'text-[--text-muted] hover:text-indigo-600'}`}
+                  title={isListening ? 'Listening...' : 'Voice input'}
+                >
+                  {isListening ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+                </motion.button>
+
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={isTyping ? handleStopResponse : () => handleSendMessage()}
+                  disabled={(!input.trim() && attachedFiles.length === 0) && !isTyping}
+                  className={`m-2 p-3 rounded-full shadow-lg transition-all active:scale-95 flex items-center justify-center ${
+                    isTyping 
+                      ? 'bg-red-500 text-white hover:bg-red-600'
+                      : (!input.trim() && attachedFiles.length === 0)
+                        ? 'bg-[--surface] text-[--text-muted] opacity-50'
+                        : 'bg-indigo-600 text-white hover:bg-indigo-700'
+                  }`}
+                >
+                  {isTyping ? (
+                    <Square className="w-4 h-4 fill-current" />
+                  ) : (
+                    <ArrowUp className="w-5 h-5" />
+                  )}
+                </motion.button>
+              </div>
+            </div>
+            
+            <p className="mt-4 text-center text-[10px] font-medium text-[--text-muted]/40">
+              Nexus AI can make mistakes. Check important info.
+            </p>
           </div>
         </div>
 
@@ -561,13 +710,31 @@ export default function Chat({ user, onLogout }: Props) {
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.8 }}
               onClick={() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })}
-              className="absolute bottom-40 right-10 p-4 bg-white dark:bg-zinc-800 border border-[--border] rounded-full shadow-2xl text-[--text-muted] hover:text-[--text-main] transition-all z-20 hover:border-indigo-500/50"
+              className="absolute bottom-40 right-6 md:right-10 p-3 bg-white dark:bg-zinc-800 border border-[--border] rounded-full shadow-2xl text-[--text-muted] hover:text-indigo-600 transition-all z-20"
             >
               <ArrowDown className="w-5 h-5" />
             </motion.button>
           )}
         </AnimatePresence>
       </main>
+
+      <ConfirmationModal
+        isOpen={modalType === 'delete-single'}
+        onClose={() => setModalType('none')}
+        onConfirm={confirmDeleteSession}
+        title="Delete Chat"
+        message="Are you sure you want to delete this chat? This action cannot be undone."
+        confirmText="Delete"
+      />
+
+      <ConfirmationModal
+        isOpen={modalType === 'delete-all'}
+        onClose={() => setModalType('none')}
+        onConfirm={confirmClearAll}
+        title="Clear All Chats"
+        message="Are you sure you want to delete ALL chats? This action is permanent and cannot be reversed."
+        confirmText="Clear All"
+      />
     </div>
   );
 }
