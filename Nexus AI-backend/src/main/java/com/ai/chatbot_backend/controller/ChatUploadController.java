@@ -1,4 +1,4 @@
-package com.ai.chatbot_backend.controller;  // Move to controller package
+package com.ai.chatbot_backend.controller; 
 
 import com.ai.chatbot_backend.dto.FileResponseDto;
 import org.springframework.http.HttpStatus;
