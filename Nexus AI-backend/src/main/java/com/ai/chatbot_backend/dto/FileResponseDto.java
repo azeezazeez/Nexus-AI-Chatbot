@@ -1,4 +1,4 @@
-package com.nexus.api.dto;
+package com.ai.chatbot_backend.dto;
 
 import lombok.Builder;
 import lombok.Data;
