@@ -13,6 +13,7 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}) {
     ...(options.headers as Record<string, string>),
   };
 
+  // Only set Content-Type for non-FormData requests
   if (!(options.body instanceof FormData)) {
     headers['Content-Type'] = 'application/json';
   }
@@ -69,7 +70,19 @@ export const chatApi = {
       signal
     }),
   searchSessions: (query: string) => fetchWithAuth(`${API_BASE}/chat/search?q=${encodeURIComponent(query)}`),
+  
   uploadFile: async (file: File) => {
+    // Add frontend validation
+    const MAX_SIZE = 10 * 1024 * 1024; // 10MB
+    if (file.size > MAX_SIZE) {
+      throw new Error(`File too large. Maximum size is 10MB. Your file is ${(file.size / 1024 / 1024).toFixed(2)}MB`);
+    }
+
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'application/pdf', 'text/plain'];
+    if (!allowedTypes.includes(file.type)) {
+      throw new Error(`File type not allowed. Allowed: ${allowedTypes.join(', ')}`);
+    }
+
     const formData = new FormData();
     formData.append('file', file);
     
@@ -77,16 +90,31 @@ export const chatApi = {
     const headers: Record<string, string> = {};
     if (token) headers['Authorization'] = `Bearer ${token}`;
 
-    const response = await fetch(`${API_BASE}/files/upload`, {
-      method: 'POST',
-      headers,
-      body: formData,
-    });
+    try {
+      const response = await fetch(`${API_BASE}/files/upload`, {
+        method: 'POST',
+        headers,
+        credentials: 'include', // ← ADD THIS - important for cookies/auth
+        body: formData,
+      });
 
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new Error(data.error || 'Upload failed');
+      const data = await response.json().catch(() => ({}));
+      
+      if (!response.ok) {
+        // Handle different response structures
+        const errorMsg = data.error || data.message || `Upload failed with status ${response.status}`;
+        throw new Error(errorMsg);
+      }
+      
+      // Return consistent structure
+      return {
+        file: data.file,
+        success: true,
+        message: data.message || 'Upload successful'
+      };
+    } catch (error) {
+      console.error('Upload error:', error);
+      throw error;
     }
-    return data;
   },
 };
