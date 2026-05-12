@@ -103,7 +103,7 @@ public class UserService {
                     .email(request.getEmail().trim().toLowerCase())
                     .password(request.getPassword())
                     .fullName(request.getFullName())
-                    .Verified(false)
+                    .verified(false)
                     .build();
 
             user = userRepository.save(user);
