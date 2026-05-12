@@ -61,7 +61,7 @@ function saveDb(data: any) {
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = process.env.PORT || 3000;
 
   app.use(express.json());
   app.use(cookieParser());
@@ -153,7 +153,7 @@ async function startServer() {
   });
 
   app.post("/api/auth/verify-otp", (req, res) => {
-    const { email, otpCode } = req.body; // user used otpCode in api.ts
+    const { email, otpCode } = req.body;
     const db = loadDb();
     const user = db.users.find((u: any) => u.email === email);
 
@@ -353,7 +353,6 @@ async function startServer() {
           ],
           max_tokens: 20
         }),
-        // Add a timeout if possible, or just catch errors
       });
 
       if (!response.ok) {
@@ -652,23 +651,39 @@ async function startServer() {
 
   // --- End API Routes ---
 
-  // Vite middleware for development
-  if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(process.cwd(), "dist");
+  // Serve static files for production
+  const distPath = path.join(process.cwd(), "dist");
+  
+  // Check if we're in production or development
+  const isDev = process.env.NODE_ENV !== "production";
+  
+  if (!isDev && fs.existsSync(distPath)) {
+    // Production: Serve static files
     app.use(express.static(distPath));
     app.get("*", (req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
+    });
+  } else if (isDev) {
+    // Development: Use Vite middleware
+    try {
+      const vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: "spa",
+      });
+      app.use(vite.middlewares);
+    } catch (error) {
+      console.error("Error creating Vite server:", error);
+    }
+  } else {
+    console.warn("Dist folder not found. Run 'npm run build' first.");
+    app.get("*", (req, res) => {
+      res.status(404).send("Build not found. Please run build first.");
     });
   }
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`Environment: ${isDev ? "development" : "production"}`);
   });
 }
 
