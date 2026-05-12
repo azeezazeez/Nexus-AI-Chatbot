@@ -1,6 +1,6 @@
-package com.ai.chatbot_backend.dto;
+package com.ai.chatbot_backend.controller;  // Move to controller package
 
-import com.nexus.api.dto.FileResponseDto;
+import com.ai.chatbot_backend.dto.FileResponseDto;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -14,9 +14,9 @@ import java.util.Map;
 import java.util.UUID;
 
 @RestController
-@RequestMapping("/api/chat")
-@CrossOrigin(origins = "*") // Replace "*" with your frontend URL in production
-public class ChatUploadController {
+@RequestMapping("/api/files")  // Changed to /api/files to avoid conflicts
+@CrossOrigin(origins = "*")
+public class FileUploadController {  // Renamed for clarity
 
     private static final String UPLOAD_DIRECTORY = "uploads/";
 
@@ -67,6 +67,25 @@ public class ChatUploadController {
             return ResponseEntity
                     .status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of("error", "File upload failed: " + e.getMessage()));
+        }
+    }
+    
+    // Optional: Add endpoint to serve files
+    @GetMapping("/download/{filename}")
+    public ResponseEntity<?> downloadFile(@PathVariable String filename) {
+        try {
+            Path filePath = Paths.get(UPLOAD_DIRECTORY).resolve(filename);
+            if (!Files.exists(filePath)) {
+                return ResponseEntity.notFound().build();
+            }
+            
+            byte[] fileData = Files.readAllBytes(filePath);
+            return ResponseEntity.ok()
+                    .header("Content-Type", "application/octet-stream")
+                    .header("Content-Disposition", "attachment; filename=\"" + filename + "\"")
+                    .body(fileData);
+        } catch (IOException e) {
+            return ResponseEntity.internalServerError().body(Map.of("error", "File download failed"));
         }
     }
 }
