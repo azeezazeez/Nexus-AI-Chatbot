@@ -11,6 +11,7 @@ import {
   Send, ArrowDown, ArrowUp, Menu, Square,
   Paperclip, Copy, Check, Plus, Mic, MicOff,
   Volume2, VolumeX, X, FileText, Image as ImageIcon,
+  Circle, ChevronDown,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -79,8 +80,6 @@ export default function Chat({ user, onLogout }: Props) {
   const [justFinished, setJustFinished] = useState(false);
   const [showScrollBottom, setShowScrollBottom] = useState(false);
   const [copiedId, setCopiedId] = useState<number | string | null>(null);
-  const [isListening, setIsListening] = useState(false);
-  const [isVoiceEnabled, setIsVoiceEnabled] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
@@ -93,8 +92,6 @@ export default function Chat({ user, onLogout }: Props) {
   const abortControllerRef = useRef<AbortController | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const recognitionRef = useRef<any>(null);
-  const synthesisRef = useRef<SpeechSynthesisUtterance | null>(null);
 
   const [attachedFiles, setAttachedFiles] = useState<UploadedFile[]>([]);
 
@@ -135,62 +132,6 @@ export default function Chat({ user, onLogout }: Props) {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isTyping]);
-
-  // ── Speech Recognition ────────────────────────────────────────────────────
-
-  useEffect(() => {
-    if ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window) {
-      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-      recognitionRef.current = new SpeechRecognition();
-      recognitionRef.current.continuous = true;
-      recognitionRef.current.interimResults = true;
-      recognitionRef.current.lang = 'en-US';
-
-      recognitionRef.current.onresult = (event: any) => {
-        let finalTranscript = '';
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-          if (event.results[i].isFinal) {
-            finalTranscript += event.results[i][0].transcript;
-          }
-        }
-        if (finalTranscript) {
-          setInput(prev => prev + (prev && !prev.endsWith(' ') ? ' ' : '') + finalTranscript.trim());
-        }
-      };
-
-      recognitionRef.current.onerror = (event: any) => {
-        console.error('Speech recognition error:', event.error);
-        setIsListening(false);
-      };
-    }
-  }, []);
-
-  const toggleListening = () => {
-    if (isListening) {
-      recognitionRef.current?.stop();
-      setIsListening(false);
-    } else {
-      try {
-        recognitionRef.current?.start();
-        setIsListening(true);
-      } catch (err) {
-        console.error('Failed to start speech recognition:', err);
-      }
-    }
-  };
-
-  const speak = (text: string) => {
-    if (!isVoiceEnabled || !window.speechSynthesis) return;
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    const voices = window.speechSynthesis.getVoices();
-    const premiumVoice = voices.find(v => v.name.includes('Google') && v.lang.startsWith('en')) || voices[0];
-    if (premiumVoice) utterance.voice = premiumVoice;
-    utterance.rate = 1.05;
-    utterance.pitch = 1.0;
-    window.speechSynthesis.speak(utterance);
-    synthesisRef.current = utterance;
-  };
 
   // ── Scroll ────────────────────────────────────────────────────────────────
 
@@ -305,8 +246,6 @@ export default function Chat({ user, onLogout }: Props) {
         if (prev.some(m => m.id === aiMsg.id)) return prev;
         return [...prev, aiMsg];
       });
-
-      speak(response.response);
 
       // Auto-rename new sessions
       if ((isNewSession || sessions.find(s => s.id === activeSessionId)?.sessionName === 'New Chat') && activeSessionId) {
@@ -519,16 +458,16 @@ export default function Chat({ user, onLogout }: Props) {
                 {messages.map((msg, index) => (
                   <div 
                     key={msg.id || index} 
-                    className={`group relative py-6 md:py-8 px-4 md:px-6 -mx-2 md:-mx-4 rounded-2xl md:rounded-[2rem] transition-all duration-500 hover:shadow-sm border border-transparent ${
+                    className={`group relative py-4 md:py-6 px-4 rounded-2xl transition-all duration-300 ${
                       msg.role === 'assistant' 
-                        ? 'bg-indigo-50/40 dark:bg-indigo-500/[0.03] border-indigo-100/20 dark:border-indigo-500/10' 
-                        : ''
+                        ? 'bg-indigo-50/50 dark:bg-white/[0.03] border border-indigo-100/50 dark:border-white/5' 
+                        : 'bg-zinc-100/50 dark:bg-zinc-900/50 border border-zinc-200/50 dark:border-zinc-800/50'
                     }`}
                   >
                     <div className="flex gap-4 md:gap-6 items-start max-w-3xl mx-auto">
                       <div className={`w-8 h-8 md:w-10 md:h-10 rounded-full shrink-0 flex items-center justify-center border shadow-sm transition-all ${
                         msg.role === 'user'
-                          ? 'bg-zinc-100 dark:bg-zinc-800 border-[--border]'
+                          ? 'bg-white dark:bg-zinc-800 border-zinc-200/50 dark:border-zinc-700/50'
                           : 'bg-indigo-600 text-white border-indigo-500'
                       }`}>
                         {msg.role === 'user'
@@ -537,14 +476,41 @@ export default function Chat({ user, onLogout }: Props) {
                         }
                       </div>
 
-                      <div className="flex-1 min-w-0 space-y-2">
-                        <div className="flex items-center gap-2">
-                          <p className="text-[10px] font-bold text-[--text-muted]/60 uppercase tracking-widest">
-                            {msg.role === 'user' ? 'You' : 'Nexus AI'}
-                          </p>
-                          <span className="text-[8px] font-medium opacity-30 tracking-tight">
-                            • {msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Now'}
-                          </span>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <p className="text-[10px] font-bold text-[--text-muted]/60 uppercase tracking-widest flex items-center gap-1.5">
+                              {msg.role === 'user' ? 'You' : (
+                                <>
+                                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" />
+                                  Scout AI
+                                </>
+                              )}
+                            </p>
+                            <span className="text-[8px] font-medium opacity-30 tracking-tight">
+                              • {msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Now'}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <motion.button
+                              whileHover={{ scale: 1.1 }}
+                              whileTap={{ scale: 0.9 }}
+                              onClick={() => {
+                                navigator.clipboard.writeText(msg.content);
+                                setCopiedId(msg.id || index);
+                                setTimeout(() => setCopiedId(null), 2000);
+                              }}
+                              className="p-1 px-2 flex items-center gap-1.5 rounded-md bg-white border border-zinc-200 dark:bg-zinc-800 dark:border-zinc-700 text-[10px] font-bold text-zinc-500 hover:text-indigo-600 transition-all shadow-sm"
+                              title="Copy message"
+                            >
+                              {copiedId === (msg.id || index)
+                                ? <Check className="w-2.5 h-2.5 text-emerald-500" />
+                                : <Copy className="w-2.5 h-2.5" />
+                              }
+                              <span>{copiedId === (msg.id || index) ? 'Copied' : 'Copy'}</span>
+                            </motion.button>
+                          </div>
                         </div>
 
                         {/* ── Image Attachments in Message ── */}
@@ -559,7 +525,7 @@ export default function Chat({ user, onLogout }: Props) {
                               {imageFiles.map((fileName, idx) => (
                                 <div
                                   key={idx}
-                                  className="relative overflow-hidden rounded-xl border border-[--border] shadow-lg max-w-[240px] bg-zinc-100 dark:bg-zinc-900"
+                                  className="relative overflow-hidden rounded-xl border border-[--border] shadow-lg max-w-[240px] bg-white dark:bg-zinc-900"
                                 >
                                   <img
                                     src={`${BACKEND_BASE}/uploads/${fileName}`}
@@ -574,7 +540,7 @@ export default function Chat({ user, onLogout }: Props) {
                                 </div>
                               ))}
                               {otherFiles.map((fileName, idx) => (
-                                <div key={idx} className="flex items-center gap-2 px-3 py-2 bg-zinc-100 dark:bg-zinc-800 rounded-xl border border-[--border]">
+                                <div key={idx} className="flex items-center gap-2 px-3 py-2 bg-white dark:bg-zinc-800 rounded-xl border border-[--border]">
                                   <FileText className="w-4 h-4 text-indigo-500 shrink-0" />
                                   <span className="text-xs text-[--text-muted] truncate max-w-[150px]">{fileName}</span>
                                 </div>
@@ -583,7 +549,7 @@ export default function Chat({ user, onLogout }: Props) {
                           );
                         })()}
 
-                        {/* Message text (hide the [Attached Files:...] tag) */}
+                        {/* Message text */}
                         <div className="text-sm md:text-base text-[--text-main] leading-relaxed markdown-body max-w-none">
                           <ReactMarkdown 
                             remarkPlugins={[remarkGfm]}
@@ -603,26 +569,6 @@ export default function Chat({ user, onLogout }: Props) {
                           >
                             {msg.content.replace(/\n?\n?\[Attached Files:.*?\]/g, '').trim()}
                           </ReactMarkdown>
-                        </div>
-
-                        {/* Copy button */}
-                        <div className="flex items-center gap-3 opacity-0 group-hover:opacity-100 transition-opacity pt-2">
-                          <motion.button
-                            whileHover={{ scale: 1.1 }}
-                            whileTap={{ scale: 0.9 }}
-                            onClick={() => {
-                              navigator.clipboard.writeText(msg.content);
-                              setCopiedId(msg.id || index);
-                              setTimeout(() => setCopiedId(null), 2000);
-                            }}
-                            className="p-1.5 rounded text-[--text-muted] transition-colors"
-                            title="Copy message"
-                          >
-                            {copiedId === (msg.id || index)
-                              ? <Check className="w-3.5 h-3.5 text-emerald-500" />
-                              : <Copy className="w-3.5 h-3.5" />
-                            }
-                          </motion.button>
                         </div>
                       </div>
                     </div>
@@ -735,73 +681,81 @@ export default function Chat({ user, onLogout }: Props) {
                 className="hidden"
               />
 
-              <div className={`relative flex items-center bg-zinc-50 dark:bg-zinc-900/50 border border-[--border] rounded-2xl shadow-xl focus-within:ring-4 focus-within:ring-indigo-500/5 focus-within:border-indigo-600/50 transition-all backdrop-blur-sm ${justFinished ? 'animate-blink' : ''}`}>
-
-                {/* Paperclip / Upload Button */}
-                <motion.button
-                  whileHover={{ scale: 1.1 }}
-                  whileTap={{ scale: 0.9 }}
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={isUploading}
-                  className={`p-4 transition-colors ${isUploading ? 'text-indigo-400 animate-pulse' : 'text-[--text-muted] hover:text-indigo-600'}`}
-                  title={isUploading ? 'Uploading...' : 'Attach image or file'}
-                >
-                  <Paperclip className="w-5 h-5" />
-                </motion.button>
-
-                {/* Text Input */}
-                <input
-                  type="text"
-                  ref={inputRef}
+              <div className={`relative flex flex-col bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl md:rounded-3xl shadow-2xl transition-all overflow-hidden ${justFinished ? 'animate-blink' : ''}`}>
+                
+                {/* Text Area / Input */}
+                <textarea
+                  ref={inputRef as any}
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={handleKeyDown}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey && !isTyping) {
+                      e.preventDefault();
+                      handleSendMessage();
+                    }
+                  }}
                   disabled={isTyping}
-                  placeholder={isUploading ? 'Uploading file...' : 'Ask anything...'}
-                  className="flex-1 py-4 bg-transparent focus:outline-none font-medium text-[--text-main] placeholder:text-[--text-muted]/30 text-sm leading-relaxed"
+                  placeholder={isUploading ? 'Uploading file...' : 'Write a message...'}
+                  rows={1}
+                  className="w-full px-5 pt-5 pb-2 bg-transparent focus:outline-none font-medium text-[--text-main] placeholder:text-zinc-400 dark:placeholder:text-zinc-500 text-base leading-relaxed resize-none min-h-[60px] max-h-[200px]"
+                  style={{ height: 'auto' }}
+                  onInput={(e) => {
+                    const target = e.target as HTMLTextAreaElement;
+                    target.style.height = 'auto';
+                    target.style.height = `${target.scrollHeight}px`;
+                  }}
                 />
 
-                {/* Voice Feedback Toggle */}
-                <motion.button
-                  whileHover={{ scale: 1.1 }}
-                  whileTap={{ scale: 0.9 }}
-                  type="button"
-                  onClick={() => setIsVoiceEnabled(!isVoiceEnabled)}
-                  className={`p-2 mr-1 rounded-lg transition-all ${isVoiceEnabled ? 'text-indigo-600 bg-indigo-50 dark:bg-indigo-900/20' : 'text-[--text-muted] hover:text-indigo-600'}`}
-                  title={isVoiceEnabled ? 'Voice feedback ON' : 'Voice feedback OFF'}
-                >
-                  {isVoiceEnabled ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
-                </motion.button>
+                {/* Bottom Bar */}
+                <div className="flex items-center justify-between px-3 pb-3 pt-1">
+                  <div className="flex items-center gap-1">
+                    <motion.button
+                      whileHover={{ scale: 1.1 }}
+                      whileTap={{ scale: 0.9 }}
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={isUploading}
+                      className={`p-2 rounded-lg transition-all ${isUploading ? 'text-indigo-400 animate-pulse' : 'text-zinc-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20'}`}
+                      title={isUploading ? 'Uploading...' : 'Attach image or file'}
+                    >
+                      <Plus className="w-5 h-5" />
+                    </motion.button>
+                  </div>
 
-                {/* Mic Button */}
-                <motion.button
-                  whileHover={{ scale: 1.1 }}
-                  whileTap={{ scale: 0.9 }}
-                  type="button"
-                  onClick={toggleListening}
-                  className={`p-2 mr-2 rounded-lg transition-all ${isListening ? 'text-red-500 bg-red-50 dark:bg-red-900/20 animate-pulse' : 'text-[--text-muted] hover:text-indigo-600'}`}
-                  title={isListening ? 'Listening... Click to stop' : 'Voice input'}
-                >
-                  {isListening ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
-                </motion.button>
+                  <div className="flex items-center gap-2">
+                    {/* Model Selector Label */}
+                    <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-100 dark:border-zinc-700">
+                      <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest flex items-center gap-1.5">
+                        Scout 4.6 Adaptive
+                        <ChevronDown className="w-3 h-3 opacity-30" />
+                      </span>
+                    </div>
 
-                {/* Send / Stop Button */}
-                <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={isTyping ? handleStopResponse : () => handleSendMessage()}
-                  disabled={(!input.trim() && attachedFiles.length === 0 && !isUploading) && !isTyping}
-                  className={`m-2 p-3 rounded-full shadow-lg transition-all flex items-center justify-center ${
-                    isTyping
-                      ? 'bg-red-500 text-white hover:bg-red-600'
-                      : (!input.trim() && attachedFiles.length === 0)
-                        ? 'bg-[--surface] text-[--text-muted] opacity-50'
-                        : 'bg-indigo-600 text-white hover:bg-indigo-700'
-                  }`}
-                >
-                  {isTyping ? <Square className="w-4 h-4 fill-current" /> : <ArrowUp className="w-5 h-5" />}
-                </motion.button>
+                    {/* Send / Stop Button */}
+                    <motion.button
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={isTyping ? handleStopResponse : () => handleSendMessage()}
+                      disabled={(!input.trim() && attachedFiles.length === 0 && !isUploading) && !isTyping}
+                      className={`p-2.5 rounded-xl shadow-md transition-all flex items-center justify-center border ${
+                        isTyping
+                          ? 'bg-red-500 text-white border-red-400'
+                          : (!input.trim() && attachedFiles.length === 0)
+                            ? 'bg-zinc-50 text-zinc-300 border-zinc-100 dark:bg-zinc-800 dark:text-zinc-600 dark:border-white/5'
+                            : 'bg-zinc-900 text-white border-zinc-800 dark:bg-white dark:text-black dark:border-white'
+                      }`}
+                    >
+                      {isTyping ? (
+                        <Square className="w-4 h-4 fill-current" />
+                      ) : (
+                        <div className="relative flex items-center justify-center">
+                          <Circle className="w-5 h-5 opacity-20" />
+                          <div className="absolute w-2 h-2 rounded-full bg-current" />
+                        </div>
+                      )}
+                    </motion.button>
+                  </div>
+                </div>
               </div>
             </div>
 
