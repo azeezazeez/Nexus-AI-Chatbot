@@ -180,11 +180,12 @@ export default function Chat({ user, onLogout }: Props) {
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
+    e.stopPropagation(); // Add this to prevent event bubbling
 
-    // Synchronous ref guard — isTyping state update is async and can't prevent
-    // a second call from slipping through before React re-renders (StrictMode,
-    // fast double-click, or form double-submit all hit this path)
+    // Synchronous ref guard
     if (isSendingRef.current || !input.trim()) return;
+    
+    // Set the lock immediately
     isSendingRef.current = true;
 
     const userMessage = input.trim();
@@ -195,7 +196,7 @@ export default function Chat({ user, onLogout }: Props) {
     // Use crypto.randomUUID for guaranteed unique ids — Date.now() collides
     // when two messages are created within the same millisecond
     const tempUserMsg: Message = {
-      id: crypto.randomUUID ? (crypto.randomUUID() as any) : Date.now(),
+      id: crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(),
       sessionId: currentSessionId || 0,
       role: 'user',
       content: userMessage,
@@ -230,7 +231,7 @@ export default function Chat({ user, onLogout }: Props) {
       }
 
       const aiMsg: Message = {
-        id: crypto.randomUUID ? (crypto.randomUUID() as any) : Date.now() + 1,
+        id: crypto.randomUUID ? crypto.randomUUID() : (Date.now() + 1).toString(),
         sessionId: activeSessionId,
         role: 'assistant',
         content: response.response,
@@ -245,7 +246,7 @@ export default function Chat({ user, onLogout }: Props) {
         return;
       }
       const errMsg: Message = {
-        id: crypto.randomUUID ? (crypto.randomUUID() as any) : Date.now() + 1,
+        id: crypto.randomUUID ? crypto.randomUUID() : (Date.now() + 1).toString(),
         sessionId: currentSessionId || 0,
         role: 'assistant',
         content: 'Sorry, I encountered an error. Please try again.',
@@ -254,7 +255,10 @@ export default function Chat({ user, onLogout }: Props) {
       setMessages(prev => [...prev, errMsg]);
     } finally {
       setIsTyping(false);
-      isSendingRef.current = false; // release the lock so next message can go through
+      // Add a small delay before releasing the lock to prevent rapid resubmissions
+      setTimeout(() => {
+        isSendingRef.current = false;
+      }, 300);
     }
   };
 
@@ -567,7 +571,7 @@ export default function Chat({ user, onLogout }: Props) {
               />
               <button
                 type="submit"
-                disabled={!input.trim() || isTyping}
+                disabled={!input.trim() || isTyping || isSendingRef.current}
                 className="absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 md:w-14 md:h-14 bg-indigo-600 text-white dark:bg-white dark:text-black rounded-full flex items-center justify-center shadow-2xl hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed transition-all active:scale-95 group"
               >
                 <div className="group-hover:translate-x-0.5 transition-transform">
