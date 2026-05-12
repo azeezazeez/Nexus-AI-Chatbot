@@ -614,7 +614,7 @@ export default function Chat({ user, onLogout }: Props) {
                 {isTyping && (
                   <div className="flex items-start gap-3">
                     <div className="w-7 h-7 md:w-8 md:h-8 rounded-full shrink-0 flex items-center justify-center bg-zinc-900 border border-zinc-800 text-white shadow-xl shadow-indigo-500/10">
-                      <StormLogo className="w-4 h-4 ml-[1px] animate-spin" />
+                      <StormLogo className="w-4 h-4 ml-[0px] animate-pulse" />
                     </div>
                     <div className="bg-white/90 dark:bg-zinc-900/90 border border-zinc-200 dark:border-zinc-800 px-4 py-3 rounded-2xl rounded-tl-none shadow-sm flex items-center gap-2 backdrop-blur-xl">
                       <motion.div animate={{ scale: [1, 1.2, 1], opacity: [0.3, 1, 0.3] }} transition={{ repeat: Infinity, duration: 1 }} className="w-1.5 h-1.5 bg-indigo-600 rounded-full" />
@@ -631,11 +631,11 @@ export default function Chat({ user, onLogout }: Props) {
           <AnimatePresence>
             {showScrollBottom && (
               <motion.button
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 10 }}
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 20 }}
                 onClick={() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })}
-                 className="fixed bottom-36 right-6 md:right-10 p-3 bg-white/80 dark:bg-zinc-800/80 backdrop-blur-xl border border-zinc-200 dark:border-zinc-700 rounded-full shadow-2xl text-zinc-500 hover:text-indigo-600 transition-all z-40 group hover:scale-110 active:scale-90"
+                className="fixed bottom-36 right-4 md:right-[calc(50vw-22rem)] lg:right-[calc(50vw-24rem)] p-3 bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-full shadow-2xl text-zinc-500 hover:text-indigo-600 transition-all z-40 group hover:scale-110 active:scale-90"
               >
                 <ArrowDown className="w-5 h-5 group-hover:translate-y-0.5 transition-transform" />
               </motion.button>
@@ -734,7 +734,7 @@ export default function Chat({ user, onLogout }: Props) {
                   disabled={isUploading}
                   className={`p-2 rounded-lg transition-all ${isUploading ? 'text-indigo-400 animate-pulse' : 'text-zinc-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20'}`}
                 >
-                  <Plus className="w-5 h-5" />
+                  <Paperclip className="w-5 h-5" />
                 </button>
 
                 <div className="flex items-center gap-2">
