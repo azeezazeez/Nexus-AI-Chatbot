@@ -492,10 +492,10 @@ export default function Chat({ user, onLogout }: Props) {
                                   {imageFiles.map((fileName, idx) => (
                                     <div key={idx} className="group/img relative overflow-hidden rounded-2xl border border-zinc-200 dark:border-white/10 shadow-lg bg-zinc-100 dark:bg-black/20">
                                       <img
-                                        src={`${BACKEND_BASE}/uploads/${fileName}`}
+                                        src={`${BACKEND_BASE}/uploads/${encodeURIComponent(fileName)}`}
                                         alt={fileName}
                                         className="max-w-full h-auto max-h-[600px] object-contain cursor-zoom-in transition-transform duration-500 group-hover/img:scale-[1.02]"
-                                        onClick={() => window.open(`${BACKEND_BASE}/uploads/${fileName}`, '_blank')}
+                                        onClick={() => window.open(`${BACKEND_BASE}/uploads/${encodeURIComponent(fileName)}`, '_blank')}
                                       />
                                       <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover/img:opacity-100 transition-opacity duration-300">
                                         <p className="text-[10px] font-black text-white uppercase tracking-[0.2em]">{fileName}</p>
@@ -648,20 +648,6 @@ export default function Chat({ user, onLogout }: Props) {
             )}
             <div ref={messagesEndRef} />
           </div>
-
-          <AnimatePresence>
-            {showScrollBottom && (
-              <motion.button
-                initial={{ opacity: 0, x: 20 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: 20 }}
-                onClick={() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })}
-                className="fixed bottom-36 right-4 md:right-[calc(50vw-22rem)] lg:right-[calc(50vw-24rem)] p-3 bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-full shadow-2xl text-zinc-500 hover:text-indigo-600 transition-all z-40 group hover:scale-110 active:scale-90"
-              >
-                <ArrowDown className="w-5 h-5 group-hover:translate-y-0.5 transition-transform" />
-              </motion.button>
-            )}
-          </AnimatePresence>
         </div>
 
         {/* Input Area */}
@@ -702,7 +688,7 @@ export default function Chat({ user, onLogout }: Props) {
                       {file.isImage ? (
                         <div className="w-8 h-8 rounded-lg overflow-hidden bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700">
                           <img
-                            src={`${BACKEND_BASE}/uploads/${file.fileName}`}
+                            src={`${BACKEND_BASE}/uploads/${encodeURIComponent(file.fileName)}`}
                             alt={file.originalName}
                             className="w-full h-full object-cover"
                           />
@@ -725,7 +711,24 @@ export default function Chat({ user, onLogout }: Props) {
               )}
             </AnimatePresence>
 
-            <div className={`relative flex flex-col bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl md:rounded-3xl shadow-2xl transition-all overflow-hidden ${justFinished ? 'animate-blink' : ''}`}>
+            <div className={`relative flex flex-col bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl md:rounded-3xl shadow-2xl transition-all overflow-visible ${justFinished ? 'animate-blink' : ''}`}>
+              <AnimatePresence>
+                {showScrollBottom && (
+                  <motion.button
+                    initial={{ opacity: 0, y: 10, scale: 0.8 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 10, scale: 0.8 }}
+                    onClick={() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })}
+                    className="absolute -top-16 right-4 md:right-6 p-2.5 bg-indigo-600 text-white rounded-full shadow-xl shadow-indigo-500/30 hover:bg-indigo-700 transition-all z-50 group hover:scale-110 active:scale-90 border border-indigo-500"
+                  >
+                    <ArrowDown className="w-5 h-5 animate-bounce-soft" />
+                    <span className="absolute -top-10 left-1/2 -translate-x-1/2 px-2 py-1 bg-zinc-900 text-white text-[10px] font-black uppercase tracking-widest rounded-md opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
+                      Scroll to bottom
+                    </span>
+                  </motion.button>
+                )}
+              </AnimatePresence>
+
               <textarea
                 ref={inputRef}
                 value={input}
