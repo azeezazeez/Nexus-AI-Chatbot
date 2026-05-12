@@ -84,6 +84,8 @@ export default function Chat({ user, onLogout }: Props) {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [isModelMenuOpen, setIsModelMenuOpen] = useState(false);
   const [selectedModel, setSelectedModel] = useState('Scout 4.6 Adaptive');
+  const [editingMessageId, setEditingMessageId] = useState<number | string | null>(null);
+  const [editInput, setEditInput] = useState('');
 
   // Modal state
   const [modalType, setModalType] = useState<'none' | 'delete-all' | 'delete-single'>('none');
@@ -393,7 +395,7 @@ export default function Chat({ user, onLogout }: Props) {
               <Menu className="w-4 h-4 md:w-5 md:h-5" />
             </button>
             <div className="flex items-center gap-2 md:gap-3">
-              <StormLogo className={`w-6 h-6 text-indigo-600 dark:text-indigo-500 transition-all ${isTyping ? 'animate-spin' : ''}`} />
+              <StormLogo className={`w-6 h-6 text-indigo-600 dark:text-indigo-500 transition-all`} />
               <div className="hidden sm:flex flex-col">
                 <span className="text-[10px] font-black text-[--text-main] uppercase tracking-widest leading-none mb-1">Nexus AI</span>
                 <div className="flex items-center gap-1.5">
@@ -507,24 +509,53 @@ export default function Chat({ user, onLogout }: Props) {
                           })()}
 
                           <div className={`text-sm md:text-base leading-relaxed markdown-body max-w-none ${msg.role === 'user' ? 'prose-invert' : ''}`}>
-                            <ReactMarkdown 
-                              remarkPlugins={[remarkGfm]}
-                              components={{
-                                code({ node, inline, className, children, ...props }: any) {
-                                  const match = /language-(\w+)/.exec(className || '');
-                                  const content = String(children).replace(/\n$/, '');
-                                  return !inline && match ? (
-                                    <CodeBlock language={match[1]} value={content} />
-                                  ) : (
-                                    <code className={`${className} ${msg.role === 'user' ? 'bg-indigo-700/50 text-white' : 'bg-zinc-100 dark:bg-zinc-800 text-indigo-500'} px-1 py-0.5 rounded font-mono text-[0.85em]`} {...props}>
-                                      {children}
-                                    </code>
-                                  );
-                                }
-                              }}
-                            >
-                              {msg.content.replace(/\n?\n?\[Attached Files:.*?\]/g, '').trim()}
-                            </ReactMarkdown>
+                            {editingMessageId === (msg.id || index) ? (
+                              <div className="flex flex-col gap-2 min-w-[200px] sm:min-w-[300px]">
+                                <textarea
+                                  value={editInput}
+                                  onChange={(e) => setEditInput(e.target.value)}
+                                  className="w-full bg-black/10 dark:bg-black/20 border border-white/20 rounded-lg p-2 text-sm focus:outline-none focus:ring-1 focus:ring-white/30 resize-none text-white selection:bg-white/20"
+                                  rows={3}
+                                  autoFocus
+                                />
+                                <div className="flex justify-end gap-2">
+                                  <button
+                                    onClick={() => setEditingMessageId(null)}
+                                    className="px-2 py-1 text-[10px] font-bold uppercase tracking-widest text-white/60 hover:text-white transition-colors"
+                                  >
+                                    Cancel
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      setMessages(prev => prev.map(m => (m.id === msg.id || (m.role === 'user' && !m.id && index === index)) ? { ...m, content: editInput } : m));
+                                      setEditingMessageId(null);
+                                    }}
+                                    className="px-3 py-1 bg-white text-indigo-600 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-zinc-100 transition-colors"
+                                  >
+                                    Save
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <ReactMarkdown 
+                                remarkPlugins={[remarkGfm]}
+                                components={{
+                                  code({ node, inline, className, children, ...props }: any) {
+                                    const match = /language-(\w+)/.exec(className || '');
+                                    const content = String(children).replace(/\n$/, '');
+                                    return !inline && match ? (
+                                      <CodeBlock language={match[1]} value={content} />
+                                    ) : (
+                                      <code className={`${className} ${msg.role === 'user' ? 'bg-indigo-700/50 text-white' : 'bg-zinc-100 dark:bg-zinc-800 text-indigo-500'} px-1 py-0.5 rounded font-mono text-[0.85em]`} {...props}>
+                                        {children}
+                                      </code>
+                                    );
+                                  }
+                                }}
+                              >
+                                {msg.content.replace(/\n?\n?\[Attached Files:.*?\]/g, '').trim()}
+                              </ReactMarkdown>
+                            )}
                           </div>
                         </div>
 
@@ -537,15 +568,8 @@ export default function Chat({ user, onLogout }: Props) {
                           <div className="flex items-center gap-0.5">
                             <button 
                               onClick={() => {
-                                setInput(msg.content.replace(/\n?\n?\[Attached Files:.*?\]/g, '').trim());
-                                inputRef.current?.focus();
-                                // Optional: adjust textarea height
-                                setTimeout(() => {
-                                  if (inputRef.current) {
-                                    inputRef.current.style.height = 'auto';
-                                    inputRef.current.style.height = `${inputRef.current.scrollHeight}px`;
-                                  }
-                                }, 0);
+                                setEditingMessageId(msg.id || index);
+                                setEditInput(msg.content.replace(/\n?\n?\[Attached Files:.*?\]/g, '').trim());
                               }}
                               className="p-1 px-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 hover:text-indigo-600 transition-all"
                               title="Edit message"
@@ -709,8 +733,10 @@ export default function Chat({ user, onLogout }: Props) {
                             'Scout 3.5 Mini', 
                             'Google AI Studio API Modal', 
                             'Groq Llama 3.1 8B Modal',
-                            'gemini-2.5-flash', 
-                            'llama-3.1-8b-instant'
+                            'gemini-2.1-flash', 
+                            'gemini-2.5-flash',
+                            'llama-3.1-8b-instant',
+                            'llama-3.3-70b-versatile'
                           ].map((model) => (
                             <button
                               key={model}
