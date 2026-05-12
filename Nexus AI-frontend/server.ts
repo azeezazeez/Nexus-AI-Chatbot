@@ -4,6 +4,9 @@ import path from "path";
 import { fileURLToPath } from "url";
 import cookieParser from "cookie-parser";
 import fs from "fs";
+import cors from "cors";
+
+// Add this near the top with your other imports
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
