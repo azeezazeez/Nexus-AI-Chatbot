@@ -1,4 +1,4 @@
-package com.eduexam.backend.controller; 
+package com.ai.chatbot_backend.controller;
 
 @RequestMapping("/api")
 @RestController
