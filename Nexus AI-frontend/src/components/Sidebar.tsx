@@ -24,8 +24,8 @@ interface Props {
   onRenameSession: (id: number, name: string) => void;
   onClearAll: () => void;
   onLogout: () => void;
-  isOpen: boolean;
-  onClose: () => void;
+  isOpen: boolean;   // controlled by parent (mobile hamburger)
+  onClose: () => void; // parent callback to sync close state
 }
 
 // ── localStorage helpers ──────────────────────────────────────────────────────
@@ -51,21 +51,12 @@ const getGroupLabel = (session: Session): string => {
   return date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
 };
 
-// ── Nexus Logo — square with curved edges + vertical line at 25% ──────────────
+// ── Nexus Logo ────────────────────────────────────────────────────────────────
 function NexusLogo({ className }: { className?: string }) {
   return (
-    <svg
-      className={className}
-      viewBox="0 0 36 36"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      {/* Outer rounded square */}
-      <rect x="2" y="2" width="32" height="32" rx="8" ry="8"
-        stroke="white" strokeWidth="2.2" fill="none" />
-      {/* Vertical divider line at ~25% from left (x = 2 + 32*0.25 = 10) */}
-      <line x1="10" y1="2" x2="10" y2="34"
-        stroke="white" strokeWidth="2.2" strokeLinecap="round" />
+    <svg className={className} viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="2" y="2" width="32" height="32" rx="8" ry="8" stroke="white" strokeWidth="2.2" fill="none" />
+      <line x1="10" y1="2" x2="10" y2="34" stroke="white" strokeWidth="2.2" strokeLinecap="round" />
     </svg>
   );
 }
@@ -120,6 +111,11 @@ export default function Sidebar({
   isOpen,
   onClose,
 }: Props) {
+  /*
+   * FIX — collapsed state is the single source of truth.
+   * `isOpen` from parent forces expansion (mobile hamburger tap).
+   * `onClose` is called whenever we collapse so the parent stays in sync.
+   */
   const [collapsed, setCollapsed] = useState(true);
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -145,12 +141,13 @@ export default function Sidebar({
   const [sharingId, setSharingId] = useState<number | null>(null);
   const [sharePending, setSharePending] = useState<number | null>(null);
 
-  // When parent forces open (mobile hamburger), expand
+  // ── Sync with parent `isOpen` ─────────────────────────────────────────────
+  // When parent forces open (mobile hamburger), expand sidebar.
   useEffect(() => {
     if (isOpen) setCollapsed(false);
   }, [isOpen]);
 
-  // Focus search when expanded via search icon
+  // Focus search after expand-to-search
   useEffect(() => {
     if (!collapsed && focusSearch) {
       setTimeout(() => { searchInputRef.current?.focus(); setFocusSearch(false); }, 80);
@@ -204,19 +201,14 @@ export default function Sidebar({
     setMenuOpenId(null);
   }, []);
 
-  // ── Share: calls backend, copies link, shows toast ─────────────────────────
   const handleShare = useCallback(async (session: Session) => {
     setMenuOpenId(null);
     setSharePending(session.id);
     try {
-      // chatApi.shareSession must return { shareUrl: string }
       const result = await (chatApi as any).shareSession(session.id);
       const url: string = result?.shareUrl || result?.share_url || result?.url || '';
-
       const copy = (text: string) => {
-        if (navigator.clipboard && window.isSecureContext) {
-          return navigator.clipboard.writeText(text);
-        }
+        if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text);
         const el = document.createElement('textarea');
         el.value = text;
         document.body.appendChild(el);
@@ -224,17 +216,13 @@ export default function Sidebar({
         document.execCommand('copy');
         document.body.removeChild(el);
       };
-
       await copy(url || `${window.location.origin}/share/${session.id}`);
       setSharingId(session.id);
       setShareToastVisible(true);
       setTimeout(() => { setSharingId(null); setShareToastVisible(false); }, 2200);
-    } catch (err) {
-      // Fallback: copy a link based on current origin + session id
+    } catch {
       const fallbackUrl = `${window.location.origin}/share/${session.id}`;
-      try {
-        await navigator.clipboard.writeText(fallbackUrl);
-      } catch {
+      try { await navigator.clipboard.writeText(fallbackUrl); } catch {
         const el = document.createElement('textarea');
         el.value = fallbackUrl;
         document.body.appendChild(el);
@@ -272,8 +260,17 @@ export default function Sidebar({
   // ── Collapse helpers ──────────────────────────────────────────────────────
   const expand = () => setCollapsed(false);
   const expandToSearch = () => { setCollapsed(false); setFocusSearch(true); };
-  // FIX: collapse also calls onClose so parent state is in sync
-  const collapse = useCallback(() => { setCollapsed(true); onClose(); }, [onClose]);
+
+  /*
+   * FIX: `collapse` sets internal state AND notifies the parent via `onClose`.
+   * This keeps Chat.tsx's `isSidebarOpen` in sync so the backdrop overlay
+   * in Chat.tsx is dismissed correctly when the user clicks the chevron or
+   * anywhere outside the sidebar panel.
+   */
+  const collapse = useCallback(() => {
+    setCollapsed(true);
+    onClose();
+  }, [onClose]);
 
   // ── Grouped sessions ──────────────────────────────────────────────────────
   const sortedSessions = [
@@ -295,7 +292,11 @@ export default function Sidebar({
     return (
       <>
         <ShareToast visible={shareToastVisible} />
-        <aside className="fixed inset-y-0 left-0 z-[100] w-14 bg-white border-r border-zinc-200 flex flex-col items-center py-5 shadow-sm">
+        {/*
+          FIX: Rail is fixed + z-[100] so it always sits above the main content.
+          Width w-14 matches the pl-14 offset applied to <main> in Chat.tsx.
+        */}
+        <aside className="fixed inset-y-0 left-0 z-[100] w-14 bg-white dark:bg-zinc-950 border-r border-zinc-200 dark:border-zinc-800 flex flex-col items-center py-5 shadow-sm">
 
           {/* Logo — tap to expand */}
           <IconTooltip label="Expand sidebar">
@@ -308,13 +309,13 @@ export default function Sidebar({
             </button>
           </IconTooltip>
 
-          <div className="w-5 border-t border-zinc-100 my-3" />
+          <div className="w-5 border-t border-zinc-100 dark:border-zinc-800 my-3" />
 
           {/* New Chat */}
           <IconTooltip label="New Chat">
             <button
               onClick={() => { onNewSession(); expand(); }}
-              className="w-9 h-9 rounded-xl flex items-center justify-center text-zinc-500 hover:bg-zinc-100 transition-all"
+              className="w-9 h-9 rounded-xl flex items-center justify-center text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all"
               title="New Chat"
             >
               <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
@@ -329,7 +330,7 @@ export default function Sidebar({
           <IconTooltip label="Search">
             <button
               onClick={expandToSearch}
-              className="w-9 h-9 rounded-xl flex items-center justify-center text-zinc-500 hover:bg-zinc-100 transition-all"
+              className="w-9 h-9 rounded-xl flex items-center justify-center text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all"
               title="Search"
             >
               <Search className="w-[18px] h-[18px]" strokeWidth={1.6} />
@@ -340,7 +341,7 @@ export default function Sidebar({
           <IconTooltip label="Chats">
             <button
               onClick={expand}
-              className="w-9 h-9 rounded-xl flex items-center justify-center text-zinc-500 hover:bg-zinc-100 transition-all relative"
+              className="w-9 h-9 rounded-xl flex items-center justify-center text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all relative"
               title="Chats"
             >
               <MessageSquare className="w-[18px] h-[18px]" strokeWidth={1.6} />
@@ -369,35 +370,36 @@ export default function Sidebar({
   // ═══════════════════════════════════════════════════════════════════════════
   // EXPANDED FULL SIDEBAR
   // ═══════════════════════════════════════════════════════════════════════════
+  /*
+   * FIX: The full sidebar panel slides over the rail.
+   * The mobile backdrop overlay is now rendered in Chat.tsx (z-40) so clicks
+   * on empty space propagate correctly to Chat.tsx's handleCloseSidebar.
+   * We only stopPropagation on the sidebar panel itself so clicks inside
+   * don't bubble up to the backdrop.
+   *
+   * z-[100] keeps sidebar above the z-40 backdrop.
+   */
   return (
     <>
       <ShareToast visible={shareToastVisible} />
 
-      {/* FIX: Mobile overlay — pointer-events-auto so tapping it collapses the sidebar */}
-      <div
-        className="fixed inset-0 bg-black/40 backdrop-blur-sm z-40 md:hidden pointer-events-auto"
-        onClick={collapse}
-        aria-hidden="true"
-      />
-
       <aside
-        className="fixed inset-y-0 left-0 z-[100] w-72 bg-white border-r border-zinc-200 flex flex-col h-full shadow-2xl"
+        className="fixed inset-y-0 left-0 z-[100] w-72 bg-white dark:bg-zinc-950 border-r border-zinc-200 dark:border-zinc-800 flex flex-col h-full shadow-2xl"
         onClick={e => e.stopPropagation()}
       >
         {/* ── Header ── */}
         <div className="p-5 shrink-0">
           <div className="flex items-center justify-between mb-5">
             <div className="flex items-center gap-2.5">
-              {/* FIX: New logo — indigo/purple gradient background + white NexusLogo SVG */}
               <div className="w-9 h-9 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-500/20 p-1.5">
                 <NexusLogo className="w-full h-full" />
               </div>
-              <h2 className="text-xl font-black tracking-tighter text-zinc-900 italic">NEXUS</h2>
+              <h2 className="text-xl font-black tracking-tighter text-zinc-900 dark:text-white italic">NEXUS</h2>
             </div>
-            {/* FIX: ChevronLeft (pointing inward/left) instead of ChevronRight */}
+            {/* FIX: Collapse button — ChevronLeft pointing left (inward) */}
             <button
               onClick={collapse}
-              className="p-1.5 text-zinc-400 hover:text-zinc-700 rounded-lg hover:bg-zinc-100 transition-colors"
+              className="p-1.5 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
               title="Collapse sidebar"
             >
               <ChevronLeft className="w-5 h-5" />
@@ -428,7 +430,7 @@ export default function Sidebar({
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
               placeholder="Search chats..."
-              className="w-full pl-10 pr-8 py-2.5 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-medium text-zinc-800 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all"
+              className="w-full pl-10 pr-8 py-2.5 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-xl text-xs font-medium text-zinc-800 dark:text-zinc-200 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all"
             />
             {searchQuery && (
               <button
@@ -444,7 +446,7 @@ export default function Sidebar({
         {/* ── Session List ── */}
         <div className="flex-1 overflow-y-auto px-3 min-h-0 pb-4">
           {sortedSessions.length === 0 ? (
-            <div className="mx-2 py-8 text-center bg-zinc-50 rounded-2xl border border-dashed border-zinc-200">
+            <div className="mx-2 py-8 text-center bg-zinc-50 dark:bg-zinc-900 rounded-2xl border border-dashed border-zinc-200 dark:border-zinc-700">
               <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider leading-relaxed">
                 {searchQuery ? 'No matching chats' : 'No chats yet'}
                 <br />
@@ -487,8 +489,8 @@ export default function Sidebar({
                           animate={{ opacity: 1, x: 0 }}
                           className={`group/item flex items-center gap-2.5 px-3 py-2.5 rounded-xl cursor-pointer transition-all ${
                             isActive
-                              ? 'bg-indigo-50 text-indigo-700'
-                              : 'text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800'
+                              ? 'bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300'
+                              : 'text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 hover:text-zinc-800 dark:hover:text-zinc-200'
                           }`}
                           onClick={() => { if (!isRenaming) onSelectSession(session.id); }}
                         >
@@ -508,7 +510,7 @@ export default function Sidebar({
                               }}
                               onBlur={commitRename}
                               onClick={e => e.stopPropagation()}
-                              className="flex-1 min-w-0 bg-white border border-indigo-400 rounded-lg px-2 py-0.5 text-xs font-medium text-zinc-800 focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
+                              className="flex-1 min-w-0 bg-white dark:bg-zinc-900 border border-indigo-400 rounded-lg px-2 py-0.5 text-xs font-medium text-zinc-800 dark:text-zinc-200 focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
                             />
                           ) : (
                             <span className="flex-1 min-w-0 truncate text-xs font-semibold leading-snug">
@@ -524,8 +526,8 @@ export default function Sidebar({
                               }}
                               className={`shrink-0 p-1 rounded-md transition-all ${
                                 isMenuOpen
-                                  ? 'opacity-100 bg-zinc-200 text-zinc-700'
-                                  : 'opacity-0 group-hover/item:opacity-100 hover:bg-zinc-200 text-zinc-400'
+                                  ? 'opacity-100 bg-zinc-200 dark:bg-zinc-700 text-zinc-700 dark:text-zinc-300'
+                                  : 'opacity-0 group-hover/item:opacity-100 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-400'
                               }`}
                               title="More options"
                             >
@@ -542,52 +544,23 @@ export default function Sidebar({
                               animate={{ opacity: 1, scale: 1, y: 0 }}
                               exit={{ opacity: 0, scale: 0.92, y: -4 }}
                               transition={{ duration: 0.12 }}
-                              className="absolute right-0 top-full mt-1 z-[200] w-44 bg-white border border-zinc-200 rounded-2xl shadow-xl shadow-black/10 overflow-hidden"
+                              className="absolute right-0 top-full mt-1 z-[200] w-44 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-2xl shadow-xl shadow-black/10 overflow-hidden"
                               onClick={e => e.stopPropagation()}
                             >
-                              {/* Rename */}
-                              <button
-                                onClick={() => startRename(session)}
-                                className="w-full flex items-center gap-3 px-4 py-3 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 transition-colors"
-                              >
-                                <Edit3 className="w-4 h-4 text-zinc-400" />
-                                Rename
+                              <button onClick={() => startRename(session)} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors">
+                                <Edit3 className="w-4 h-4 text-zinc-400" /> Rename
                               </button>
-
-                              {/* Pin / Unpin */}
-                              <button
-                                onClick={() => togglePin(session.id)}
-                                className="w-full flex items-center gap-3 px-4 py-3 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 transition-colors"
-                              >
-                                {isPinned
-                                  ? <PinOff className="w-4 h-4 text-amber-500" />
-                                  : <Pin className="w-4 h-4 text-zinc-400" />}
+                              <button onClick={() => togglePin(session.id)} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors">
+                                {isPinned ? <PinOff className="w-4 h-4 text-amber-500" /> : <Pin className="w-4 h-4 text-zinc-400" />}
                                 {isPinned ? 'Unpin' : 'Pin'}
                               </button>
-
-                              {/* Share — calls backend */}
-                              <button
-                                onClick={() => handleShare(session)}
-                                disabled={isPendingShare}
-                                className="w-full flex items-center gap-3 px-4 py-3 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 transition-colors disabled:opacity-50"
-                              >
-                                {isSharing
-                                  ? <Check className="w-4 h-4 text-emerald-500" />
-                                  : isPendingShare
-                                    ? <Sparkles className="w-4 h-4 text-indigo-400 animate-pulse" />
-                                    : <Link className="w-4 h-4 text-zinc-400" />}
+                              <button onClick={() => handleShare(session)} disabled={isPendingShare} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors disabled:opacity-50">
+                                {isSharing ? <Check className="w-4 h-4 text-emerald-500" /> : isPendingShare ? <Sparkles className="w-4 h-4 text-indigo-400 animate-pulse" /> : <Link className="w-4 h-4 text-zinc-400" />}
                                 {isSharing ? 'Copied!' : isPendingShare ? 'Generating…' : 'Share link'}
                               </button>
-
-                              <div className="mx-3 border-t border-zinc-100" />
-
-                              {/* Delete */}
-                              <button
-                                onClick={() => handleDelete(session.id)}
-                                className="w-full flex items-center gap-3 px-4 py-3 text-xs font-semibold text-red-500 hover:bg-red-50 transition-colors"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                                Delete
+                              <div className="mx-3 border-t border-zinc-100 dark:border-zinc-800" />
+                              <button onClick={() => handleDelete(session.id)} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-semibold text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors">
+                                <Trash2 className="w-4 h-4" /> Delete
                               </button>
                             </motion.div>
                           )}
@@ -602,14 +575,11 @@ export default function Sidebar({
         </div>
 
         {/* ── Footer ── */}
-        <div className="p-4 shrink-0 border-t border-zinc-200">
-          <div className="flex items-center gap-3 p-3 rounded-2xl bg-zinc-50 hover:bg-zinc-100 transition-colors group mb-2">
-            <UserAvatar
-              name={user.username}
-              className="w-9 h-9 text-xs shadow-sm group-hover:scale-105 transition-transform shrink-0"
-            />
+        <div className="p-4 shrink-0 border-t border-zinc-200 dark:border-zinc-800">
+          <div className="flex items-center gap-3 p-3 rounded-2xl bg-zinc-50 dark:bg-zinc-900 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors group mb-2">
+            <UserAvatar name={user.username} className="w-9 h-9 text-xs shadow-sm group-hover:scale-105 transition-transform shrink-0" />
             <div className="flex-1 overflow-hidden">
-              <p className="text-xs font-black truncate text-zinc-800 uppercase tracking-wider">
+              <p className="text-xs font-black truncate text-zinc-800 dark:text-zinc-200 uppercase tracking-wider">
                 {user.username}
               </p>
               <div className="flex items-center gap-1.5 mt-0.5">
@@ -618,13 +588,11 @@ export default function Sidebar({
               </div>
             </div>
           </div>
-
           <button
             onClick={onLogout}
-            className="w-full flex items-center justify-center gap-2.5 p-2.5 text-[10px] font-black text-zinc-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all uppercase tracking-[0.2em]"
+            className="w-full flex items-center justify-center gap-2.5 p-2.5 text-[10px] font-black text-zinc-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-xl transition-all uppercase tracking-[0.2em]"
           >
-            <LogOut className="w-3.5 h-3.5" />
-            Logout
+            <LogOut className="w-3.5 h-3.5" /> Logout
           </button>
         </div>
       </aside>
