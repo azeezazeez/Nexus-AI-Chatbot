@@ -100,7 +100,6 @@ const readPersistedSessionId = (): number | null => {
 
 export default function Chat({ user, onLogout }: Props) {
   const [sessions, setSessions] = useState<Session[]>([]);
-  // Initialise from localStorage so refresh restores the last open chat
   const [currentSessionId, setCurrentSessionId] = useState<number | null>(readPersistedSessionId);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
@@ -123,15 +122,13 @@ export default function Chat({ user, onLogout }: Props) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const skipMessageLoadRef = useRef(false);
 
-  // ── Wrapped session setter — keeps localStorage in sync ──────────────────
-
+  // ── Wrapped session setter ────────────────────────────────────────────────
   const updateCurrentSessionId = useCallback((id: number | null) => {
     setCurrentSessionId(id);
     persistSessionId(id);
   }, []);
 
   // ── Data Loading ──────────────────────────────────────────────────────────
-
   const loadSessions = useCallback(async () => {
     try {
       wakeUpServer();
@@ -157,8 +154,6 @@ export default function Chat({ user, onLogout }: Props) {
 
   useEffect(() => { loadSessions(); }, [loadSessions]);
 
-  // After sessions load, verify the persisted session still exists.
-  // If it was deleted externally, fall back to no session.
   useEffect(() => {
     if (loading) return;
     if (currentSessionId !== null) {
@@ -187,19 +182,14 @@ export default function Chat({ user, onLogout }: Props) {
   }, [messages, isTyping]);
 
   // ── Scroll ────────────────────────────────────────────────────────────────
-
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
     setShowScrollBottom(scrollHeight - scrollTop - clientHeight > 100);
   };
 
-  // ── Send Message ──────────────────────────────────────────────────────────
-
-  const handleSendMessage = async (e?: React.FormEvent, directMessage?: string) => {
-    if (e) { e.preventDefault(); e.stopPropagation(); }
-
-    const messageText = directMessage || input.trim();
-    if (!messageText) return;
+  // ── Core send (accepts an optional messages override for edit-resend) ─────
+  const sendMessage = async (messageText: string, messagesSnapshot?: Message[]) => {
+    if (!messageText.trim()) return;
     if (isSendingRef.current) return;
 
     isSendingRef.current = true;
@@ -218,12 +208,18 @@ export default function Chat({ user, onLogout }: Props) {
       timestamp: new Date().toISOString(),
     };
 
-    setMessages(prev => [...prev, tempUserMsg]);
+    // If messagesSnapshot is provided (edit-resend), use it as the base;
+    // otherwise just append to current messages.
+    if (messagesSnapshot) {
+      setMessages([...messagesSnapshot, tempUserMsg]);
+    } else {
+      setMessages(prev => [...prev, tempUserMsg]);
+    }
+
     setInput('');
 
     const isNewSession = !currentSessionId;
 
-    // Show waking message after 4s if still waiting
     const wakingTimer = setTimeout(() => {
       if (isSendingRef.current) setServerWaking(true);
     }, 4000);
@@ -247,8 +243,6 @@ export default function Chat({ user, onLogout }: Props) {
         await loadSessions();
       }
 
-      // ── FIX: stop the spinner BEFORE adding the AI message so the
-      //    last message never renders with isTyping=true ──────────────
       setIsTyping(false);
 
       const aiMsg: Message = {
@@ -279,7 +273,7 @@ export default function Chat({ user, onLogout }: Props) {
     } catch (err: unknown) {
       clearTimeout(wakingTimer);
       setServerWaking(false);
-      setIsTyping(false); // also stop here on error
+      setIsTyping(false);
       if (err && typeof err === 'object' && 'name' in err && (err as { name: string }).name === 'AbortError') {
         console.log('Chat aborted');
       } else {
@@ -294,14 +288,19 @@ export default function Chat({ user, onLogout }: Props) {
         }]);
       }
     } finally {
-      // isTyping already set to false above — this just cleans up refs
       isSendingRef.current = false;
       abortControllerRef.current = null;
       setJustFinished(true);
       setTimeout(() => setJustFinished(false), 3000);
-      // Re-focus input after response
       setTimeout(() => inputRef.current?.focus(), 100);
     }
+  };
+
+  // ── Public send handler (form submit / Enter key / suggestion chips) ──────
+  const handleSendMessage = async (e?: React.FormEvent, directMessage?: string) => {
+    if (e) { e.preventDefault(); e.stopPropagation(); }
+    const text = directMessage || input.trim();
+    await sendMessage(text);
   };
 
   const handleStopResponse = () => {
@@ -381,6 +380,7 @@ export default function Chat({ user, onLogout }: Props) {
   const cleanMessageContent = (content: string): string =>
     content.replace(/\n?\n?\[Attached Files:.*?\]/g, '').trim();
 
+  // ── Edit handlers ─────────────────────────────────────────────────────────
   const handleStartEdit = (msg: Message) => {
     setEditingMessage({ id: msg.id, content: cleanMessageContent(msg.content) });
     setEditInput(cleanMessageContent(msg.content));
@@ -391,17 +391,32 @@ export default function Chat({ user, onLogout }: Props) {
     setEditInput('');
   };
 
-  const handleSaveEdit = () => {
+  /**
+   * Save edit:
+   * 1. Truncate the messages array to everything BEFORE the edited message
+   *    (dropping the edited message itself and any AI reply that followed).
+   * 2. Re-send the edited text so the AI generates a fresh response.
+   */
+  const handleSaveEdit = async () => {
     if (!editingMessage || !editInput.trim()) return;
-    setMessages(prev =>
-      prev.map(m => m.id === editingMessage.id ? { ...m, content: editInput } : m)
-    );
+
+    const editedText = editInput.trim();
+
+    // Find the index of the message being edited
+    const editedIndex = messages.findIndex(m => m.id === editingMessage.id);
+
+    // Keep only messages that came BEFORE the edited one
+    const messagesBeforeEdit = editedIndex > 0 ? messages.slice(0, editedIndex) : [];
+
+    // Clear edit state immediately so the UI returns to normal
     setEditingMessage(null);
     setEditInput('');
+
+    // Re-send with the truncated history as the base
+    await sendMessage(editedText, messagesBeforeEdit);
   };
 
   // ── Loading Screen ────────────────────────────────────────────────────────
-
   if (loading) {
     return (
       <div className="flex items-center justify-center h-screen font-sans text-zinc-400 bg-[--bg-main]">
@@ -417,7 +432,6 @@ export default function Chat({ user, onLogout }: Props) {
     );
   }
 
-  // Show blinking cursor in placeholder when: no input typed AND (AI is responding OR just finished)
   const showBlinkingCursor = !input && (isTyping || justFinished);
 
   return (
@@ -504,7 +518,6 @@ export default function Chat({ user, onLogout }: Props) {
               <div className="space-y-8 pb-32 pt-4">
                 {messages.map((msg, index) => {
                   const isEditing = editingMessage?.id === msg.id;
-                  // Only spin on the very last assistant message while actively typing
                   const shouldSpin = isTyping && msg.role === 'assistant' && index === messages.length - 1;
                   return (
                     <div
@@ -536,6 +549,14 @@ export default function Chat({ user, onLogout }: Props) {
                                   <textarea
                                     value={editInput}
                                     onChange={(e) => setEditInput(e.target.value)}
+                                    onKeyDown={(e) => {
+                                      // Ctrl/Cmd+Enter to save, Escape to cancel
+                                      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                                        e.preventDefault();
+                                        handleSaveEdit();
+                                      }
+                                      if (e.key === 'Escape') handleCancelEdit();
+                                    }}
                                     className={`w-full border rounded-xl p-3 text-sm focus:outline-none focus:ring-2 focus:ring-white/20 transition-all resize-none font-medium min-h-[120px] ${
                                       msg.role === 'user'
                                         ? 'bg-black/20 border-white/10 text-white placeholder:text-white/30'
@@ -543,7 +564,10 @@ export default function Chat({ user, onLogout }: Props) {
                                     }`}
                                     autoFocus
                                   />
-                                  <div className="flex justify-end gap-2">
+                                  <div className="flex justify-end items-center gap-2">
+                                    <span className="text-[9px] text-zinc-400 mr-auto">
+                                      ⌘↵ to send · Esc to cancel
+                                    </span>
                                     <button
                                       onClick={handleCancelEdit}
                                       className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all rounded-lg ${
@@ -554,13 +578,14 @@ export default function Chat({ user, onLogout }: Props) {
                                     </button>
                                     <button
                                       onClick={handleSaveEdit}
-                                      className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all shadow-lg ${
+                                      disabled={!editInput.trim() || isTyping}
+                                      className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all shadow-lg disabled:opacity-40 disabled:cursor-not-allowed ${
                                         msg.role === 'user'
                                           ? 'bg-white text-indigo-600 hover:bg-zinc-100'
                                           : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-indigo-500/20'
                                       }`}
                                     >
-                                      Save Changes
+                                      Send
                                     </button>
                                   </div>
                                 </div>
@@ -602,11 +627,11 @@ export default function Chat({ user, onLogout }: Props) {
                                 : 'Now'}
                             </span>
                             <div className="flex items-center gap-0.5">
-                              {msg.role === 'user' && !isEditing && (
+                              {msg.role === 'user' && !isEditing && !isTyping && (
                                 <button
                                   onClick={() => handleStartEdit(msg)}
                                   className="p-1 px-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 hover:text-indigo-600 transition-all"
-                                  title="Edit message"
+                                  title="Edit and resend message"
                                 >
                                   <Edit2 className="w-3.5 h-3.5" />
                                 </button>
@@ -670,7 +695,6 @@ export default function Chat({ user, onLogout }: Props) {
           <div className="max-w-3xl mx-auto">
             <div className={`relative flex flex-row items-center bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl md:rounded-3xl shadow-2xl transition-all overflow-visible ${justFinished ? 'animate-blink' : ''}`}>
 
-              {/* Scroll-to-bottom */}
               <AnimatePresence>
                 {showScrollBottom && (
                   <motion.button
@@ -688,7 +712,6 @@ export default function Chat({ user, onLogout }: Props) {
                 )}
               </AnimatePresence>
 
-              {/* Textarea with blinking cursor overlay */}
               <div className="relative flex-1 min-w-0">
                 <textarea
                   ref={inputRef}
@@ -713,7 +736,6 @@ export default function Chat({ user, onLogout }: Props) {
                     target.style.height = `${target.scrollHeight}px`;
                   }}
                 />
-                {/* Blinking cursor shown when AI is responding or just finished and no text typed */}
                 {showBlinkingCursor && !inputFocused && (
                   <div className="absolute left-5 top-1/2 -translate-y-1/2 flex items-center gap-1 pointer-events-none">
                     <span className="text-base font-medium text-zinc-400 dark:text-zinc-500">Write a message</span>
@@ -722,7 +744,6 @@ export default function Chat({ user, onLogout }: Props) {
                 )}
               </div>
 
-              {/* Send / Stop button — circular, white bg, black icon */}
               <div className="flex items-center px-3 shrink-0">
                 <motion.button
                   whileHover={{ scale: isTyping || input.trim() ? 1.08 : 1.02 }}
@@ -731,14 +752,13 @@ export default function Chat({ user, onLogout }: Props) {
                   disabled={!input.trim() && !isTyping}
                   aria-label={isTyping ? 'Stop response' : 'Send message'}
                   className={`relative flex items-center justify-center w-10 h-10 rounded-full transition-all duration-200 border-2 ${
-                              isTyping
-                    ? 'bg-white border-indigo-400 dark:bg-zinc-800 dark:border-indigo-500 shadow-lg shadow-indigo-200/50'
-                    : 'bg-white border-zinc-300 dark:bg-zinc-800 dark:border-zinc-600 shadow-md hover:border-indigo-400 dark:hover:border-indigo-500'                      
-                     }`}
-                    >
+                    isTyping
+                      ? 'bg-white border-indigo-400 dark:bg-zinc-800 dark:border-indigo-500 shadow-lg shadow-indigo-200/50'
+                      : 'bg-white border-zinc-300 dark:bg-zinc-800 dark:border-zinc-600 shadow-md hover:border-indigo-400 dark:hover:border-indigo-500'
+                  }`}
+                >
                   {isTyping ? (
                     <span className="relative flex items-center justify-center w-full h-full">
-                      {/* Spinning arc */}
                       <svg className="absolute inset-0 w-full h-full animate-spin" viewBox="0 0 40 40">
                         <circle
                           cx="20" cy="20" r="16"
@@ -750,7 +770,6 @@ export default function Chat({ user, onLogout }: Props) {
                           opacity="1"
                         />
                       </svg>
-                      {/* Stop square — black */}
                       <span className="w-3 h-3 rounded-sm bg-zinc-800 dark:bg-zinc-200 block relative z-10" />
                     </span>
                   ) : (
