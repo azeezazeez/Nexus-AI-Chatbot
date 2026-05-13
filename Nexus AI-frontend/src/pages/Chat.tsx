@@ -585,23 +585,39 @@ export default function Chat({ user, onLogout }: Props) {
                                 <ReactMarkdown
                                   remarkPlugins={[remarkGfm]}
                                   components={{
-                                    code({ className, children, ...props }: any) {
+                                    pre({ children, ...props }: any) {
+                                          return (
+                      <div className="my-6 overflow-hidden rounded-xl border border-indigo-200/40 dark:border-indigo-500/20 shadow-lg bg-gradient-to-br from-indigo-50/80 to-violet-50/60 dark:from-indigo-950/50 dark:to-violet-950/40 backdrop-blur-xl">
+                      <div className="flex items-center gap-2 px-4 py-2 border-b border-indigo-200/30 dark:border-indigo-500/15 bg-indigo-100/40 dark:bg-indigo-900/20">
+                      <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 dark:bg-indigo-500" />
+                      <span className="text-[10px] font-black uppercase tracking-widest text-indigo-400 dark:text-indigo-500">Architecture</span>
+                            </div>
+                                <pre
+                                className="p-5 overflow-x-auto text-[0.82rem] leading-relaxed font-mono text-indigo-700 dark:text-indigo-300 whitespace-pre"
+                                    {...props}
+                                          >
+                                    {children}
+                                    </pre>
+                                          </div>
+                                                    );
+                                                          },
+                                code({ className, children, ...props }: any) {
                                       const match = /language-(\w+)/.exec(className || '');
-                                      const content = String(children).replace(/\n$/, '');
+                                          const content = String(children).replace(/\n$/, '');
                                       const isInline = props.inline || !className;
-                                      return !isInline && match ? (
-                                        <CodeBlock language={match[1]} value={content} />
-                                      ) : (
-                                        <code
-                                          className={`${className || ''} bg-zinc-100/50 dark:bg-white/5 text-indigo-500 px-1 py-0.5 rounded font-mono text-[0.85em]`}
-                                          {...props}
-                                        >
-                                          {children}
+                                  return !isInline && match ? (
+                                <CodeBlock language={match[1]} value={content} />
+                                              ) : (
+                                           <code
+                        className={`${className || ''} bg-zinc-100/50 dark:bg-white/5 text-indigo-500 px-1 py-0.5 rounded font-mono text-[0.85em]`}
+                                    {...props}
+                                  >
+                                        {children}
                                         </code>
-                                      );
-                                    }
-                                  } as Components}
-                                >
+                                                );
+                                                  }
+                                                    } as Components}
+                                        >
                                   {cleanMessageContent(msg.content)}
                                 </ReactMarkdown>
                               )}
