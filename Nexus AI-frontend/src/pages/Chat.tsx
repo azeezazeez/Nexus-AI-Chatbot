@@ -398,6 +398,15 @@ export default function Chat({ user, onLogout }: Props) {
     await sendMessage(editedText, messagesBeforeEdit);
   };
 
+  // ── Derived values & stable callbacks — MUST be before any early return ───
+  // Rule of Hooks: hooks and values derived from hooks cannot appear after
+  // a conditional return. Keep ALL of them here, above the loading guard.
+  const showBlinkingCursor = !input && (isTyping || justFinished);
+
+  const handleCloseSidebar = useCallback(() => {
+    setIsSidebarOpen(false);
+  }, []);
+
   // ── Loading Screen ────────────────────────────────────────────────────────
   if (loading) {
     return (
@@ -413,13 +422,6 @@ export default function Chat({ user, onLogout }: Props) {
       </div>
     );
   }
-
-  const showBlinkingCursor = !input && (isTyping || justFinished);
-
-  // ── Sidebar close handler (passed to Sidebar & used by overlay) ───────────
-  const handleCloseSidebar = useCallback(() => {
-    setIsSidebarOpen(false);
-  }, []);
 
   return (
     // FIX: Use h-[100dvh] for mobile browser chrome, flex layout root
