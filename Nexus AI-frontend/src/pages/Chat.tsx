@@ -66,6 +66,16 @@ const CodeBlock = ({ language, value }: { language: string; value: string }) => 
   );
 };
 
+// Blinking cursor component
+const BlinkingCursor = () => (
+  <motion.span
+    animate={{ opacity: [1, 0, 1] }}
+    transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+    className="inline-block w-[2px] h-[1.1em] bg-indigo-500 align-middle ml-0.5 rounded-full"
+    style={{ verticalAlign: 'text-bottom' }}
+  />
+);
+
 export default function Chat({ user, onLogout }: Props) {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<number | null>(null);
@@ -82,6 +92,7 @@ export default function Chat({ user, onLogout }: Props) {
   const [modalType, setModalType] = useState<'none' | 'delete-all' | 'delete-single'>('none');
   const [sessionIdToDelete, setSessionIdToDelete] = useState<number | null>(null);
   const [serverWaking, setServerWaking] = useState(false);
+  const [inputFocused, setInputFocused] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const isSendingRef = useRef(false);
@@ -93,11 +104,9 @@ export default function Chat({ user, onLogout }: Props) {
 
   const loadSessions = useCallback(async () => {
     try {
-      // Wake up Render server silently on load
       wakeUpServer();
-
-      const response = await chatApi.getSessions();
-      setSessions((response as any).sessions || []);
+      const response = await chatApi.getSessions() as any;
+      setSessions(response.sessions || []);
     } catch (err: unknown) {
       console.error('Failed to load sessions:', err);
       if (err && typeof err === 'object' && 'status' in err && (err as { status: number }).status === 401) onLogout();
@@ -108,8 +117,8 @@ export default function Chat({ user, onLogout }: Props) {
 
   const loadMessages = useCallback(async (sid: number) => {
     try {
-      const response = await chatApi.getMessages(sid);
-      setMessages((response as any).messages || []);
+      const response = await chatApi.getMessages(sid) as any;
+      setMessages(response.messages || []);
     } catch (err: unknown) {
       console.error('Failed to load messages:', err);
       if (err && typeof err === 'object' && 'status' in err && (err as { status: number }).status === 401) onLogout();
@@ -242,7 +251,8 @@ export default function Chat({ user, onLogout }: Props) {
       abortControllerRef.current = null;
       setJustFinished(true);
       setTimeout(() => setJustFinished(false), 3000);
-      inputRef.current?.focus();
+      // Re-focus input after response
+      setTimeout(() => inputRef.current?.focus(), 100);
     }
   };
 
@@ -253,6 +263,7 @@ export default function Chat({ user, onLogout }: Props) {
     isSendingRef.current = false;
     abortControllerRef.current = null;
     window.speechSynthesis?.cancel();
+    setTimeout(() => inputRef.current?.focus(), 100);
   };
 
   const createNewSession = () => {
@@ -355,6 +366,9 @@ export default function Chat({ user, onLogout }: Props) {
     );
   }
 
+  // Show blinking cursor in placeholder when: no input typed AND (AI is responding OR just finished)
+  const showBlinkingCursor = !input && (isTyping || justFinished);
+
   return (
     <div className="flex h-screen h-[100dvh] overflow-hidden bg-[--bg-main] relative transition-colors duration-300 font-sans">
       <div className="absolute top-0 right-0 w-[800px] h-[800px] bg-indigo-500/5 rounded-full blur-[160px] pointer-events-none" />
@@ -445,7 +459,6 @@ export default function Chat({ user, onLogout }: Props) {
                       className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} group`}
                     >
                       <div className={`flex gap-3 max-w-[90%] md:max-w-[80%] ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
-
                         <div className="w-7 h-7 md:w-8 md:h-8 shrink-0 flex items-center justify-center mt-1">
                           {msg.role === 'user' ? (
                             <div className="w-full h-full rounded-full border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 flex items-center justify-center shadow-sm overflow-hidden">
@@ -580,7 +593,6 @@ export default function Chat({ user, onLogout }: Props) {
                         <motion.div animate={{ scale: [1, 1.2, 1], opacity: [0.3, 1, 0.3] }} transition={{ repeat: Infinity, duration: 1, delay: 0.2 }} className="w-1.5 h-1.5 bg-indigo-600 rounded-full" />
                         <motion.div animate={{ scale: [1, 1.2, 1], opacity: [0.3, 1, 0.3] }} transition={{ repeat: Infinity, duration: 1, delay: 0.4 }} className="w-1.5 h-1.5 bg-indigo-600 rounded-full" />
                       </div>
-                      {/* Server waking up notice */}
                       <AnimatePresence>
                         {serverWaking && (
                           <motion.p
@@ -605,7 +617,6 @@ export default function Chat({ user, onLogout }: Props) {
         {/* ── Input Area ── */}
         <div className="p-4 md:p-8 shrink-0">
           <div className="max-w-3xl mx-auto">
-            {/* ── Input box: horizontal layout ── */}
             <div className={`relative flex flex-row items-center bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl md:rounded-3xl shadow-2xl transition-all overflow-visible ${justFinished ? 'animate-blink' : ''}`}>
 
               {/* Scroll-to-bottom */}
@@ -626,64 +637,79 @@ export default function Chat({ user, onLogout }: Props) {
                 )}
               </AnimatePresence>
 
-              {/* Textarea */}
-              <textarea
-                ref={inputRef}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey && !isTyping) {
-                    e.preventDefault();
-                    handleSendMessage();
-                  }
-                }}
-                disabled={isTyping}
-                placeholder="Write a message..."
-                rows={1}
-                className="flex-1 px-5 py-4 bg-transparent focus:outline-none font-medium text-[--text-main] placeholder:text-zinc-400 dark:placeholder:text-zinc-500 text-base leading-relaxed resize-none min-h-[60px] max-h-[200px]"
-                style={{ height: 'auto' }}
-                onInput={(e) => {
-                  const target = e.target as HTMLTextAreaElement;
-                  target.style.height = 'auto';
-                  target.style.height = `${target.scrollHeight}px`;
-                }}
-              />
+              {/* Textarea with blinking cursor overlay */}
+              <div className="relative flex-1 min-w-0">
+                <textarea
+                  ref={inputRef}
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onFocus={() => setInputFocused(true)}
+                  onBlur={() => setInputFocused(false)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey && !isTyping) {
+                      e.preventDefault();
+                      handleSendMessage();
+                    }
+                  }}
+                  disabled={isTyping}
+                  placeholder={showBlinkingCursor ? '' : 'Write a message...'}
+                  rows={1}
+                  className="w-full px-5 py-4 bg-transparent focus:outline-none font-medium text-[--text-main] placeholder:text-zinc-400 dark:placeholder:text-zinc-500 text-base leading-relaxed resize-none min-h-[60px] max-h-[200px]"
+                  style={{ height: 'auto' }}
+                  onInput={(e) => {
+                    const target = e.target as HTMLTextAreaElement;
+                    target.style.height = 'auto';
+                    target.style.height = `${target.scrollHeight}px`;
+                  }}
+                />
+                {/* Blinking cursor shown when AI is responding or just finished and no text typed */}
+                {showBlinkingCursor && !inputFocused && (
+                  <div className="absolute left-5 top-1/2 -translate-y-1/2 flex items-center gap-1 pointer-events-none">
+                    <span className="text-base font-medium text-zinc-400 dark:text-zinc-500">Write a message</span>
+                    <BlinkingCursor />
+                  </div>
+                )}
+              </div>
 
-              {/* Send / Stop button — circular */}
+              {/* Send / Stop button — circular, white bg, black icon */}
               <div className="flex items-center px-3 shrink-0">
                 <motion.button
-                  whileHover={{ scale: isTyping || input.trim() ? 1.08 : 1 }}
-                  whileTap={{ scale: isTyping || input.trim() ? 0.92 : 1 }}
+                  whileHover={{ scale: isTyping || input.trim() ? 1.08 : 1.02 }}
+                  whileTap={{ scale: 0.92 }}
                   onClick={isTyping ? handleStopResponse : () => handleSendMessage()}
                   disabled={!input.trim() && !isTyping}
                   aria-label={isTyping ? 'Stop response' : 'Send message'}
-                  className={`relative flex items-center justify-center w-10 h-10 rounded-full transition-all duration-200 ${
+                  className={`relative flex items-center justify-center w-10 h-10 rounded-full transition-all duration-200 border-2 ${
                     isTyping
-                      ? 'bg-indigo-600 border-2 border-indigo-400 shadow-lg shadow-indigo-500/30'
-                      : input.trim()
-                        ? 'bg-indigo-600 border-2 border-indigo-500 text-white hover:bg-indigo-700 shadow-md shadow-indigo-500/20'
-                        : 'bg-zinc-100 dark:bg-zinc-800 border-2 border-zinc-200 dark:border-zinc-700 text-zinc-300 dark:text-zinc-600 cursor-not-allowed'
+                      ? 'bg-white border-zinc-300 dark:bg-zinc-800 dark:border-zinc-600 shadow-lg'
+                      : 'bg-white border-zinc-300 dark:bg-zinc-800 dark:border-zinc-600 shadow-md hover:border-indigo-400 dark:hover:border-indigo-500'
                   }`}
                 >
                   {isTyping ? (
                     <span className="relative flex items-center justify-center w-full h-full">
-                      {/* Spinning arc around button */}
+                      {/* Spinning arc */}
                       <svg className="absolute inset-0 w-full h-full animate-spin" viewBox="0 0 40 40">
                         <circle
                           cx="20" cy="20" r="16"
                           fill="none"
-                          stroke="white"
+                          stroke="#6366f1"
                           strokeWidth="2.5"
                           strokeDasharray="60 40"
                           strokeLinecap="round"
-                          opacity="0.6"
+                          opacity="0.7"
                         />
                       </svg>
-                      {/* Stop square */}
-                      <span className="w-3 h-3 rounded-sm bg-white block relative z-10" />
+                      {/* Stop square — black */}
+                      <span className="w-3 h-3 rounded-sm bg-zinc-800 dark:bg-zinc-200 block relative z-10" />
                     </span>
                   ) : (
-                    <ArrowUp className={`w-4 h-4 text-white transition-transform ${input.trim() ? 'scale-110' : 'scale-90 opacity-40'}`} />
+                    <ArrowUp
+                      className={`w-4 h-4 transition-all ${
+                        input.trim()
+                          ? 'text-zinc-800 dark:text-zinc-100 scale-110'
+                          : 'text-zinc-400 dark:text-zinc-500 scale-90'
+                      }`}
+                    />
                   )}
                 </motion.button>
               </div>
