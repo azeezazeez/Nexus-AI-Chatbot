@@ -179,4 +179,10 @@ export const chatApi = {
 
   searchSessions: (query: string) =>
     fetchWithAuth(`${API_BASE}/chat/search?q=${encodeURIComponent(query)}`),
+
+  // Returns { shareUrl: string } — requires the share endpoint in server.js
+  shareSession: (sessionId: number) =>
+    fetchWithAuth(`${API_BASE}/chat/session/${sessionId}/share`, {
+      method: 'POST',
+    }),
 };
