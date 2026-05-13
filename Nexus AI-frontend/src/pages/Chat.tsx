@@ -172,7 +172,6 @@ export default function Chat({ user, onLogout }: Props) {
       const response = await chatApi.sendMessage(
         messageText,
         currentSessionId,
-        [],
         controller.signal,
         'default'
       );
