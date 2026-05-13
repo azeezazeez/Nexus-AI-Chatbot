@@ -11,6 +11,28 @@ type ApiError = Error & {
   status?: number;
 };
 
+// Wake up Render server on app load (prevents cold start on first user action)
+export function wakeUpServer() {
+  fetch(`${API_BASE}/chat/status`, { credentials: 'include' }).catch(() => {});
+}
+
+const attemptFetch = async (
+  url: string,
+  options: RequestInit,
+  headers: HeadersInit,
+  retries: number
+): Promise<Response> => {
+  try {
+    return await fetch(url, { ...options, credentials: 'include', headers });
+  } catch (err) {
+    if (retries > 0) {
+      await new Promise(res => setTimeout(res, 3000));
+      return attemptFetch(url, options, headers, retries - 1);
+    }
+    throw err;
+  }
+};
+
 export async function fetchWithAuth(
   url: string,
   options: RequestInit = {}
@@ -29,13 +51,11 @@ export async function fetchWithAuth(
   let response: Response;
 
   try {
-    response = await fetch(url, {
-      ...options,
-      credentials: 'include',
-      headers,
-    });
+    response = await attemptFetch(url, options, headers, 3);
   } catch {
-    throw new Error('Unable to connect to server. Please check your internet connection.');
+    throw new Error(
+      'Server is starting up, please wait a moment and try again.'
+    );
   }
 
   let data: Record<string, unknown> = {};
