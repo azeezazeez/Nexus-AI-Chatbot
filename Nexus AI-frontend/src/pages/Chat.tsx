@@ -792,7 +792,7 @@ export default function Chat({ user, onLogout }: Props) {
 
             {/* Disclaimer */}
             <p className="mt-2.5 text-center text-[10px] font-medium text-[--text-muted]/40">
-              Nexus AI can make mistakes. Check important info.
+              Nexus is AI and can make mistakes. Please double-check responses.
             </p>
           </div>
         </div>
@@ -812,7 +812,7 @@ export default function Chat({ user, onLogout }: Props) {
         onClose={() => setModalType('none')}
         onConfirm={confirmClearAll}
         title="Clear All Chats"
-        message="Are you sure you want to delete ALL chats? This action is permanent."
+        message="Are you sure you want to delete all chats? This action is permanent."
         confirmText="Clear All"
       />
     </div>
