@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import React from 'react';
-import { User, Session, Message, UploadedFile } from '../types';
+import { User, Session, Message } from '../types';
 import Sidebar from '../components/Sidebar';
 import { chatApi, authApi } from '../lib/api';
 import { motion, AnimatePresence } from 'motion/react';
@@ -9,8 +9,7 @@ import UserAvatar from '../components/UserAvatar';
 import ConfirmationModal from '../components/ConfirmationModal';
 import {
   ArrowDown, ArrowUp, Menu,
-  Paperclip, Copy, Check,
-  X, FileText,
+  Copy, Check,
   ChevronDown, Edit2,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
@@ -23,8 +22,6 @@ interface Props {
   user: User;
   onLogout: () => void;
 }
-
-const BACKEND_BASE = 'https://nexus-ai-chatbot-arhr.onrender.com';
 
 const CodeBlock = ({ language, value }: { language: string; value: string }) => {
   const [copied, setCopied] = useState(false);
@@ -81,26 +78,19 @@ export default function Chat({ user, onLogout }: Props) {
   const [justFinished, setJustFinished] = useState(false);
   const [showScrollBottom, setShowScrollBottom] = useState(false);
   const [copiedId, setCopiedId] = useState<number | string | null>(null);
-  const [isUploading, setIsUploading] = useState(false);
-  const [uploadError, setUploadError] = useState<string | null>(null);
   const [isModelMenuOpen, setIsModelMenuOpen] = useState(false);
   const [selectedModel, setSelectedModel] = useState('Scout 4.6 Adaptive');
-  
-  // FIX: Use a proper editing message state with id and content
-  const [editingMessage, setEditingMessage] = useState<{id: string | number; content: string} | null>(null);
+
+  const [editingMessage, setEditingMessage] = useState<{ id: string | number; content: string } | null>(null);
   const [editInput, setEditInput] = useState('');
 
-  // Modal state
   const [modalType, setModalType] = useState<'none' | 'delete-all' | 'delete-single'>('none');
   const [sessionIdToDelete, setSessionIdToDelete] = useState<number | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const isSendingRef = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-
-  const [attachedFiles, setAttachedFiles] = useState<UploadedFile[]>([]);
 
   // ── Data Loading ──────────────────────────────────────────────────────────
 
@@ -147,88 +137,40 @@ export default function Chat({ user, onLogout }: Props) {
     setShowScrollBottom(scrollHeight - scrollTop - clientHeight > 100);
   };
 
-  // ── File Upload ───────────────────────────────────────────────────────────
-
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'application/pdf', 'text/plain'];
-    if (!allowedTypes.includes(file.type)) {
-      setUploadError('Only images, PDFs and text files are allowed.');
-      if (fileInputRef.current) fileInputRef.current.value = '';
-      return;
-    }
-    if (file.size > 10 * 1024 * 1024) {
-      setUploadError('File is too large. Max size is 10MB.');
-      if (fileInputRef.current) fileInputRef.current.value = '';
-      return;
-    }
-
-    setUploadError(null);
-    setIsUploading(true);
-
-    try {
-      const response = await chatApi.uploadFile(file);
-      setAttachedFiles(prev => [...prev, response.file]);
-    } catch (err: unknown) {
-      console.error('File upload failed:', err);
-      const message = err instanceof Error ? err.message : 'File upload failed. Please try again.';
-      setUploadError(message);
-    } finally {
-      setIsUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    }
-  };
-
-  const removeAttachedFile = (index: number) => {
-    setAttachedFiles(prev => prev.filter((_, i) => i !== index));
-  };
-
   // ── Send Message ──────────────────────────────────────────────────────────
 
   const handleSendMessage = async (e?: React.FormEvent, directMessage?: string) => {
     if (e) { e.preventDefault(); e.stopPropagation(); }
 
     const messageText = directMessage || input.trim();
-    if (!messageText && attachedFiles.length === 0) return;
+    if (!messageText) return;
     if (isSendingRef.current) return;
 
     isSendingRef.current = true;
     setIsTyping(true);
     setJustFinished(false);
-    setUploadError(null);
 
     const controller = new AbortController();
     abortControllerRef.current = controller;
-
-    const files = [...attachedFiles];
-    let fullMessageContent = messageText;
-    if (files.length > 0) {
-      const fileNames = files.map(f => f.originalName).join(', ');
-      fullMessageContent += (messageText ? '\n\n' : '') + `[Attached Files: ${fileNames}]`;
-    }
 
     const tempUserMsg: Message = {
       id: 'temp-' + Date.now(),
       sessionId: currentSessionId || 0,
       role: 'user',
-      content: fullMessageContent,
+      content: messageText,
       timestamp: new Date().toISOString(),
     };
 
     setMessages(prev => [...prev, tempUserMsg]);
     setInput('');
-    setAttachedFiles([]);
 
     const isNewSession = !currentSessionId;
-    const fileIds = files.map(f => f.id);
 
     try {
       const response = await chatApi.sendMessage(
-        fullMessageContent,
+        messageText,
         currentSessionId,
-        fileIds,
+        [],
         controller.signal,
         selectedModel
       );
@@ -297,10 +239,8 @@ export default function Chat({ user, onLogout }: Props) {
     setCurrentSessionId(null);
     setMessages([]);
     setInput('');
-    setAttachedFiles([]);
-    setUploadError(null);
     setIsSidebarOpen(false);
-    setEditingMessage(null); // Clear editing state
+    setEditingMessage(null);
   };
 
   const deleteSession = async (sid: number) => {
@@ -356,17 +296,12 @@ export default function Chat({ user, onLogout }: Props) {
     finally { onLogout(); }
   };
 
-  // FIX: Helper to clean message content for display
   const cleanMessageContent = (content: string): string => {
     return content.replace(/\n?\n?\[Attached Files:.*?\]/g, '').trim();
   };
 
-  // FIX: Handle editing a message
   const handleStartEdit = (msg: Message) => {
-    setEditingMessage({
-      id: msg.id,
-      content: cleanMessageContent(msg.content)
-    });
+    setEditingMessage({ id: msg.id, content: cleanMessageContent(msg.content) });
     setEditInput(cleanMessageContent(msg.content));
   };
 
@@ -377,30 +312,9 @@ export default function Chat({ user, onLogout }: Props) {
 
   const handleSaveEdit = async () => {
     if (!editingMessage || !editInput.trim()) return;
-
-    // Update message in UI
     setMessages(prev =>
-      prev.map(m =>
-        m.id === editingMessage.id ? { ...m, content: editInput } : m
-      )
+      prev.map(m => m.id === editingMessage.id ? { ...m, content: editInput } : m)
     );
-
-    // Optional: If you have an API endpoint to edit messages on the backend
-    // Uncomment this section and implement the API call
-    /*
-    try {
-      await chatApi.editMessage(editingMessage.id, editInput);
-    } catch (err) {
-      console.error('Failed to edit message:', err);
-      // Revert on error
-      setMessages(prev =>
-        prev.map(m =>
-          m.id === editingMessage.id ? { ...m, content: editingMessage.content } : m
-        )
-      );
-    }
-    */
-
     setEditingMessage(null);
     setEditInput('');
   };
@@ -449,7 +363,7 @@ export default function Chat({ user, onLogout }: Props) {
               <Menu className="w-4 h-4 md:w-5 md:h-5" />
             </button>
             <div className="flex items-center gap-2 md:gap-3">
-              <StormLogo className={`w-6 h-6 text-indigo-600 dark:text-indigo-500 transition-all`} />
+              <StormLogo className="w-6 h-6 text-indigo-600 dark:text-indigo-500 transition-all" />
               <div className="hidden sm:flex flex-col">
                 <span className="text-[10px] font-black text-[--text-main] uppercase tracking-widest leading-none mb-1">Scout AI</span>
                 <div className="flex items-center gap-1.5">
@@ -503,7 +417,6 @@ export default function Chat({ user, onLogout }: Props) {
               <div className="space-y-8 pb-32 pt-4">
                 {messages.map((msg, index) => {
                   const isEditing = editingMessage?.id === msg.id;
-                  
                   return (
                     <div
                       key={msg.id || `msg-${index}`}
@@ -527,47 +440,7 @@ export default function Chat({ user, onLogout }: Props) {
                               ? 'bg-white/80 dark:bg-zinc-900/40 border-zinc-200/40 dark:border-zinc-800/40 text-[--text-main]'
                               : 'bg-white/50 dark:bg-white/5 border-zinc-200/30 dark:border-white/10 text-[--text-main] selection:bg-indigo-500/10'
                           } ${msg.role === 'user' ? 'rounded-tr-none ml-auto' : 'rounded-tl-none mr-auto'}`}>
-
-                            {msg.role === 'user' && msg.content.includes('[Attached Files:') && (() => {
-                              const match = msg.content.match(/\[Attached Files: (.*?)\]/);
-                              if (!match) return null;
-                              const fileNames = match[1].split(', ');
-                              const imageFiles = fileNames.filter(f => /\.(jpg|jpeg|png|gif|webp)$/i.test(f));
-                              const otherFiles = fileNames.filter(f => !/\.(jpg|jpeg|png|gif|webp)$/i.test(f));
-                              return (
-                                <div className="flex flex-col gap-3 mb-4">
-                                  {imageFiles.map((fileName, idx) => (
-                                    <div key={idx} className="group/img relative overflow-hidden rounded-2xl border border-zinc-200 dark:border-white/10 shadow-lg bg-zinc-100 dark:bg-black/20">
-                                      <img
-                                        src={`${BACKEND_BASE}/uploads/${encodeURIComponent(fileName)}`}
-                                        alt={fileName}
-                                        className="max-w-full h-auto max-h-[600px] object-contain cursor-zoom-in transition-transform duration-500 group-hover/img:scale-[1.02]"
-                                        onClick={() => window.open(`${BACKEND_BASE}/uploads/${encodeURIComponent(fileName)}`, '_blank')}
-                                      />
-                                      <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover/img:opacity-100 transition-opacity duration-300">
-                                        <p className="text-[10px] font-black text-white uppercase tracking-[0.2em]">{fileName}</p>
-                                      </div>
-                                    </div>
-                                  ))}
-                                  {otherFiles.length > 0 && (
-                                    <div className="flex flex-wrap gap-2">
-                                      {otherFiles.map((fileName, idx) => (
-                                        <div key={idx} className="flex items-center gap-3 px-4 py-2.5 bg-zinc-50 dark:bg-white/5 rounded-xl border border-zinc-200 dark:border-white/10 group/file hover:border-indigo-500/50 transition-all">
-                                          <div className="p-1.5 rounded-lg bg-white dark:bg-zinc-800 shadow-sm text-indigo-500">
-                                            <FileText className="w-4 h-4" />
-                                          </div>
-                                          <div className="flex flex-col">
-                                            <span className="text-[10px] font-black text-zinc-500 dark:text-zinc-400 uppercase tracking-widest truncate max-w-[200px] group-hover/file:text-indigo-500 transition-colors">{fileName}</span>
-                                          </div>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })()}
-
-                            <div className={`text-sm md:text-base leading-relaxed markdown-body max-w-none`}>
+                            <div className="text-sm md:text-base leading-relaxed markdown-body max-w-none">
                               {isEditing ? (
                                 <div className="flex flex-col gap-3 min-w-[240px] sm:min-w-[400px] p-1">
                                   <textarea
@@ -636,7 +509,6 @@ export default function Chat({ user, onLogout }: Props) {
                             <span className="text-[9px] font-black text-zinc-400 dark:text-zinc-500 uppercase tracking-widest whitespace-nowrap mr-1">
                               {msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Now'}
                             </span>
-
                             <div className="flex items-center gap-0.5">
                               {msg.role === 'user' && !isEditing && (
                                 <button
@@ -669,7 +541,7 @@ export default function Chat({ user, onLogout }: Props) {
                 {isTyping && (
                   <div className="flex items-start gap-3">
                     <div className="w-7 h-7 md:w-8 md:h-8 rounded-full shrink-0 flex items-center justify-center bg-zinc-900 border border-zinc-800 text-white shadow-xl shadow-indigo-500/10">
-                      <StormLogo className="w-4 h-4 ml-[0px] animate-spin" />
+                      <StormLogo className="w-4 h-4 animate-spin" />
                     </div>
                     <div className="bg-white/90 dark:bg-zinc-900/90 border border-zinc-200 dark:border-zinc-800 px-4 py-3 rounded-2xl rounded-tl-none shadow-sm flex items-center gap-2 backdrop-blur-xl">
                       <motion.div animate={{ scale: [1, 1.2, 1], opacity: [0.3, 1, 0.3] }} transition={{ repeat: Infinity, duration: 1 }} className="w-1.5 h-1.5 bg-indigo-600 rounded-full" />
@@ -687,64 +559,6 @@ export default function Chat({ user, onLogout }: Props) {
         {/* Input Area */}
         <div className="p-4 md:p-8 shrink-0">
           <div className="max-w-3xl mx-auto">
-            <AnimatePresence>
-              {uploadError && (
-                <motion.div
-                  initial={{ opacity: 0, y: 5 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: 5 }}
-                  className="flex items-center justify-between mb-3 px-4 py-2 bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-500/20 rounded-xl"
-                >
-                  <span className="text-xs text-red-600 dark:text-red-400">{uploadError}</span>
-                  <button onClick={() => setUploadError(null)} className="text-red-400 hover:text-red-600 ml-2">
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                </motion.div>
-              )}
-            </AnimatePresence>
-
-            <AnimatePresence>
-              {attachedFiles.length > 0 && (
-                <motion.div
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: 'auto' }}
-                  exit={{ opacity: 0, height: 0 }}
-                  className="flex flex-wrap gap-2 mb-3 px-1"
-                >
-                  {attachedFiles.map((file, i) => (
-                    <motion.div
-                      key={i}
-                      initial={{ scale: 0.8, opacity: 0 }}
-                      animate={{ scale: 1, opacity: 1 }}
-                      exit={{ scale: 0.8, opacity: 0 }}
-                      className="group relative flex items-center gap-3 pr-3 pl-2 py-2 bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl shadow-sm hover:border-indigo-500/30 transition-all max-w-[200px]"
-                    >
-                      {file.isImage ? (
-                        <div className="w-8 h-8 rounded-lg overflow-hidden bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700">
-                          <img
-                            src={`${BACKEND_BASE}/uploads/${encodeURIComponent(file.fileName)}`}
-                            alt={file.originalName}
-                            className="w-full h-full object-cover"
-                          />
-                        </div>
-                      ) : (
-                        <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-100 dark:border-indigo-500/20">
-                          <FileText className="w-4 h-4 text-indigo-500" />
-                        </div>
-                      )}
-                      <span className="text-[10px] font-black text-zinc-500 dark:text-zinc-400 uppercase tracking-widest truncate">{file.originalName}</span>
-                      <button
-                        onClick={() => removeAttachedFile(i)}
-                        className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-zinc-900 dark:bg-white text-white dark:text-black flex items-center justify-center shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
-                    </motion.div>
-                  ))}
-                </motion.div>
-              )}
-            </AnimatePresence>
-
             <div className={`relative flex flex-col bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl md:rounded-3xl shadow-2xl transition-all overflow-visible ${justFinished ? 'animate-blink' : ''}`}>
               <AnimatePresence>
                 {showScrollBottom && (
@@ -774,7 +588,7 @@ export default function Chat({ user, onLogout }: Props) {
                   }
                 }}
                 disabled={isTyping}
-                placeholder={isUploading ? 'Uploading file...' : 'Write a message...'}
+                placeholder="Write a message..."
                 rows={1}
                 className="w-full px-5 pt-5 pb-2 bg-transparent focus:outline-none font-medium text-[--text-main] placeholder:text-zinc-400 dark:placeholder:text-zinc-500 text-base leading-relaxed resize-none min-h-[60px] max-h-[200px]"
                 style={{ height: 'auto' }}
@@ -785,97 +599,80 @@ export default function Chat({ user, onLogout }: Props) {
                 }}
               />
 
-              <div className="flex items-center justify-between px-3 pb-3 pt-1">
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={isUploading}
-                  className={`p-2 rounded-lg transition-all ${isUploading ? 'text-indigo-400 animate-pulse' : 'text-zinc-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20'}`}
-                >
-                  <Paperclip className="w-5 h-5" />
-                </button>
-
-                <div className="flex items-center gap-2">
-                  <div className="relative">
-                    <button
-                      onClick={() => setIsModelMenuOpen(!isModelMenuOpen)}
-                      className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-100 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors"
-                    >
-                      <span className="text-[10px] font-black text-zinc-500 dark:text-zinc-400 uppercase tracking-widest flex items-center gap-1.5">
-                        {selectedModel}
-                        <ChevronDown className={`w-3 h-3 transition-transform ${isModelMenuOpen ? 'rotate-180' : ''}`} />
-                      </span>
-                    </button>
-                    <AnimatePresence>
-                      {isModelMenuOpen && (
-                        <motion.div
-                          initial={{ opacity: 0, y: -10, scale: 0.95 }}
-                          animate={{ opacity: 1, y: 8, scale: 1 }}
-                          exit={{ opacity: 0, y: -10, scale: 0.95 }}
-                          className="absolute top-full right-0 mt-2 w-56 bg-white dark:bg-zinc-800 border border-zinc-100 dark:border-zinc-700 rounded-xl shadow-2xl z-50 overflow-hidden"
-                        >
-                          <div className="p-2 px-3 border-b border-zinc-100 dark:border-zinc-700">
-                            <span className="text-[8px] font-black text-zinc-400 uppercase tracking-widest">Select Model</span>
-                          </div>
-                          {[
-                            'Nexus 4.6 Adaptive',
-                            'Nexus 4.6 Pro',
-                            'Nexus 3.5 Mini',
-                            'gemini-2.5-flash',
-                            'llama-3.3-70b-versatile'
-                          ].map((model) => (
-                            <button
-                              key={model}
-                              onClick={() => { setSelectedModel(model); setIsModelMenuOpen(false); }}
-                              className={`w-full text-left px-3 py-2.5 text-xs font-bold transition-all hover:bg-indigo-50 dark:hover:bg-indigo-900/20 ${selectedModel === model ? 'text-indigo-600 bg-indigo-50/50 dark:bg-indigo-900/10' : 'text-zinc-600 dark:text-zinc-400'}`}
-                            >
-                              {model}
-                            </button>
-                          ))}
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </div>
-
-                  <motion.button
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={isTyping ? handleStopResponse : () => handleSendMessage()}
-                    disabled={(!input.trim() && attachedFiles.length === 0 && !isUploading) && !isTyping}
-                    className={`p-2.5 rounded-2xl shadow-sm transition-all flex items-center justify-center border w-11 h-11 ${
-                      isTyping
-                        ? 'bg-white border-zinc-200 dark:bg-zinc-950 dark:border-zinc-800'
-                        : (!input.trim() && attachedFiles.length === 0)
-                          ? 'bg-white text-zinc-200 border-zinc-100 dark:bg-white/5 dark:text-zinc-800 dark:border-white/5'
-                          : 'bg-white text-zinc-900 border-zinc-200 hover:shadow-md'
-                    }`}
+              <div className="flex items-center justify-end px-3 pb-3 pt-1 gap-2">
+                <div className="relative">
+                  <button
+                    onClick={() => setIsModelMenuOpen(!isModelMenuOpen)}
+                    className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-100 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors"
                   >
-                    {isTyping ? (
-                      <div className="relative w-full h-full flex items-center justify-center">
-                        <motion.div
-                          animate={{ scale: [1, 1.15, 1] }}
-                          transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
-                          className="absolute inset-0 flex items-center justify-center"
-                        >
-                          <div className="w-8 h-8 border-[2px] border-zinc-100 dark:border-zinc-800 rounded-full" />
-                          <div className="absolute w-8 h-8 border-[2px] border-t-zinc-900 dark:border-t-white rounded-full animate-spin" />
-                        </motion.div>
-                        <div className="w-2.5 h-2.5 bg-zinc-900 dark:bg-zinc-100 rounded-[2px] relative z-10" />
-                      </div>
-                    ) : (
-                      <ArrowUp className={`w-5 h-5 transition-transform ${input.trim() ? 'scale-110' : 'scale-90 opacity-40'}`} />
+                    <span className="text-[10px] font-black text-zinc-500 dark:text-zinc-400 uppercase tracking-widest flex items-center gap-1.5">
+                      {selectedModel}
+                      <ChevronDown className={`w-3 h-3 transition-transform ${isModelMenuOpen ? 'rotate-180' : ''}`} />
+                    </span>
+                  </button>
+                  <AnimatePresence>
+                    {isModelMenuOpen && (
+                      <motion.div
+                        initial={{ opacity: 0, y: -10, scale: 0.95 }}
+                        animate={{ opacity: 1, y: 8, scale: 1 }}
+                        exit={{ opacity: 0, y: -10, scale: 0.95 }}
+                        className="absolute top-full right-0 mt-2 w-56 bg-white dark:bg-zinc-800 border border-zinc-100 dark:border-zinc-700 rounded-xl shadow-2xl z-50 overflow-hidden"
+                      >
+                        <div className="p-2 px-3 border-b border-zinc-100 dark:border-zinc-700">
+                          <span className="text-[8px] font-black text-zinc-400 uppercase tracking-widest">Select Model</span>
+                        </div>
+                        {[
+                          'Nexus 4.6 Adaptive',
+                          'Nexus 4.6 Pro',
+                          'Nexus 3.5 Mini',
+                          'gemini-2.5-flash',
+                          'llama-3.3-70b-versatile'
+                        ].map((model) => (
+                          <button
+                            key={model}
+                            onClick={() => { setSelectedModel(model); setIsModelMenuOpen(false); }}
+                            className={`w-full text-left px-3 py-2.5 text-xs font-bold transition-all hover:bg-indigo-50 dark:hover:bg-indigo-900/20 ${selectedModel === model ? 'text-indigo-600 bg-indigo-50/50 dark:bg-indigo-900/10' : 'text-zinc-600 dark:text-zinc-400'}`}
+                          >
+                            {model}
+                          </button>
+                        ))}
+                      </motion.div>
                     )}
-                  </motion.button>
+                  </AnimatePresence>
                 </div>
+
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={isTyping ? handleStopResponse : () => handleSendMessage()}
+                  disabled={!input.trim() && !isTyping}
+                  className={`p-2.5 rounded-2xl shadow-sm transition-all flex items-center justify-center border w-11 h-11 ${
+                    isTyping
+                      ? 'bg-white border-zinc-200 dark:bg-zinc-950 dark:border-zinc-800'
+                      : !input.trim()
+                        ? 'bg-white text-zinc-200 border-zinc-100 dark:bg-white/5 dark:text-zinc-800 dark:border-white/5'
+                        : 'bg-white text-zinc-900 border-zinc-200 hover:shadow-md'
+                  }`}
+                >
+                  {isTyping ? (
+                    <div className="relative w-full h-full flex items-center justify-center">
+                      <motion.div
+                        animate={{ scale: [1, 1.15, 1] }}
+                        transition={{ duration: 1.5, repeat: Infinity, ease: 'easeInOut' }}
+                        className="absolute inset-0 flex items-center justify-center"
+                      >
+                        <div className="w-8 h-8 border-[2px] border-zinc-100 dark:border-zinc-800 rounded-full" />
+                        <div className="absolute w-8 h-8 border-[2px] border-t-zinc-900 dark:border-t-white rounded-full animate-spin" />
+                      </motion.div>
+                      <div className="w-2.5 h-2.5 bg-zinc-900 dark:bg-zinc-100 rounded-[2px] relative z-10" />
+                    </div>
+                  ) : (
+                    <ArrowUp className={`w-5 h-5 transition-transform ${input.trim() ? 'scale-110' : 'scale-90 opacity-40'}`} />
+                  )}
+                </motion.button>
               </div>
             </div>
-            <input
-              type="file"
-              ref={fileInputRef}
-              onChange={handleFileUpload}
-              accept="image/jpeg,image/png,image/gif,image/webp,application/pdf,text/plain"
-              className="hidden"
-            />
+
             <p className="mt-4 text-center text-[10px] font-medium text-[--text-muted]/40">Scout AI can make mistakes. Check important info.</p>
           </div>
         </div>
