@@ -445,14 +445,14 @@ export default function Chat({ user, onLogout }: Props) {
           <div className="flex items-center gap-4 min-w-0">
             <button
               onClick={() => setIsSidebarOpen(true)}
-              className="lg:hidden p-2 bg-black/5 dark:bg-white/5 rounded-lg border border-[--border] text-[--text-muted]"
+              className="p-2 bg-black/5 dark:bg-white/5 rounded-lg border border-[--border] text-[--text-muted] hover:text-indigo-600 transition-colors"
             >
               <Menu className="w-4 h-4 md:w-5 md:h-5" />
             </button>
             <div className="flex items-center gap-2 md:gap-3">
               <StormLogo className="w-6 h-6 text-indigo-600 dark:text-indigo-500 transition-all" />
               <div className="hidden sm:flex flex-col">
-                <span className="text-[10px] font-black text-[--text-main] uppercase tracking-widest leading-none mb-1">Nexus AI</span>
+                <span className="text-[10px] font-black text-[--text-main] uppercase tracking-widest leading-none mb-1">Scout AI</span>
                 <div className="flex items-center gap-1.5">
                   <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                   <span className="text-[8px] font-bold text-[--text-muted]/60 uppercase tracking-widest">Scout Active</span>
@@ -594,7 +594,7 @@ export default function Chat({ user, onLogout }: Props) {
                           {/* Actions & Timestamp */}
                           <div className="flex justify-end items-center gap-1 mt-1.5 px-1 opacity-0 group-hover:opacity-100 transition-opacity">
                             {msg.role === 'assistant' && (
-                              <span className="text-[10px] font-black text-indigo-500/50 uppercase tracking-[0.2em] mr-auto pl-1">Nexus AI</span>
+                              <span className="text-[10px] font-black text-indigo-500/50 uppercase tracking-[0.2em] mr-auto pl-1">Scout AI</span>
                             )}
                             <span className="text-[9px] font-black text-zinc-400 dark:text-zinc-500 uppercase tracking-widest whitespace-nowrap mr-1">
                               {msg.timestamp
@@ -767,7 +767,7 @@ export default function Chat({ user, onLogout }: Props) {
             </div>
 
             <p className="mt-4 text-center text-[10px] font-medium text-[--text-muted]/40">
-              Nexus is AI and can make mistakes. Please double-check responses.
+              Scout AI can make mistakes. Check important info.
             </p>
           </div>
         </div>
@@ -786,7 +786,7 @@ export default function Chat({ user, onLogout }: Props) {
         onClose={() => setModalType('none')}
         onConfirm={confirmClearAll}
         title="Clear All Chats"
-        message="Are you sure you want to delete all chats? This action is permanent."
+        message="Are you sure you want to delete ALL chats? This action is permanent."
         confirmText="Clear All"
       />
     </div>
