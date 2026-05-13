@@ -452,7 +452,7 @@ export default function Chat({ user, onLogout }: Props) {
               <div className="flex items-center gap-1.5">
                 <StormLogo className="w-4 h-4 md:w-5 md:h-5 text-indigo-600 dark:text-indigo-500 shrink-0" />
                 <span className="text-[10px] md:text-xs font-black text-[--text-main] uppercase tracking-widest leading-none">
-                  Scout AI
+                  Nexus AI
                 </span>
                 <div className="hidden sm:flex items-center gap-1 ml-1">
                   <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
@@ -627,7 +627,7 @@ export default function Chat({ user, onLogout }: Props) {
                           {/* Actions row */}
                           <div className="flex items-center gap-1 mt-1 px-1 opacity-0 group-hover:opacity-100 transition-opacity">
                             {msg.role === 'assistant' && (
-                              <span className="text-[10px] font-black text-indigo-500/50 uppercase tracking-[0.2em] mr-auto pl-1">Scout AI</span>
+                              <span className="text-[10px] font-black text-indigo-500/50 uppercase tracking-[0.2em] mr-auto pl-1">Nexus AI</span>
                             )}
                             <span className="text-[9px] font-black text-zinc-400 dark:text-zinc-500 uppercase tracking-widest whitespace-nowrap mr-1">
                               {msg.timestamp
@@ -792,7 +792,7 @@ export default function Chat({ user, onLogout }: Props) {
 
             {/* Disclaimer */}
             <p className="mt-2.5 text-center text-[10px] font-medium text-[--text-muted]/40">
-              Scout AI can make mistakes. Check important info.
+              Nexus AI can make mistakes. Check important info.
             </p>
           </div>
         </div>
