@@ -467,9 +467,9 @@ export default function Chat({ user, onLogout }: Props) {
                           ) : (
                             <StormLogo
                               className={`w-6 h-6 text-indigo-500 dark:text-indigo-400 ${
-                                isTyping && index === messages.length - 1 ? 'animate-spin' : ''
-                              }`}
-                            />
+                              isTyping && index === messages.length - 1 && msg.role === 'assistant' ? 'animate-spin' : ''
+                                }`}
+                              />
                           )}
                         </div>
 
@@ -680,11 +680,11 @@ export default function Chat({ user, onLogout }: Props) {
                   disabled={!input.trim() && !isTyping}
                   aria-label={isTyping ? 'Stop response' : 'Send message'}
                   className={`relative flex items-center justify-center w-10 h-10 rounded-full transition-all duration-200 border-2 ${
-                    isTyping
-                      ? 'bg-white border-zinc-300 dark:bg-zinc-800 dark:border-zinc-600 shadow-lg'
-                      : 'bg-white border-zinc-300 dark:bg-zinc-800 dark:border-zinc-600 shadow-md hover:border-indigo-400 dark:hover:border-indigo-500'
-                  }`}
-                >
+                              isTyping
+                    ? 'bg-white border-indigo-400 dark:bg-zinc-800 dark:border-indigo-500 shadow-lg shadow-indigo-200/50'
+                    : 'bg-white border-zinc-300 dark:bg-zinc-800 dark:border-zinc-600 shadow-md hover:border-indigo-400 dark:hover:border-indigo-500'                      
+                     }`}
+                    >
                   {isTyping ? (
                     <span className="relative flex items-center justify-center w-full h-full">
                       {/* Spinning arc */}
@@ -693,10 +693,10 @@ export default function Chat({ user, onLogout }: Props) {
                           cx="20" cy="20" r="16"
                           fill="none"
                           stroke="#6366f1"
-                          strokeWidth="2.5"
-                          strokeDasharray="60 40"
+                          strokeWidth="3"
+                          strokeDasharray="55 45"
                           strokeLinecap="round"
-                          opacity="0.7"
+                          opacity="1"
                         />
                       </svg>
                       {/* Stop square — black */}
