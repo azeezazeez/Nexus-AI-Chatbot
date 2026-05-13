@@ -187,7 +187,7 @@ export default function Chat({ user, onLogout }: Props) {
     setShowScrollBottom(scrollHeight - scrollTop - clientHeight > 100);
   };
 
-  // ── Core send (accepts an optional messages override for edit-resend) ─────
+  // ── Core send ─────────────────────────────────────────────────────────────
   const sendMessage = async (messageText: string, messagesSnapshot?: Message[]) => {
     if (!messageText.trim()) return;
     if (isSendingRef.current) return;
@@ -208,8 +208,6 @@ export default function Chat({ user, onLogout }: Props) {
       timestamp: new Date().toISOString(),
     };
 
-    // If messagesSnapshot is provided (edit-resend), use it as the base;
-    // otherwise just append to current messages.
     if (messagesSnapshot) {
       setMessages([...messagesSnapshot, tempUserMsg]);
     } else {
@@ -296,7 +294,6 @@ export default function Chat({ user, onLogout }: Props) {
     }
   };
 
-  // ── Public send handler (form submit / Enter key / suggestion chips) ──────
   const handleSendMessage = async (e?: React.FormEvent, directMessage?: string) => {
     if (e) { e.preventDefault(); e.stopPropagation(); }
     const text = directMessage || input.trim();
@@ -391,28 +388,13 @@ export default function Chat({ user, onLogout }: Props) {
     setEditInput('');
   };
 
-  /**
-   * Save edit:
-   * 1. Truncate the messages array to everything BEFORE the edited message
-   *    (dropping the edited message itself and any AI reply that followed).
-   * 2. Re-send the edited text so the AI generates a fresh response.
-   */
   const handleSaveEdit = async () => {
     if (!editingMessage || !editInput.trim()) return;
-
     const editedText = editInput.trim();
-
-    // Find the index of the message being edited
     const editedIndex = messages.findIndex(m => m.id === editingMessage.id);
-
-    // Keep only messages that came BEFORE the edited one
     const messagesBeforeEdit = editedIndex > 0 ? messages.slice(0, editedIndex) : [];
-
-    // Clear edit state immediately so the UI returns to normal
     setEditingMessage(null);
     setEditInput('');
-
-    // Re-send with the truncated history as the base
     await sendMessage(editedText, messagesBeforeEdit);
   };
 
@@ -434,10 +416,19 @@ export default function Chat({ user, onLogout }: Props) {
 
   const showBlinkingCursor = !input && (isTyping || justFinished);
 
+  // ── Sidebar close handler (passed to Sidebar & used by overlay) ───────────
+  const handleCloseSidebar = useCallback(() => {
+    setIsSidebarOpen(false);
+  }, []);
+
   return (
+    // FIX: Use h-[100dvh] for mobile browser chrome, flex layout root
     <div className="flex h-screen h-[100dvh] overflow-hidden bg-[--bg-main] relative transition-colors duration-300 font-sans">
+
+      {/* Ambient background glow */}
       <div className="absolute top-0 right-0 w-[800px] h-[800px] bg-indigo-500/5 rounded-full blur-[160px] pointer-events-none" />
 
+      {/* ── SIDEBAR ── */}
       <Sidebar
         user={user}
         sessions={sessions}
@@ -449,55 +440,107 @@ export default function Chat({ user, onLogout }: Props) {
         onClearAll={() => setModalType('delete-all')}
         onLogout={handleLogout}
         isOpen={isSidebarOpen}
-        onClose={() => setIsSidebarOpen(false)}
+        onClose={handleCloseSidebar}
       />
 
-      <main className="flex-1 flex flex-col min-w-0 bg-transparent relative z-20">
+      {/*
+        ── MAIN CONTENT AREA ──
+        FIX: pl-14 on all screens to account for the collapsed sidebar rail (w-14).
+        On mobile when sidebar is open, we also show the backdrop overlay below.
+      */}
+      <main className="flex-1 flex flex-col min-w-0 bg-transparent relative z-20 pl-14">
 
-        {/* ── Header ── */}
-        <header className="sticky top-0 z-30 h-14 md:h-16 bg-white/80 dark:bg-black/40 backdrop-blur-2xl border-b border-[--border] flex items-center justify-between px-4 md:px-6 shrink-0">
-          <div className="flex items-center gap-4 min-w-0">
+        {/*
+          ── MOBILE BACKDROP OVERLAY ──
+          FIX: Rendered inside <main> so it sits above the content but below the sidebar (z-[100]).
+          Clicking it fires handleCloseSidebar to collapse the sidebar.
+          Only visible when isSidebarOpen is true.
+        */}
+        <AnimatePresence>
+          {isSidebarOpen && (
+            <motion.div
+              key="sidebar-backdrop"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm"
+              onClick={handleCloseSidebar}
+              aria-hidden="true"
+            />
+          )}
+        </AnimatePresence>
+
+        {/* ── HEADER ── */}
+        {/*
+          FIX: sticky top-0, proper flex layout, items vertically centred.
+          Left: hamburger menu button.
+          Centre: Logo + App name (centred absolutely so title stays truly centred).
+          Right: spacer to balance left side.
+        */}
+        <header className="sticky top-0 z-30 h-14 md:h-16 bg-white/80 dark:bg-black/40 backdrop-blur-2xl border-b border-[--border] shrink-0">
+          <div className="relative flex items-center justify-between h-full px-3 md:px-5">
+
+            {/* Left — hamburger */}
             <button
               onClick={() => setIsSidebarOpen(true)}
-              className="p-2 bg-black/5 dark:bg-white/5 rounded-lg border border-[--border] text-[--text-muted] hover:text-indigo-600 transition-colors"
+              className="p-2 bg-black/5 dark:bg-white/5 rounded-lg border border-[--border] text-[--text-muted] hover:text-indigo-600 transition-colors shrink-0"
+              aria-label="Open sidebar"
             >
               <Menu className="w-4 h-4 md:w-5 md:h-5" />
             </button>
-            <div className="flex items-center gap-2 md:gap-3">
-              <StormLogo className="w-6 h-6 text-indigo-600 dark:text-indigo-500 transition-all" />
-              <div className="hidden sm:flex flex-col">
-                <span className="text-[10px] font-black text-[--text-main] uppercase tracking-widest leading-none mb-1">Scout AI</span>
+
+            {/* Centre — Logo + name + session title (absolute centred) */}
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <div className="flex flex-col items-center gap-0.5 max-w-[55vw] sm:max-w-xs md:max-w-sm">
+                {/* App brand row */}
                 <div className="flex items-center gap-1.5">
-                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  <span className="text-[8px] font-bold text-[--text-muted]/60 uppercase tracking-widest">Scout Active</span>
+                  <StormLogo className="w-4 h-4 md:w-5 md:h-5 text-indigo-600 dark:text-indigo-500 shrink-0" />
+                  <span className="text-[10px] md:text-xs font-black text-[--text-main] uppercase tracking-widest leading-none">
+                    Scout AI
+                  </span>
+                  {/* Online dot — hidden on very small screens */}
+                  <div className="hidden sm:flex items-center gap-1 ml-1">
+                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  </div>
                 </div>
+                {/* Session name */}
+                <span className="text-[10px] font-semibold text-[--text-muted] truncate leading-none max-w-full">
+                  {sessions.find(s => s.id === currentSessionId)?.sessionName || 'New Chat'}
+                </span>
               </div>
             </div>
+
+            {/* Right — spacer (same width as hamburger button to keep centre truly centred) */}
+            <div className="w-9 md:w-10 shrink-0" aria-hidden="true" />
           </div>
-          <div className="flex-1 text-center px-4 overflow-hidden">
-            <span className="text-[10px] md:text-xs font-bold text-[--text-main] truncate block max-w-[200px] md:max-w-md mx-auto">
-              {sessions.find(s => s.id === currentSessionId)?.sessionName || 'New Chat'}
-            </span>
-          </div>
-          <div className="w-10 md:w-20" />
         </header>
 
-        {/* ── Messages ── */}
-        <div className="flex-1 overflow-y-auto px-4 py-8 md:py-12 scroll-hide" onScroll={handleScroll}>
-          <div className="max-w-3xl mx-auto">
+        {/* ── MESSAGES SCROLL AREA ── */}
+        {/*
+          FIX: flex-1 + overflow-y-auto ensures this fills available height between
+          header and input bar, and scrolls independently. pb-4 gives breathing room
+          above the sticky input bar.
+        */}
+        <div
+          className="flex-1 overflow-y-auto scroll-hide"
+          onScroll={handleScroll}
+        >
+          <div className="max-w-3xl mx-auto px-3 sm:px-4 md:px-6 py-6 md:py-10">
             {messages.length === 0 && !isTyping ? (
-              <div className="flex flex-col items-center justify-center min-h-[70vh] text-center px-4 max-w-2xl mx-auto">
+              /* ── Empty state / welcome screen ── */
+              <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-2 max-w-2xl mx-auto">
                 <motion.div
                   initial={{ scale: 0.8, opacity: 0 }}
                   animate={{ scale: 1, opacity: 1 }}
-                  className="flex items-center justify-center mb-10 text-indigo-600"
+                  className="flex items-center justify-center mb-8 text-indigo-600"
                 >
-                  <StormLogo className="w-14 h-14" />
+                  <StormLogo className="w-12 h-12 md:w-14 md:h-14" />
                 </motion.div>
-                <h2 className="text-3xl font-bold text-[--text-main] mb-8 tracking-tight">
+                <h2 className="text-2xl md:text-3xl font-bold text-[--text-main] mb-6 tracking-tight">
                   How can I help you today?
                 </h2>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 w-full">
                   {[
                     'Plan a 3-day trip to Tokyo',
                     'How to build a SaaS with React?',
@@ -507,7 +550,7 @@ export default function Chat({ user, onLogout }: Props) {
                     <button
                       key={i}
                       onClick={() => handleSendMessage(undefined, s)}
-                      className="group p-4 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm font-medium text-[--text-muted] hover:text-indigo-600 hover:border-indigo-600/30 transition-all text-left shadow-sm"
+                      className="group p-3.5 md:p-4 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm font-medium text-[--text-muted] hover:text-indigo-600 hover:border-indigo-600/30 transition-all text-left shadow-sm"
                     >
                       <span className="block truncate">{s}</span>
                     </button>
@@ -515,7 +558,8 @@ export default function Chat({ user, onLogout }: Props) {
                 </div>
               </div>
             ) : (
-              <div className="space-y-8 pb-32 pt-4">
+              /* ── Message list ── */
+              <div className="space-y-6 md:space-y-8 pb-6 pt-2">
                 {messages.map((msg, index) => {
                   const isEditing = editingMessage?.id === msg.id;
                   const shouldSpin = isTyping && msg.role === 'assistant' && index === messages.length - 1;
@@ -524,7 +568,8 @@ export default function Chat({ user, onLogout }: Props) {
                       key={msg.id || `msg-${index}`}
                       className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} group`}
                     >
-                      <div className={`flex gap-3 max-w-[90%] md:max-w-[80%] ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
+                      <div className={`flex gap-2.5 md:gap-3 w-full ${msg.role === 'user' ? 'flex-row-reverse justify-start' : 'flex-row'}`}>
+                        {/* Avatar */}
                         <div className="w-7 h-7 md:w-8 md:h-8 shrink-0 flex items-center justify-center mt-1">
                           {msg.role === 'user' ? (
                             <div className="w-full h-full rounded-full border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 flex items-center justify-center shadow-sm overflow-hidden">
@@ -537,27 +582,27 @@ export default function Chat({ user, onLogout }: Props) {
                           )}
                         </div>
 
-                        <div className="flex flex-col gap-1 min-w-0 max-w-full">
-                          <div className={`px-4 py-3 rounded-2xl shadow-sm border transition-all duration-300 w-fit backdrop-blur-xl ${
+                        {/* Bubble + actions */}
+                        <div className={`flex flex-col gap-1 min-w-0 ${msg.role === 'user' ? 'max-w-[85%] md:max-w-[75%] items-end' : 'max-w-[90%] md:max-w-[80%] items-start'}`}>
+                          <div className={`px-4 py-3 rounded-2xl shadow-sm border transition-all duration-300 backdrop-blur-xl ${
                             msg.role === 'assistant'
-                              ? 'bg-white/80 dark:bg-zinc-900/40 border-zinc-200/40 dark:border-zinc-800/40 text-[--text-main]'
-                              : 'bg-white/50 dark:bg-white/5 border-zinc-200/30 dark:border-white/10 text-[--text-main]'
-                          } ${msg.role === 'user' ? 'rounded-tr-none ml-auto' : 'rounded-tl-none mr-auto'}`}>
+                              ? 'bg-white/80 dark:bg-zinc-900/40 border-zinc-200/40 dark:border-zinc-800/40 text-[--text-main] rounded-tl-none'
+                              : 'bg-white/50 dark:bg-white/5 border-zinc-200/30 dark:border-white/10 text-[--text-main] rounded-tr-none'
+                          }`}>
                             <div className="text-sm md:text-base leading-relaxed markdown-body max-w-none">
                               {isEditing ? (
-                                <div className="flex flex-col gap-3 min-w-[240px] sm:min-w-[400px] p-1">
+                                <div className="flex flex-col gap-3 min-w-[200px] sm:min-w-[340px] p-1">
                                   <textarea
                                     value={editInput}
                                     onChange={(e) => setEditInput(e.target.value)}
                                     onKeyDown={(e) => {
-                                      // Ctrl/Cmd+Enter to save, Escape to cancel
                                       if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
                                         e.preventDefault();
                                         handleSaveEdit();
                                       }
                                       if (e.key === 'Escape') handleCancelEdit();
                                     }}
-                                    className={`w-full border rounded-xl p-3 text-sm focus:outline-none focus:ring-2 focus:ring-white/20 transition-all resize-none font-medium min-h-[120px] ${
+                                    className={`w-full border rounded-xl p-3 text-sm focus:outline-none focus:ring-2 focus:ring-white/20 transition-all resize-none font-medium min-h-[100px] ${
                                       msg.role === 'user'
                                         ? 'bg-black/20 border-white/10 text-white placeholder:text-white/30'
                                         : 'bg-zinc-50 dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700 text-zinc-900 dark:text-zinc-100'
@@ -565,9 +610,7 @@ export default function Chat({ user, onLogout }: Props) {
                                     autoFocus
                                   />
                                   <div className="flex justify-end items-center gap-2">
-                                    <span className="text-[9px] text-zinc-400 mr-auto">
-                                      ⌘↵ to send · Esc to cancel
-                                    </span>
+                                    <span className="text-[9px] text-zinc-400 mr-auto">⌘↵ to send · Esc to cancel</span>
                                     <button
                                       onClick={handleCancelEdit}
                                       className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all rounded-lg ${
@@ -616,8 +659,8 @@ export default function Chat({ user, onLogout }: Props) {
                             </div>
                           </div>
 
-                          {/* Actions & Timestamp */}
-                          <div className="flex justify-end items-center gap-1 mt-1.5 px-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          {/* Actions row */}
+                          <div className="flex items-center gap-1 mt-1 px-1 opacity-0 group-hover:opacity-100 transition-opacity">
                             {msg.role === 'assistant' && (
                               <span className="text-[10px] font-black text-indigo-500/50 uppercase tracking-[0.2em] mr-auto pl-1">Scout AI</span>
                             )}
@@ -684,34 +727,44 @@ export default function Chat({ user, onLogout }: Props) {
                     </div>
                   </div>
                 )}
+
+                <div ref={messagesEndRef} />
               </div>
             )}
-            <div ref={messagesEndRef} />
+
+            {/* Anchor for empty-state scroll too */}
+            {(messages.length === 0 && !isTyping) && <div ref={messagesEndRef} />}
           </div>
         </div>
 
-        {/* ── Input Area ── */}
-        <div className="p-4 md:p-8 shrink-0">
-          <div className="max-w-3xl mx-auto">
-            <div className={`relative flex flex-row items-center bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl md:rounded-3xl shadow-2xl transition-all overflow-visible ${justFinished ? 'animate-blink' : ''}`}>
+        {/* ── INPUT BAR ── */}
+        {/*
+          FIX: shrink-0 keeps the input bar at the bottom and prevents it from
+          being squeezed by the message area. No absolute/fixed positioning needed
+          because the parent is a flex column with overflow on the message area.
+        */}
+        <div className="shrink-0 bg-[--bg-main] border-t border-[--border]/50 px-3 sm:px-4 md:px-6 py-3 md:py-4">
+          <div className="max-w-3xl mx-auto relative">
 
-              <AnimatePresence>
-                {showScrollBottom && (
-                  <motion.button
-                    initial={{ opacity: 0, y: 10, scale: 0.8 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: 10, scale: 0.8 }}
-                    onClick={() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })}
-                    className="absolute -top-16 right-4 md:right-6 p-2.5 bg-indigo-600 text-white rounded-full shadow-xl shadow-indigo-500/30 hover:bg-indigo-700 transition-all z-50 group hover:scale-110 active:scale-90 border border-indigo-500"
-                  >
-                    <ArrowDown className="w-5 h-5" />
-                    <span className="absolute -top-10 left-1/2 -translate-x-1/2 px-2 py-1 bg-zinc-900 text-white text-[10px] font-black uppercase tracking-widest rounded-md opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
-                      Scroll to bottom
-                    </span>
-                  </motion.button>
-                )}
-              </AnimatePresence>
+            {/* Scroll-to-bottom fab */}
+            <AnimatePresence>
+              {showScrollBottom && (
+                <motion.button
+                  initial={{ opacity: 0, y: 10, scale: 0.8 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 10, scale: 0.8 }}
+                  onClick={() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })}
+                  className="absolute -top-14 right-2 p-2.5 bg-indigo-600 text-white rounded-full shadow-xl shadow-indigo-500/30 hover:bg-indigo-700 transition-all z-10 group hover:scale-110 active:scale-90 border border-indigo-500"
+                  aria-label="Scroll to bottom"
+                >
+                  <ArrowDown className="w-4 h-4 md:w-5 md:h-5" />
+                </motion.button>
+              )}
+            </AnimatePresence>
 
+            {/* Input container */}
+            <div className={`relative flex flex-row items-end bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-lg transition-all overflow-hidden ${justFinished ? 'animate-blink' : ''}`}>
+              {/* Textarea */}
               <div className="relative flex-1 min-w-0">
                 <textarea
                   ref={inputRef}
@@ -728,30 +781,31 @@ export default function Chat({ user, onLogout }: Props) {
                   disabled={isTyping}
                   placeholder={showBlinkingCursor ? '' : 'Write a message...'}
                   rows={1}
-                  className="w-full px-5 py-4 bg-transparent focus:outline-none font-medium text-[--text-main] placeholder:text-zinc-400 dark:placeholder:text-zinc-500 text-base leading-relaxed resize-none min-h-[60px] max-h-[200px]"
-                  style={{ height: 'auto' }}
+                  className="w-full px-4 md:px-5 py-3.5 md:py-4 bg-transparent focus:outline-none font-medium text-[--text-main] placeholder:text-zinc-400 dark:placeholder:text-zinc-500 text-sm md:text-base leading-relaxed resize-none min-h-[52px] max-h-[180px] overflow-y-auto"
                   onInput={(e) => {
                     const target = e.target as HTMLTextAreaElement;
                     target.style.height = 'auto';
-                    target.style.height = `${target.scrollHeight}px`;
+                    target.style.height = `${Math.min(target.scrollHeight, 180)}px`;
                   }}
                 />
+                {/* Blinking cursor placeholder */}
                 {showBlinkingCursor && !inputFocused && (
-                  <div className="absolute left-5 top-1/2 -translate-y-1/2 flex items-center gap-1 pointer-events-none">
-                    <span className="text-base font-medium text-zinc-400 dark:text-zinc-500">Write a message</span>
+                  <div className="absolute left-4 md:left-5 top-1/2 -translate-y-1/2 flex items-center gap-1 pointer-events-none">
+                    <span className="text-sm md:text-base font-medium text-zinc-400 dark:text-zinc-500">Write a message</span>
                     <BlinkingCursor />
                   </div>
                 )}
               </div>
 
-              <div className="flex items-center px-3 shrink-0">
+              {/* Send / Stop button */}
+              <div className="flex items-center px-2.5 md:px-3 pb-2.5 md:pb-3 shrink-0">
                 <motion.button
                   whileHover={{ scale: isTyping || input.trim() ? 1.08 : 1.02 }}
                   whileTap={{ scale: 0.92 }}
                   onClick={isTyping ? handleStopResponse : () => handleSendMessage()}
                   disabled={!input.trim() && !isTyping}
                   aria-label={isTyping ? 'Stop response' : 'Send message'}
-                  className={`relative flex items-center justify-center w-10 h-10 rounded-full transition-all duration-200 border-2 ${
+                  className={`relative flex items-center justify-center w-9 h-9 md:w-10 md:h-10 rounded-full transition-all duration-200 border-2 ${
                     isTyping
                       ? 'bg-white border-indigo-400 dark:bg-zinc-800 dark:border-indigo-500 shadow-lg shadow-indigo-200/50'
                       : 'bg-white border-zinc-300 dark:bg-zinc-800 dark:border-zinc-600 shadow-md hover:border-indigo-400 dark:hover:border-indigo-500'
@@ -760,38 +814,26 @@ export default function Chat({ user, onLogout }: Props) {
                   {isTyping ? (
                     <span className="relative flex items-center justify-center w-full h-full">
                       <svg className="absolute inset-0 w-full h-full animate-spin" viewBox="0 0 40 40">
-                        <circle
-                          cx="20" cy="20" r="16"
-                          fill="none"
-                          stroke="#6366f1"
-                          strokeWidth="3"
-                          strokeDasharray="55 45"
-                          strokeLinecap="round"
-                          opacity="1"
-                        />
+                        <circle cx="20" cy="20" r="16" fill="none" stroke="#6366f1" strokeWidth="3" strokeDasharray="55 45" strokeLinecap="round" opacity="1" />
                       </svg>
                       <span className="w-3 h-3 rounded-sm bg-zinc-800 dark:bg-zinc-200 block relative z-10" />
                     </span>
                   ) : (
-                    <ArrowUp
-                      className={`w-4 h-4 transition-all ${
-                        input.trim()
-                          ? 'text-zinc-800 dark:text-zinc-100 scale-110'
-                          : 'text-zinc-400 dark:text-zinc-500 scale-90'
-                      }`}
-                    />
+                    <ArrowUp className={`w-4 h-4 transition-all ${input.trim() ? 'text-zinc-800 dark:text-zinc-100 scale-110' : 'text-zinc-400 dark:text-zinc-500 scale-90'}`} />
                   )}
                 </motion.button>
               </div>
             </div>
 
-            <p className="mt-4 text-center text-[10px] font-medium text-[--text-muted]/40">
+            {/* Disclaimer */}
+            <p className="mt-2.5 text-center text-[10px] font-medium text-[--text-muted]/40">
               Scout AI can make mistakes. Check important info.
             </p>
           </div>
         </div>
       </main>
 
+      {/* ── MODALS ── */}
       <ConfirmationModal
         isOpen={modalType === 'delete-single'}
         onClose={() => setModalType('none')}
