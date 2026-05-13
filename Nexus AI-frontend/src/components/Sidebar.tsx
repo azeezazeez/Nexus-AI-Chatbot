@@ -7,8 +7,8 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Session, User } from '../types';
 import {
   Plus, LogOut, Trash2, X, Search, Sparkles,
-  MoreHorizontal, Pin, PinOff, Share2, Edit3, Check,
-  MessageSquare, ChevronLeft, Link,
+  MoreHorizontal, Pin, PinOff, Edit3, Check,
+  MessageSquare, Link,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import UserAvatar from './UserAvatar';
@@ -24,8 +24,6 @@ interface Props {
   onRenameSession: (id: number, name: string) => void;
   onClearAll: () => void;
   onLogout: () => void;
-  isOpen: boolean;   // controlled by parent (mobile hamburger)
-  onClose: () => void; // parent callback to sync close state
 }
 
 // ── localStorage helpers ──────────────────────────────────────────────────────
@@ -108,14 +106,8 @@ export default function Sidebar({
   onRenameSession,
   onClearAll,
   onLogout,
-  isOpen,
-  onClose,
 }: Props) {
-  /*
-   * FIX — collapsed state is the single source of truth.
-   * `isOpen` from parent forces expansion (mobile hamburger tap).
-   * `onClose` is called whenever we collapse so the parent stays in sync.
-   */
+  // collapsed = true by default; the NexusLogo icon is the sole toggle
   const [collapsed, setCollapsed] = useState(true);
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -141,13 +133,13 @@ export default function Sidebar({
   const [sharingId, setSharingId] = useState<number | null>(null);
   const [sharePending, setSharePending] = useState<number | null>(null);
 
-  // ── Sync with parent `isOpen` ─────────────────────────────────────────────
-  // When parent forces open (mobile hamburger), expand sidebar.
-  useEffect(() => {
-    if (isOpen) setCollapsed(false);
-  }, [isOpen]);
+  // ── Collapse helpers ──────────────────────────────────────────────────────
+  const expand = () => setCollapsed(false);
+  const expandToSearch = () => { setCollapsed(false); setFocusSearch(true); };
+  const collapse = useCallback(() => setCollapsed(true), []);
+  const toggle = useCallback(() => setCollapsed(prev => !prev), []);
 
-  // Focus search after expand-to-search
+  // Focus search input when expanding via search icon
   useEffect(() => {
     if (!collapsed && focusSearch) {
       setTimeout(() => { searchInputRef.current?.focus(); setFocusSearch(false); }, 80);
@@ -261,16 +253,17 @@ export default function Sidebar({
   const expand = () => setCollapsed(false);
   const expandToSearch = () => { setCollapsed(false); setFocusSearch(true); };
 
-  /*
-   * FIX: `collapse` sets internal state AND notifies the parent via `onClose`.
-   * This keeps Chat.tsx's `isSidebarOpen` in sync so the backdrop overlay
-   * in Chat.tsx is dismissed correctly when the user clicks the chevron or
-   * anywhere outside the sidebar panel.
-   */
+  // collapse notifies parent so Chat.tsx backdrop also dismisses
   const collapse = useCallback(() => {
     setCollapsed(true);
     onClose();
   }, [onClose]);
+
+  // toggle — used by the NexusLogo button so one click opens, next click closes
+  const toggle = useCallback(() => {
+    if (collapsed) expand();
+    else collapse();
+  }, [collapsed, collapse]);
 
   // ── Grouped sessions ──────────────────────────────────────────────────────
   const sortedSessions = [
@@ -298,12 +291,12 @@ export default function Sidebar({
         */}
         <aside className="fixed inset-y-0 left-0 z-[100] w-14 bg-white dark:bg-zinc-950 border-r border-zinc-200 dark:border-zinc-800 flex flex-col items-center py-5 shadow-sm">
 
-          {/* Logo — tap to expand */}
-          <IconTooltip label="Expand sidebar">
+          {/* Logo — click to toggle sidebar open/closed */}
+          <IconTooltip label="Open sidebar">
             <button
-              onClick={expand}
+              onClick={toggle}
               className="w-9 h-9 rounded-xl flex items-center justify-center bg-gradient-to-br from-indigo-500 to-purple-600 hover:opacity-90 transition-all shadow-lg shadow-indigo-500/20"
-              title="Expand"
+              title="Open sidebar"
             >
               <NexusLogo className="w-5 h-5" />
             </button>
@@ -380,35 +373,45 @@ export default function Sidebar({
    * z-[100] keeps sidebar above the z-40 backdrop.
    */
   return (
-    <>
-      <ShareToast visible={shareToastVisible} />
+    <AnimatePresence>
+      <>
+        <ShareToast visible={shareToastVisible} />
 
-      <aside
-        className="fixed inset-y-0 left-0 z-[100] w-72 bg-white dark:bg-zinc-950 border-r border-zinc-200 dark:border-zinc-800 flex flex-col h-full shadow-2xl"
-        onClick={e => e.stopPropagation()}
-      >
+        {/* Backdrop — covers entire screen behind the panel; click to close */}
+        <motion.div
+          key="sidebar-backdrop"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.2 }}
+          className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm"
+          onClick={collapse}
+          aria-hidden="true"
+        />
+
+        <aside
+          className="fixed inset-y-0 left-0 z-[100] w-72 bg-white dark:bg-zinc-950 border-r border-zinc-200 dark:border-zinc-800 flex flex-col h-full shadow-2xl"
+          onClick={e => e.stopPropagation()}
+        >
         {/* ── Header ── */}
         <div className="p-5 shrink-0">
           <div className="flex items-center justify-between mb-5">
-            <div className="flex items-center gap-2.5">
-              <div className="w-9 h-9 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-500/20 p-1.5">
+            {/* NexusLogo is the toggle — click to collapse */}
+            <button
+              onClick={collapse}
+              className="flex items-center gap-2.5 group"
+              title="Close sidebar"
+            >
+              <div className="w-9 h-9 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-500/20 p-1.5 group-hover:opacity-80 transition-opacity">
                 <NexusLogo className="w-full h-full" />
               </div>
               <h2 className="text-xl font-black tracking-tighter text-zinc-900 dark:text-white italic">NEXUS</h2>
-            </div>
-            {/* FIX: Collapse button — ChevronLeft pointing left (inward) */}
-            <button
-              onClick={collapse}
-              className="p-1.5 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
-              title="Collapse sidebar"
-            >
-              <ChevronLeft className="w-5 h-5" />
             </button>
           </div>
 
           {/* New Chat */}
           <button
-            onClick={onNewSession}
+            onClick={() => { onNewSession(); collapse(); }}
             className="w-full py-2.5 px-4 bg-indigo-600 text-white rounded-2xl flex items-center gap-3 font-bold hover:opacity-90 transition-all active:scale-[0.98] group shadow-lg"
           >
             <div className="w-5 h-5 rounded-md bg-white/20 flex items-center justify-center group-hover:scale-110 transition-transform shrink-0">
@@ -492,7 +495,7 @@ export default function Sidebar({
                               ? 'bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300'
                               : 'text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 hover:text-zinc-800 dark:hover:text-zinc-200'
                           }`}
-                          onClick={() => { if (!isRenaming) onSelectSession(session.id); }}
+                          onClick={() => { if (!isRenaming) { onSelectSession(session.id); collapse(); } }}
                         >
                           <div className={`shrink-0 w-1.5 h-1.5 rounded-full transition-colors ${
                             isActive ? 'bg-indigo-500' : isPinned ? 'bg-amber-400' : 'bg-transparent'
@@ -597,5 +600,6 @@ export default function Sidebar({
         </div>
       </aside>
     </>
+    </AnimatePresence>
   );
 }
