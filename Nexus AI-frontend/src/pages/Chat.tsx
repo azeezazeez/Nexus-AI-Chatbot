@@ -9,8 +9,7 @@ import UserAvatar from '../components/UserAvatar';
 import ConfirmationModal from '../components/ConfirmationModal';
 import {
   ArrowDown, ArrowUp, Menu,
-  Copy, Check,
-  ChevronDown, Edit2,
+  Copy, Check, Edit2,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import type { Components } from 'react-markdown';
@@ -78,12 +77,8 @@ export default function Chat({ user, onLogout }: Props) {
   const [justFinished, setJustFinished] = useState(false);
   const [showScrollBottom, setShowScrollBottom] = useState(false);
   const [copiedId, setCopiedId] = useState<number | string | null>(null);
-  const [isModelMenuOpen, setIsModelMenuOpen] = useState(false);
-  const [selectedModel, setSelectedModel] = useState('Scout 4.6 Adaptive');
-
   const [editingMessage, setEditingMessage] = useState<{ id: string | number; content: string } | null>(null);
   const [editInput, setEditInput] = useState('');
-
   const [modalType, setModalType] = useState<'none' | 'delete-all' | 'delete-single'>('none');
   const [sessionIdToDelete, setSessionIdToDelete] = useState<number | null>(null);
 
@@ -91,6 +86,8 @@ export default function Chat({ user, onLogout }: Props) {
   const isSendingRef = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  // FIX: prevents useEffect from re-fetching messages we already have after first send
+  const skipMessageLoadRef = useRef(false);
 
   // ── Data Loading ──────────────────────────────────────────────────────────
 
@@ -100,7 +97,7 @@ export default function Chat({ user, onLogout }: Props) {
       setSessions(response.sessions || []);
     } catch (err: unknown) {
       console.error('Failed to load sessions:', err);
-      if (err && typeof err === 'object' && 'status' in err && err.status === 401) onLogout();
+      if (err && typeof err === 'object' && 'status' in err && (err as { status: number }).status === 401) onLogout();
     } finally {
       setLoading(false);
     }
@@ -112,14 +109,19 @@ export default function Chat({ user, onLogout }: Props) {
       setMessages(response.messages || []);
     } catch (err: unknown) {
       console.error('Failed to load messages:', err);
-      if (err && typeof err === 'object' && 'status' in err && err.status === 401) onLogout();
+      if (err && typeof err === 'object' && 'status' in err && (err as { status: number }).status === 401) onLogout();
     }
   }, [onLogout]);
 
   useEffect(() => { loadSessions(); }, [loadSessions]);
 
+  // FIX: skip re-fetch when currentSessionId was just set inside handleSendMessage
   useEffect(() => {
     if (currentSessionId) {
+      if (skipMessageLoadRef.current) {
+        skipMessageLoadRef.current = false;
+        return;
+      }
       loadMessages(currentSessionId);
     } else {
       setMessages([]);
@@ -172,12 +174,14 @@ export default function Chat({ user, onLogout }: Props) {
         currentSessionId,
         [],
         controller.signal,
-        selectedModel
+        'default'
       );
 
       const activeSessionId = response.sessionId || currentSessionId;
 
       if (isNewSession && activeSessionId) {
+        // FIX: tell the effect to skip so it doesn't wipe messages we already have
+        skipMessageLoadRef.current = true;
         setCurrentSessionId(activeSessionId);
         await loadSessions();
       }
@@ -195,7 +199,10 @@ export default function Chat({ user, onLogout }: Props) {
         return [...prev, aiMsg];
       });
 
-      if ((isNewSession || sessions.find(s => s.id === activeSessionId)?.sessionName === 'New Chat') && activeSessionId) {
+      if (
+        (isNewSession || sessions.find(s => s.id === activeSessionId)?.sessionName === 'New Chat') &&
+        activeSessionId
+      ) {
         try {
           const { title } = await chatApi.generateTitle(messageText);
           await chatApi.renameSession(activeSessionId, title);
@@ -205,7 +212,7 @@ export default function Chat({ user, onLogout }: Props) {
         }
       }
     } catch (err: unknown) {
-      if (err && typeof err === 'object' && 'name' in err && err.name === 'AbortError') {
+      if (err && typeof err === 'object' && 'name' in err && (err as { name: string }).name === 'AbortError') {
         console.log('Chat aborted');
       } else {
         console.error('Chat error:', err);
@@ -243,7 +250,7 @@ export default function Chat({ user, onLogout }: Props) {
     setEditingMessage(null);
   };
 
-  const deleteSession = async (sid: number) => {
+  const deleteSession = (sid: number) => {
     setSessionIdToDelete(sid);
     setModalType('delete-single');
   };
@@ -259,7 +266,7 @@ export default function Chat({ user, onLogout }: Props) {
       await loadSessions();
     } catch (err: unknown) {
       console.error('Failed to delete session:', err);
-      if (err && typeof err === 'object' && 'status' in err && err.status === 401) onLogout();
+      if (err && typeof err === 'object' && 'status' in err && (err as { status: number }).status === 401) onLogout();
     } finally {
       setSessionIdToDelete(null);
       setModalType('none');
@@ -273,7 +280,7 @@ export default function Chat({ user, onLogout }: Props) {
       await loadSessions();
     } catch (err: unknown) {
       console.error('Failed to rename session:', err);
-      if (err && typeof err === 'object' && 'status' in err && err.status === 401) onLogout();
+      if (err && typeof err === 'object' && 'status' in err && (err as { status: number }).status === 401) onLogout();
     }
   };
 
@@ -285,7 +292,7 @@ export default function Chat({ user, onLogout }: Props) {
       await loadSessions();
     } catch (err: unknown) {
       console.error('Failed to clear sessions:', err);
-      if (err && typeof err === 'object' && 'status' in err && err.status === 401) onLogout();
+      if (err && typeof err === 'object' && 'status' in err && (err as { status: number }).status === 401) onLogout();
     } finally {
       setModalType('none');
     }
@@ -296,9 +303,8 @@ export default function Chat({ user, onLogout }: Props) {
     finally { onLogout(); }
   };
 
-  const cleanMessageContent = (content: string): string => {
-    return content.replace(/\n?\n?\[Attached Files:.*?\]/g, '').trim();
-  };
+  const cleanMessageContent = (content: string): string =>
+    content.replace(/\n?\n?\[Attached Files:.*?\]/g, '').trim();
 
   const handleStartEdit = (msg: Message) => {
     setEditingMessage({ id: msg.id, content: cleanMessageContent(msg.content) });
@@ -310,7 +316,7 @@ export default function Chat({ user, onLogout }: Props) {
     setEditInput('');
   };
 
-  const handleSaveEdit = async () => {
+  const handleSaveEdit = () => {
     if (!editingMessage || !editInput.trim()) return;
     setMessages(prev =>
       prev.map(m => m.id === editingMessage.id ? { ...m, content: editInput } : m)
@@ -318,6 +324,8 @@ export default function Chat({ user, onLogout }: Props) {
     setEditingMessage(null);
     setEditInput('');
   };
+
+  // ── Loading Screen ────────────────────────────────────────────────────────
 
   if (loading) {
     return (
@@ -353,7 +361,8 @@ export default function Chat({ user, onLogout }: Props) {
       />
 
       <main className="flex-1 flex flex-col min-w-0 bg-transparent relative z-20">
-        {/* Header */}
+
+        {/* ── Header ── */}
         <header className="sticky top-0 z-30 h-14 md:h-16 bg-white/80 dark:bg-black/40 backdrop-blur-2xl border-b border-[--border] flex items-center justify-between px-4 md:px-6 shrink-0">
           <div className="flex items-center gap-4 min-w-0">
             <button
@@ -381,7 +390,7 @@ export default function Chat({ user, onLogout }: Props) {
           <div className="w-10 md:w-20" />
         </header>
 
-        {/* Messages */}
+        {/* ── Messages ── */}
         <div className="flex-1 overflow-y-auto px-4 py-8 md:py-12 scroll-hide" onScroll={handleScroll}>
           <div className="max-w-3xl mx-auto">
             {messages.length === 0 && !isTyping ? (
@@ -389,9 +398,9 @@ export default function Chat({ user, onLogout }: Props) {
                 <motion.div
                   initial={{ scale: 0.8, opacity: 0 }}
                   animate={{ scale: 1, opacity: 1 }}
-                  className="w-16 h-16 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl flex items-center justify-center mb-10 text-indigo-600 shadow-2xl overflow-hidden"
+                  className="flex items-center justify-center mb-10 text-indigo-600"
                 >
-                  <StormLogo className="w-10 h-10" />
+                  <StormLogo className="w-14 h-14" />
                 </motion.div>
                 <h2 className="text-3xl font-bold text-[--text-main] mb-8 tracking-tight">
                   How can I help you today?
@@ -423,22 +432,27 @@ export default function Chat({ user, onLogout }: Props) {
                       className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} group`}
                     >
                       <div className={`flex gap-3 max-w-[90%] md:max-w-[80%] ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
-                        <div className={`w-7 h-7 md:w-8 md:h-8 rounded-full shrink-0 flex items-center justify-center border shadow-xl ${
-                          msg.role === 'user'
-                            ? 'bg-white dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700'
-                            : 'bg-zinc-900 border-zinc-800 text-white shadow-indigo-500/20'
-                        }`}>
-                          {msg.role === 'user'
-                            ? <UserAvatar name={user?.username || 'User'} className="w-full h-full text-[10px]" />
-                            : <StormLogo className={`w-4 h-4 ml-[1px] ${(isTyping && index === messages.length - 1) ? 'animate-spin' : ''}`} />
-                          }
+
+                        {/* Avatar — no background behind AI logo */}
+                        <div className="w-7 h-7 md:w-8 md:h-8 shrink-0 flex items-center justify-center mt-1">
+                          {msg.role === 'user' ? (
+                            <div className="w-full h-full rounded-full border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 flex items-center justify-center shadow-sm overflow-hidden">
+                              <UserAvatar name={user?.username || 'User'} className="w-full h-full text-[10px]" />
+                            </div>
+                          ) : (
+                            <StormLogo
+                              className={`w-6 h-6 text-indigo-500 dark:text-indigo-400 ${
+                                isTyping && index === messages.length - 1 ? 'animate-spin' : ''
+                              }`}
+                            />
+                          )}
                         </div>
 
                         <div className="flex flex-col gap-1 min-w-0 max-w-full">
                           <div className={`px-4 py-3 rounded-2xl shadow-sm border transition-all duration-300 w-fit backdrop-blur-xl ${
                             msg.role === 'assistant'
                               ? 'bg-white/80 dark:bg-zinc-900/40 border-zinc-200/40 dark:border-zinc-800/40 text-[--text-main]'
-                              : 'bg-white/50 dark:bg-white/5 border-zinc-200/30 dark:border-white/10 text-[--text-main] selection:bg-indigo-500/10'
+                              : 'bg-white/50 dark:bg-white/5 border-zinc-200/30 dark:border-white/10 text-[--text-main]'
                           } ${msg.role === 'user' ? 'rounded-tr-none ml-auto' : 'rounded-tl-none mr-auto'}`}>
                             <div className="text-sm md:text-base leading-relaxed markdown-body max-w-none">
                               {isEditing ? (
@@ -457,7 +471,7 @@ export default function Chat({ user, onLogout }: Props) {
                                     <button
                                       onClick={handleCancelEdit}
                                       className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all rounded-lg ${
-                                        msg.role === 'user' ? 'text-white/60 hover:text-white' : 'text-zinc-500 hover:text-zinc-900'
+                                        msg.role === 'user' ? 'text-white/60 hover:text-white' : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100'
                                       }`}
                                     >
                                       Cancel
@@ -501,13 +515,15 @@ export default function Chat({ user, onLogout }: Props) {
                             </div>
                           </div>
 
-                          {/* Actions & Timestamp Below */}
+                          {/* Actions & Timestamp */}
                           <div className="flex justify-end items-center gap-1 mt-1.5 px-1 opacity-0 group-hover:opacity-100 transition-opacity">
                             {msg.role === 'assistant' && (
                               <span className="text-[10px] font-black text-indigo-500/50 uppercase tracking-[0.2em] mr-auto pl-1">Scout AI</span>
                             )}
                             <span className="text-[9px] font-black text-zinc-400 dark:text-zinc-500 uppercase tracking-widest whitespace-nowrap mr-1">
-                              {msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Now'}
+                              {msg.timestamp
+                                ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                                : 'Now'}
                             </span>
                             <div className="flex items-center gap-0.5">
                               {msg.role === 'user' && !isEditing && (
@@ -525,7 +541,9 @@ export default function Chat({ user, onLogout }: Props) {
                                   setCopiedId(msg.id);
                                   setTimeout(() => setCopiedId(null), 2000);
                                 }}
-                                className={`p-1 px-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all ${copiedId === msg.id ? 'text-emerald-500' : 'text-zinc-400 hover:text-indigo-600'}`}
+                                className={`p-1 px-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all ${
+                                  copiedId === msg.id ? 'text-emerald-500' : 'text-zinc-400 hover:text-indigo-600'
+                                }`}
                                 title="Copy message"
                               >
                                 {copiedId === msg.id ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
@@ -538,10 +556,11 @@ export default function Chat({ user, onLogout }: Props) {
                   );
                 })}
 
+                {/* Typing indicator */}
                 {isTyping && (
                   <div className="flex items-start gap-3">
-                    <div className="w-7 h-7 md:w-8 md:h-8 rounded-full shrink-0 flex items-center justify-center bg-zinc-900 border border-zinc-800 text-white shadow-xl shadow-indigo-500/10">
-                      <StormLogo className="w-4 h-4 animate-spin" />
+                    <div className="w-7 h-7 md:w-8 md:h-8 shrink-0 flex items-center justify-center mt-1">
+                      <StormLogo className="w-6 h-6 text-indigo-500 animate-spin" />
                     </div>
                     <div className="bg-white/90 dark:bg-zinc-900/90 border border-zinc-200 dark:border-zinc-800 px-4 py-3 rounded-2xl rounded-tl-none shadow-sm flex items-center gap-2 backdrop-blur-xl">
                       <motion.div animate={{ scale: [1, 1.2, 1], opacity: [0.3, 1, 0.3] }} transition={{ repeat: Infinity, duration: 1 }} className="w-1.5 h-1.5 bg-indigo-600 rounded-full" />
@@ -556,10 +575,12 @@ export default function Chat({ user, onLogout }: Props) {
           </div>
         </div>
 
-        {/* Input Area */}
+        {/* ── Input Area ── */}
         <div className="p-4 md:p-8 shrink-0">
           <div className="max-w-3xl mx-auto">
             <div className={`relative flex flex-col bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl md:rounded-3xl shadow-2xl transition-all overflow-visible ${justFinished ? 'animate-blink' : ''}`}>
+
+              {/* Scroll-to-bottom */}
               <AnimatePresence>
                 {showScrollBottom && (
                   <motion.button
@@ -569,7 +590,7 @@ export default function Chat({ user, onLogout }: Props) {
                     onClick={() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })}
                     className="absolute -top-16 right-4 md:right-6 p-2.5 bg-indigo-600 text-white rounded-full shadow-xl shadow-indigo-500/30 hover:bg-indigo-700 transition-all z-50 group hover:scale-110 active:scale-90 border border-indigo-500"
                   >
-                    <ArrowDown className="w-5 h-5 animate-bounce-soft" />
+                    <ArrowDown className="w-5 h-5" />
                     <span className="absolute -top-10 left-1/2 -translate-x-1/2 px-2 py-1 bg-zinc-900 text-white text-[10px] font-black uppercase tracking-widest rounded-md opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
                       Scroll to bottom
                     </span>
@@ -599,81 +620,39 @@ export default function Chat({ user, onLogout }: Props) {
                 }}
               />
 
-              <div className="flex items-center justify-end px-3 pb-3 pt-1 gap-2">
-                <div className="relative">
-                  <button
-                    onClick={() => setIsModelMenuOpen(!isModelMenuOpen)}
-                    className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-100 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors"
-                  >
-                    <span className="text-[10px] font-black text-zinc-500 dark:text-zinc-400 uppercase tracking-widest flex items-center gap-1.5">
-                      {selectedModel}
-                      <ChevronDown className={`w-3 h-3 transition-transform ${isModelMenuOpen ? 'rotate-180' : ''}`} />
-                    </span>
-                  </button>
-                  <AnimatePresence>
-                    {isModelMenuOpen && (
-                      <motion.div
-                        initial={{ opacity: 0, y: -10, scale: 0.95 }}
-                        animate={{ opacity: 1, y: 8, scale: 1 }}
-                        exit={{ opacity: 0, y: -10, scale: 0.95 }}
-                        className="absolute top-full right-0 mt-2 w-56 bg-white dark:bg-zinc-800 border border-zinc-100 dark:border-zinc-700 rounded-xl shadow-2xl z-50 overflow-hidden"
-                      >
-                        <div className="p-2 px-3 border-b border-zinc-100 dark:border-zinc-700">
-                          <span className="text-[8px] font-black text-zinc-400 uppercase tracking-widest">Select Model</span>
-                        </div>
-                        {[
-                          'Nexus 4.6 Adaptive',
-                          'Nexus 4.6 Pro',
-                          'Nexus 3.5 Mini',
-                          'gemini-2.5-flash',
-                          'llama-3.3-70b-versatile'
-                        ].map((model) => (
-                          <button
-                            key={model}
-                            onClick={() => { setSelectedModel(model); setIsModelMenuOpen(false); }}
-                            className={`w-full text-left px-3 py-2.5 text-xs font-bold transition-all hover:bg-indigo-50 dark:hover:bg-indigo-900/20 ${selectedModel === model ? 'text-indigo-600 bg-indigo-50/50 dark:bg-indigo-900/10' : 'text-zinc-600 dark:text-zinc-400'}`}
-                          >
-                            {model}
-                          </button>
-                        ))}
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
-
+              <div className="flex items-center justify-end px-3 pb-3 pt-1">
+                {/* Send / Stop button */}
                 <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
+                  whileHover={{ scale: isTyping || input.trim() ? 1.05 : 1 }}
+                  whileTap={{ scale: isTyping || input.trim() ? 0.95 : 1 }}
                   onClick={isTyping ? handleStopResponse : () => handleSendMessage()}
                   disabled={!input.trim() && !isTyping}
-                  className={`p-2.5 rounded-2xl shadow-sm transition-all flex items-center justify-center border w-11 h-11 ${
+                  aria-label={isTyping ? 'Stop response' : 'Send message'}
+                  className={`relative flex items-center justify-center w-10 h-10 rounded-xl transition-all border ${
                     isTyping
-                      ? 'bg-white border-zinc-200 dark:bg-zinc-950 dark:border-zinc-800'
-                      : !input.trim()
-                        ? 'bg-white text-zinc-200 border-zinc-100 dark:bg-white/5 dark:text-zinc-800 dark:border-white/5'
-                        : 'bg-white text-zinc-900 border-zinc-200 hover:shadow-md'
+                      ? 'bg-red-50 dark:bg-red-950/40 border-red-200 dark:border-red-800/60 text-red-500 hover:bg-red-100 dark:hover:bg-red-900/40 shadow-sm'
+                      : input.trim()
+                        ? 'bg-indigo-600 border-indigo-500 text-white hover:bg-indigo-700 shadow-md shadow-indigo-500/20'
+                        : 'bg-zinc-100 dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700 text-zinc-300 dark:text-zinc-600 cursor-not-allowed'
                   }`}
                 >
                   {isTyping ? (
-                    <div className="relative w-full h-full flex items-center justify-center">
-                      <motion.div
-                        animate={{ scale: [1, 1.15, 1] }}
-                        transition={{ duration: 1.5, repeat: Infinity, ease: 'easeInOut' }}
-                        className="absolute inset-0 flex items-center justify-center"
-                      >
-                        <div className="w-8 h-8 border-[2px] border-zinc-100 dark:border-zinc-800 rounded-full" />
-                        <div className="absolute w-8 h-8 border-[2px] border-t-zinc-900 dark:border-t-white rounded-full animate-spin" />
-                      </motion.div>
-                      <div className="w-2.5 h-2.5 bg-zinc-900 dark:bg-zinc-100 rounded-[2px] relative z-10" />
-                    </div>
+                    <span className="relative flex items-center justify-center w-full h-full">
+                      {/* Pulsing ring around the stop button */}
+                      <span className="absolute inset-1 rounded-lg border border-red-400/50 animate-ping" />
+                      {/* Stop square */}
+                      <span className="w-3.5 h-3.5 rounded-sm bg-red-500 block relative z-10" />
+                    </span>
                   ) : (
-                    <ArrowUp className={`w-5 h-5 transition-transform ${input.trim() ? 'scale-110' : 'scale-90 opacity-40'}`} />
+                    <ArrowUp className={`w-4 h-4 transition-transform ${input.trim() ? 'scale-110' : 'scale-90 opacity-40'}`} />
                   )}
                 </motion.button>
               </div>
             </div>
 
-            <p className="mt-4 text-center text-[10px] font-medium text-[--text-muted]/40">Scout AI can make mistakes. Check important info.</p>
+            <p className="mt-4 text-center text-[10px] font-medium text-[--text-muted]/40">
+              Scout AI can make mistakes. Check important info.
+            </p>
           </div>
         </div>
       </main>
