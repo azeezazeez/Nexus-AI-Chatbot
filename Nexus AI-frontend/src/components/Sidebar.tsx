@@ -8,10 +8,9 @@ import { Session, User } from '../types';
 import {
   Plus, LogOut, Trash2, X, Search, Sparkles,
   MoreHorizontal, Pin, PinOff, Share2, Edit3, Check,
-  MessageSquare, SquarePen, ChevronRight,
+  MessageSquare, ChevronLeft, Link,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import StormLogo from './StormLogo';
 import UserAvatar from './UserAvatar';
 import { chatApi } from '../lib/api';
 
@@ -52,6 +51,25 @@ const getGroupLabel = (session: Session): string => {
   return date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
 };
 
+// ── Nexus Logo — square with curved edges + vertical line at 25% ──────────────
+function NexusLogo({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 36 36"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      {/* Outer rounded square */}
+      <rect x="2" y="2" width="32" height="32" rx="8" ry="8"
+        stroke="white" strokeWidth="2.2" fill="none" />
+      {/* Vertical divider line at ~25% from left (x = 2 + 32*0.25 = 10) */}
+      <line x1="10" y1="2" x2="10" y2="34"
+        stroke="white" strokeWidth="2.2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 // ── Tooltip wrapper for collapsed rail icons ──────────────────────────────────
 function IconTooltip({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -70,6 +88,25 @@ function IconTooltip({ label, children }: { label: string; children: React.React
   );
 }
 
+// ── Share toast ───────────────────────────────────────────────────────────────
+function ShareToast({ visible }: { visible: boolean }) {
+  return (
+    <AnimatePresence>
+      {visible && (
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: 8 }}
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[400] bg-zinc-900 text-white text-xs font-semibold px-4 py-2.5 rounded-2xl shadow-xl flex items-center gap-2"
+        >
+          <Check className="w-3.5 h-3.5 text-emerald-400" />
+          Link copied to clipboard!
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+
 export default function Sidebar({
   user,
   sessions,
@@ -83,7 +120,6 @@ export default function Sidebar({
   isOpen,
   onClose,
 }: Props) {
-  // collapsed = narrow icon rail; expanded = full panel
   const [collapsed, setCollapsed] = useState(true);
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -105,7 +141,9 @@ export default function Sidebar({
   const [pinnedIds, setPinnedIds] = useState<number[]>(loadPinnedIds);
 
   // Share toast
-  const [sharedId, setSharedId] = useState<number | null>(null);
+  const [shareToastVisible, setShareToastVisible] = useState(false);
+  const [sharingId, setSharingId] = useState<number | null>(null);
+  const [sharePending, setSharePending] = useState<number | null>(null);
 
   // When parent forces open (mobile hamburger), expand
   useEffect(() => {
@@ -166,19 +204,50 @@ export default function Sidebar({
     setMenuOpenId(null);
   }, []);
 
-  const handleShare = useCallback((session: Session) => {
-    const text = session.sessionName;
-    const fallback = () => {
-      const el = document.createElement('textarea');
-      el.value = text; document.body.appendChild(el); el.select();
-      document.execCommand('copy'); document.body.removeChild(el);
-    };
-    if (navigator.clipboard && window.isSecureContext) {
-      navigator.clipboard.writeText(text).catch(fallback);
-    } else { fallback(); }
-    setSharedId(session.id);
+  // ── Share: calls backend, copies link, shows toast ─────────────────────────
+  const handleShare = useCallback(async (session: Session) => {
     setMenuOpenId(null);
-    setTimeout(() => setSharedId(null), 2000);
+    setSharePending(session.id);
+    try {
+      // chatApi.shareSession must return { shareUrl: string }
+      const result = await (chatApi as any).shareSession(session.id);
+      const url: string = result?.shareUrl || result?.share_url || result?.url || '';
+
+      const copy = (text: string) => {
+        if (navigator.clipboard && window.isSecureContext) {
+          return navigator.clipboard.writeText(text);
+        }
+        const el = document.createElement('textarea');
+        el.value = text;
+        document.body.appendChild(el);
+        el.select();
+        document.execCommand('copy');
+        document.body.removeChild(el);
+      };
+
+      await copy(url || `${window.location.origin}/share/${session.id}`);
+      setSharingId(session.id);
+      setShareToastVisible(true);
+      setTimeout(() => { setSharingId(null); setShareToastVisible(false); }, 2200);
+    } catch (err) {
+      // Fallback: copy a link based on current origin + session id
+      const fallbackUrl = `${window.location.origin}/share/${session.id}`;
+      try {
+        await navigator.clipboard.writeText(fallbackUrl);
+      } catch {
+        const el = document.createElement('textarea');
+        el.value = fallbackUrl;
+        document.body.appendChild(el);
+        el.select();
+        document.execCommand('copy');
+        document.body.removeChild(el);
+      }
+      setSharingId(session.id);
+      setShareToastVisible(true);
+      setTimeout(() => { setSharingId(null); setShareToastVisible(false); }, 2200);
+    } finally {
+      setSharePending(null);
+    }
   }, []);
 
   const startRename = useCallback((session: Session) => {
@@ -203,7 +272,8 @@ export default function Sidebar({
   // ── Collapse helpers ──────────────────────────────────────────────────────
   const expand = () => setCollapsed(false);
   const expandToSearch = () => { setCollapsed(false); setFocusSearch(true); };
-  const collapse = () => { setCollapsed(true); onClose(); };
+  // FIX: collapse also calls onClose so parent state is in sync
+  const collapse = useCallback(() => { setCollapsed(true); onClose(); }, [onClose]);
 
   // ── Grouped sessions ──────────────────────────────────────────────────────
   const sortedSessions = [
@@ -219,82 +289,80 @@ export default function Sidebar({
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // COLLAPSED ICON RAIL — exactly 4 icons matching the screenshot
+  // COLLAPSED ICON RAIL
   // ═══════════════════════════════════════════════════════════════════════════
   if (collapsed) {
     return (
-      <aside className="fixed inset-y-0 left-0 z-[100] w-14 bg-white border-r border-zinc-200 flex flex-col items-center py-5 shadow-sm">
+      <>
+        <ShareToast visible={shareToastVisible} />
+        <aside className="fixed inset-y-0 left-0 z-[100] w-14 bg-white border-r border-zinc-200 flex flex-col items-center py-5 shadow-sm">
 
-        {/* 1. Logo (□) — tap to expand */}
-        <IconTooltip label="Expand sidebar">
-          <button
-            onClick={expand}
-            className="w-9 h-9 rounded-xl flex items-center justify-center text-zinc-500 hover:bg-zinc-100 transition-all"
-            title="Expand"
-          >
-            {/* Square / window icon matching screenshot */}
-            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="3" y="3" width="14" height="14" rx="2" />
-            </svg>
-          </button>
-        </IconTooltip>
+          {/* Logo — tap to expand */}
+          <IconTooltip label="Expand sidebar">
+            <button
+              onClick={expand}
+              className="w-9 h-9 rounded-xl flex items-center justify-center bg-gradient-to-br from-indigo-500 to-purple-600 hover:opacity-90 transition-all shadow-lg shadow-indigo-500/20"
+              title="Expand"
+            >
+              <NexusLogo className="w-5 h-5" />
+            </button>
+          </IconTooltip>
 
-        <div className="w-5 border-t border-zinc-100 my-3" />
+          <div className="w-5 border-t border-zinc-100 my-3" />
 
-        {/* 2. New Chat (+) */}
-        <IconTooltip label="New Chat">
-          <button
-            onClick={() => { onNewSession(); expand(); }}
-            className="w-9 h-9 rounded-xl flex items-center justify-center text-zinc-500 hover:bg-zinc-100 transition-all"
-            title="New Chat"
-          >
-            {/* Plus in a thin circle matching screenshot */}
-            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
-              <circle cx="10" cy="10" r="7.5" />
-              <line x1="10" y1="6.5" x2="10" y2="13.5" />
-              <line x1="6.5" y1="10" x2="13.5" y2="10" />
-            </svg>
-          </button>
-        </IconTooltip>
+          {/* New Chat */}
+          <IconTooltip label="New Chat">
+            <button
+              onClick={() => { onNewSession(); expand(); }}
+              className="w-9 h-9 rounded-xl flex items-center justify-center text-zinc-500 hover:bg-zinc-100 transition-all"
+              title="New Chat"
+            >
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+                <circle cx="10" cy="10" r="7.5" />
+                <line x1="10" y1="6.5" x2="10" y2="13.5" />
+                <line x1="6.5" y1="10" x2="13.5" y2="10" />
+              </svg>
+            </button>
+          </IconTooltip>
 
-        {/* 3. Search (🔍) */}
-        <IconTooltip label="Search">
-          <button
-            onClick={expandToSearch}
-            className="w-9 h-9 rounded-xl flex items-center justify-center text-zinc-500 hover:bg-zinc-100 transition-all"
-            title="Search"
-          >
-            <Search className="w-[18px] h-[18px]" strokeWidth={1.6} />
-          </button>
-        </IconTooltip>
+          {/* Search */}
+          <IconTooltip label="Search">
+            <button
+              onClick={expandToSearch}
+              className="w-9 h-9 rounded-xl flex items-center justify-center text-zinc-500 hover:bg-zinc-100 transition-all"
+              title="Search"
+            >
+              <Search className="w-[18px] h-[18px]" strokeWidth={1.6} />
+            </button>
+          </IconTooltip>
 
-        {/* 4. Chats (💬) */}
-        <IconTooltip label="Chats">
-          <button
-            onClick={expand}
-            className="w-9 h-9 rounded-xl flex items-center justify-center text-zinc-500 hover:bg-zinc-100 transition-all relative"
-            title="Chats"
-          >
-            <MessageSquare className="w-[18px] h-[18px]" strokeWidth={1.6} />
-            {sessions.length > 0 && (
-              <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-indigo-500" />
-            )}
-          </button>
-        </IconTooltip>
+          {/* Chats */}
+          <IconTooltip label="Chats">
+            <button
+              onClick={expand}
+              className="w-9 h-9 rounded-xl flex items-center justify-center text-zinc-500 hover:bg-zinc-100 transition-all relative"
+              title="Chats"
+            >
+              <MessageSquare className="w-[18px] h-[18px]" strokeWidth={1.6} />
+              {sessions.length > 0 && (
+                <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-indigo-500" />
+              )}
+            </button>
+          </IconTooltip>
 
-        {/* Spacer */}
-        <div className="flex-1" />
+          <div className="flex-1" />
 
-        {/* User avatar at bottom */}
-        <IconTooltip label={user.username}>
-          <button onClick={expand} className="mb-1">
-            <UserAvatar
-              name={user.username}
-              className="w-8 h-8 text-xs shadow-sm hover:scale-105 transition-transform"
-            />
-          </button>
-        </IconTooltip>
-      </aside>
+          {/* User avatar */}
+          <IconTooltip label={user.username}>
+            <button onClick={expand} className="mb-1">
+              <UserAvatar
+                name={user.username}
+                className="w-8 h-8 text-xs shadow-sm hover:scale-105 transition-transform"
+              />
+            </button>
+          </IconTooltip>
+        </aside>
+      </>
     );
   }
 
@@ -303,10 +371,13 @@ export default function Sidebar({
   // ═══════════════════════════════════════════════════════════════════════════
   return (
     <>
-      {/* Mobile overlay */}
+      <ShareToast visible={shareToastVisible} />
+
+      {/* FIX: Mobile overlay — pointer-events-auto so tapping it collapses the sidebar */}
       <div
-        className="fixed inset-0 bg-black/40 backdrop-blur-sm z-40 md:hidden"
+        className="fixed inset-0 bg-black/40 backdrop-blur-sm z-40 md:hidden pointer-events-auto"
         onClick={collapse}
+        aria-hidden="true"
       />
 
       <aside
@@ -317,17 +388,19 @@ export default function Sidebar({
         <div className="p-5 shrink-0">
           <div className="flex items-center justify-between mb-5">
             <div className="flex items-center gap-2.5">
-              <div className="w-9 h-9 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-500/20 text-white p-1.5">
-                <StormLogo className="w-full h-full" />
+              {/* FIX: New logo — indigo/purple gradient background + white NexusLogo SVG */}
+              <div className="w-9 h-9 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-500/20 p-1.5">
+                <NexusLogo className="w-full h-full" />
               </div>
               <h2 className="text-xl font-black tracking-tighter text-zinc-900 italic">NEXUS</h2>
             </div>
+            {/* FIX: ChevronLeft (pointing inward/left) instead of ChevronRight */}
             <button
               onClick={collapse}
               className="p-1.5 text-zinc-400 hover:text-zinc-700 rounded-lg hover:bg-zinc-100 transition-colors"
               title="Collapse sidebar"
             >
-              <ChevronRight className="w-5 h-5" />
+              <ChevronLeft className="w-5 h-5" />
             </button>
           </div>
 
@@ -404,7 +477,8 @@ export default function Sidebar({
                     const isPinned = pinnedIds.includes(session.id);
                     const isMenuOpen = menuOpenId === session.id;
                     const isRenaming = renamingId === session.id;
-                    const wasShared = sharedId === session.id;
+                    const isSharing = sharingId === session.id;
+                    const isPendingShare = sharePending === session.id;
 
                     return (
                       <div key={session.id} className="relative" ref={isMenuOpen ? menuRef : undefined}>
@@ -491,15 +565,18 @@ export default function Sidebar({
                                 {isPinned ? 'Unpin' : 'Pin'}
                               </button>
 
-                              {/* Share */}
+                              {/* Share — calls backend */}
                               <button
                                 onClick={() => handleShare(session)}
-                                className="w-full flex items-center gap-3 px-4 py-3 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 transition-colors"
+                                disabled={isPendingShare}
+                                className="w-full flex items-center gap-3 px-4 py-3 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 transition-colors disabled:opacity-50"
                               >
-                                {wasShared
+                                {isSharing
                                   ? <Check className="w-4 h-4 text-emerald-500" />
-                                  : <Share2 className="w-4 h-4 text-zinc-400" />}
-                                {wasShared ? 'Copied!' : 'Share'}
+                                  : isPendingShare
+                                    ? <Sparkles className="w-4 h-4 text-indigo-400 animate-pulse" />
+                                    : <Link className="w-4 h-4 text-zinc-400" />}
+                                {isSharing ? 'Copied!' : isPendingShare ? 'Generating…' : 'Share link'}
                               </button>
 
                               <div className="mx-3 border-t border-zinc-100" />
