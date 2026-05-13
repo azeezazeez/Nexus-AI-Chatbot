@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import React from 'react';
 import { User, Session, Message } from '../types';
 import Sidebar from '../components/Sidebar';
-import { chatApi, authApi } from '../lib/api';
+import { chatApi, authApi, wakeUpServer } from '../lib/api';
 import { motion, AnimatePresence } from 'motion/react';
 import StormLogo from '../components/StormLogo';
 import UserAvatar from '../components/UserAvatar';
@@ -81,20 +81,23 @@ export default function Chat({ user, onLogout }: Props) {
   const [editInput, setEditInput] = useState('');
   const [modalType, setModalType] = useState<'none' | 'delete-all' | 'delete-single'>('none');
   const [sessionIdToDelete, setSessionIdToDelete] = useState<number | null>(null);
+  const [serverWaking, setServerWaking] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const isSendingRef = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  // FIX: prevents useEffect from re-fetching messages we already have after first send
   const skipMessageLoadRef = useRef(false);
 
   // ── Data Loading ──────────────────────────────────────────────────────────
 
   const loadSessions = useCallback(async () => {
     try {
+      // Wake up Render server silently on load
+      wakeUpServer();
+
       const response = await chatApi.getSessions();
-      setSessions(response.sessions || []);
+      setSessions((response as any).sessions || []);
     } catch (err: unknown) {
       console.error('Failed to load sessions:', err);
       if (err && typeof err === 'object' && 'status' in err && (err as { status: number }).status === 401) onLogout();
@@ -106,7 +109,7 @@ export default function Chat({ user, onLogout }: Props) {
   const loadMessages = useCallback(async (sid: number) => {
     try {
       const response = await chatApi.getMessages(sid);
-      setMessages(response.messages || []);
+      setMessages((response as any).messages || []);
     } catch (err: unknown) {
       console.error('Failed to load messages:', err);
       if (err && typeof err === 'object' && 'status' in err && (err as { status: number }).status === 401) onLogout();
@@ -115,7 +118,6 @@ export default function Chat({ user, onLogout }: Props) {
 
   useEffect(() => { loadSessions(); }, [loadSessions]);
 
-  // FIX: skip re-fetch when currentSessionId was just set inside handleSendMessage
   useEffect(() => {
     if (currentSessionId) {
       if (skipMessageLoadRef.current) {
@@ -151,6 +153,7 @@ export default function Chat({ user, onLogout }: Props) {
     isSendingRef.current = true;
     setIsTyping(true);
     setJustFinished(false);
+    setServerWaking(false);
 
     const controller = new AbortController();
     abortControllerRef.current = controller;
@@ -168,18 +171,25 @@ export default function Chat({ user, onLogout }: Props) {
 
     const isNewSession = !currentSessionId;
 
+    // Show waking message after 4s if still waiting
+    const wakingTimer = setTimeout(() => {
+      if (isSendingRef.current) setServerWaking(true);
+    }, 4000);
+
     try {
       const response = await chatApi.sendMessage(
         messageText,
         currentSessionId,
         controller.signal,
         'default'
-      );
+      ) as any;
+
+      clearTimeout(wakingTimer);
+      setServerWaking(false);
 
       const activeSessionId = response.sessionId || currentSessionId;
 
       if (isNewSession && activeSessionId) {
-        // FIX: tell the effect to skip so it doesn't wipe messages we already have
         skipMessageLoadRef.current = true;
         setCurrentSessionId(activeSessionId);
         await loadSessions();
@@ -203,7 +213,7 @@ export default function Chat({ user, onLogout }: Props) {
         activeSessionId
       ) {
         try {
-          const { title } = await chatApi.generateTitle(messageText);
+          const { title } = await chatApi.generateTitle(messageText) as any;
           await chatApi.renameSession(activeSessionId, title);
           await loadSessions();
         } catch (renameErr: unknown) {
@@ -211,15 +221,18 @@ export default function Chat({ user, onLogout }: Props) {
         }
       }
     } catch (err: unknown) {
+      clearTimeout(wakingTimer);
+      setServerWaking(false);
       if (err && typeof err === 'object' && 'name' in err && (err as { name: string }).name === 'AbortError') {
         console.log('Chat aborted');
       } else {
         console.error('Chat error:', err);
+        const errMsg = err instanceof Error ? err.message : 'Sorry, I encountered an error. Please try again.';
         setMessages(prev => [...prev, {
           id: 'error-' + Date.now(),
           sessionId: currentSessionId || 0,
           role: 'assistant',
-          content: 'Sorry, I encountered an error. Please try again.',
+          content: errMsg,
           timestamp: new Date().toISOString(),
         }]);
       }
@@ -236,6 +249,7 @@ export default function Chat({ user, onLogout }: Props) {
   const handleStopResponse = () => {
     abortControllerRef.current?.abort();
     setIsTyping(false);
+    setServerWaking(false);
     isSendingRef.current = false;
     abortControllerRef.current = null;
     window.speechSynthesis?.cancel();
@@ -432,7 +446,6 @@ export default function Chat({ user, onLogout }: Props) {
                     >
                       <div className={`flex gap-3 max-w-[90%] md:max-w-[80%] ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
 
-                        {/* Avatar — no background behind AI logo */}
                         <div className="w-7 h-7 md:w-8 md:h-8 shrink-0 flex items-center justify-center mt-1">
                           {msg.role === 'user' ? (
                             <div className="w-full h-full rounded-full border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 flex items-center justify-center shadow-sm overflow-hidden">
@@ -561,10 +574,25 @@ export default function Chat({ user, onLogout }: Props) {
                     <div className="w-7 h-7 md:w-8 md:h-8 shrink-0 flex items-center justify-center mt-1">
                       <StormLogo className="w-6 h-6 text-indigo-500 animate-spin" />
                     </div>
-                    <div className="bg-white/90 dark:bg-zinc-900/90 border border-zinc-200 dark:border-zinc-800 px-4 py-3 rounded-2xl rounded-tl-none shadow-sm flex items-center gap-2 backdrop-blur-xl">
-                      <motion.div animate={{ scale: [1, 1.2, 1], opacity: [0.3, 1, 0.3] }} transition={{ repeat: Infinity, duration: 1 }} className="w-1.5 h-1.5 bg-indigo-600 rounded-full" />
-                      <motion.div animate={{ scale: [1, 1.2, 1], opacity: [0.3, 1, 0.3] }} transition={{ repeat: Infinity, duration: 1, delay: 0.2 }} className="w-1.5 h-1.5 bg-indigo-600 rounded-full" />
-                      <motion.div animate={{ scale: [1, 1.2, 1], opacity: [0.3, 1, 0.3] }} transition={{ repeat: Infinity, duration: 1, delay: 0.4 }} className="w-1.5 h-1.5 bg-indigo-600 rounded-full" />
+                    <div className="bg-white/90 dark:bg-zinc-900/90 border border-zinc-200 dark:border-zinc-800 px-4 py-3 rounded-2xl rounded-tl-none shadow-sm flex flex-col gap-2 backdrop-blur-xl">
+                      <div className="flex items-center gap-2">
+                        <motion.div animate={{ scale: [1, 1.2, 1], opacity: [0.3, 1, 0.3] }} transition={{ repeat: Infinity, duration: 1 }} className="w-1.5 h-1.5 bg-indigo-600 rounded-full" />
+                        <motion.div animate={{ scale: [1, 1.2, 1], opacity: [0.3, 1, 0.3] }} transition={{ repeat: Infinity, duration: 1, delay: 0.2 }} className="w-1.5 h-1.5 bg-indigo-600 rounded-full" />
+                        <motion.div animate={{ scale: [1, 1.2, 1], opacity: [0.3, 1, 0.3] }} transition={{ repeat: Infinity, duration: 1, delay: 0.4 }} className="w-1.5 h-1.5 bg-indigo-600 rounded-full" />
+                      </div>
+                      {/* Server waking up notice */}
+                      <AnimatePresence>
+                        {serverWaking && (
+                          <motion.p
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: 'auto' }}
+                            exit={{ opacity: 0, height: 0 }}
+                            className="text-[10px] font-medium text-zinc-400 dark:text-zinc-500"
+                          >
+                            Server is waking up, please wait...
+                          </motion.p>
+                        )}
+                      </AnimatePresence>
                     </div>
                   </div>
                 )}
@@ -577,7 +605,8 @@ export default function Chat({ user, onLogout }: Props) {
         {/* ── Input Area ── */}
         <div className="p-4 md:p-8 shrink-0">
           <div className="max-w-3xl mx-auto">
-            <div className={`relative flex flex-col bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl md:rounded-3xl shadow-2xl transition-all overflow-visible ${justFinished ? 'animate-blink' : ''}`}>
+            {/* ── Input box: horizontal layout ── */}
+            <div className={`relative flex flex-row items-center bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl md:rounded-3xl shadow-2xl transition-all overflow-visible ${justFinished ? 'animate-blink' : ''}`}>
 
               {/* Scroll-to-bottom */}
               <AnimatePresence>
@@ -597,6 +626,7 @@ export default function Chat({ user, onLogout }: Props) {
                 )}
               </AnimatePresence>
 
+              {/* Textarea */}
               <textarea
                 ref={inputRef}
                 value={input}
@@ -610,7 +640,7 @@ export default function Chat({ user, onLogout }: Props) {
                 disabled={isTyping}
                 placeholder="Write a message..."
                 rows={1}
-                className="w-full px-5 pt-5 pb-2 bg-transparent focus:outline-none font-medium text-[--text-main] placeholder:text-zinc-400 dark:placeholder:text-zinc-500 text-base leading-relaxed resize-none min-h-[60px] max-h-[200px]"
+                className="flex-1 px-5 py-4 bg-transparent focus:outline-none font-medium text-[--text-main] placeholder:text-zinc-400 dark:placeholder:text-zinc-500 text-base leading-relaxed resize-none min-h-[60px] max-h-[200px]"
                 style={{ height: 'auto' }}
                 onInput={(e) => {
                   const target = e.target as HTMLTextAreaElement;
@@ -619,31 +649,41 @@ export default function Chat({ user, onLogout }: Props) {
                 }}
               />
 
-              <div className="flex items-center justify-end px-3 pb-3 pt-1">
-                {/* Send / Stop button */}
+              {/* Send / Stop button — circular */}
+              <div className="flex items-center px-3 shrink-0">
                 <motion.button
-                  whileHover={{ scale: isTyping || input.trim() ? 1.05 : 1 }}
-                  whileTap={{ scale: isTyping || input.trim() ? 0.95 : 1 }}
+                  whileHover={{ scale: isTyping || input.trim() ? 1.08 : 1 }}
+                  whileTap={{ scale: isTyping || input.trim() ? 0.92 : 1 }}
                   onClick={isTyping ? handleStopResponse : () => handleSendMessage()}
                   disabled={!input.trim() && !isTyping}
                   aria-label={isTyping ? 'Stop response' : 'Send message'}
-                  className={`relative flex items-center justify-center w-10 h-10 rounded-xl transition-all border ${
+                  className={`relative flex items-center justify-center w-10 h-10 rounded-full transition-all duration-200 ${
                     isTyping
-                      ? 'bg-red-50 dark:bg-red-950/40 border-red-200 dark:border-red-800/60 text-red-500 hover:bg-red-100 dark:hover:bg-red-900/40 shadow-sm'
+                      ? 'bg-indigo-600 border-2 border-indigo-400 shadow-lg shadow-indigo-500/30'
                       : input.trim()
-                        ? 'bg-indigo-600 border-indigo-500 text-white hover:bg-indigo-700 shadow-md shadow-indigo-500/20'
-                        : 'bg-zinc-100 dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700 text-zinc-300 dark:text-zinc-600 cursor-not-allowed'
+                        ? 'bg-indigo-600 border-2 border-indigo-500 text-white hover:bg-indigo-700 shadow-md shadow-indigo-500/20'
+                        : 'bg-zinc-100 dark:bg-zinc-800 border-2 border-zinc-200 dark:border-zinc-700 text-zinc-300 dark:text-zinc-600 cursor-not-allowed'
                   }`}
                 >
                   {isTyping ? (
                     <span className="relative flex items-center justify-center w-full h-full">
-                      {/* Pulsing ring around the stop button */}
-                      <span className="absolute inset-1 rounded-lg border border-red-400/50 animate-ping" />
+                      {/* Spinning arc around button */}
+                      <svg className="absolute inset-0 w-full h-full animate-spin" viewBox="0 0 40 40">
+                        <circle
+                          cx="20" cy="20" r="16"
+                          fill="none"
+                          stroke="white"
+                          strokeWidth="2.5"
+                          strokeDasharray="60 40"
+                          strokeLinecap="round"
+                          opacity="0.6"
+                        />
+                      </svg>
                       {/* Stop square */}
-                      <span className="w-3.5 h-3.5 rounded-sm bg-red-500 block relative z-10" />
+                      <span className="w-3 h-3 rounded-sm bg-white block relative z-10" />
                     </span>
                   ) : (
-                    <ArrowUp className={`w-4 h-4 transition-transform ${input.trim() ? 'scale-110' : 'scale-90 opacity-40'}`} />
+                    <ArrowUp className={`w-4 h-4 text-white transition-transform ${input.trim() ? 'scale-110' : 'scale-90 opacity-40'}`} />
                   )}
                 </motion.button>
               </div>
