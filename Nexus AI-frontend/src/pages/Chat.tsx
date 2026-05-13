@@ -8,7 +8,7 @@ import StormLogo from '../components/StormLogo';
 import UserAvatar from '../components/UserAvatar';
 import ConfirmationModal from '../components/ConfirmationModal';
 import {
-  ArrowDown, ArrowUp, Menu,
+  ArrowDown, ArrowUp,
   Copy, Check, Edit2,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
@@ -105,7 +105,6 @@ export default function Chat({ user, onLogout }: Props) {
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [justFinished, setJustFinished] = useState(false);
   const [showScrollBottom, setShowScrollBottom] = useState(false);
   const [copiedId, setCopiedId] = useState<number | string | null>(null);
@@ -314,7 +313,6 @@ export default function Chat({ user, onLogout }: Props) {
     updateCurrentSessionId(null);
     setMessages([]);
     setInput('');
-    setIsSidebarOpen(false);
     setEditingMessage(null);
   };
 
@@ -403,10 +401,6 @@ export default function Chat({ user, onLogout }: Props) {
   // a conditional return. Keep ALL of them here, above the loading guard.
   const showBlinkingCursor = !input && (isTyping || justFinished);
 
-  const handleCloseSidebar = useCallback(() => {
-    setIsSidebarOpen(false);
-  }, []);
-
   // ── Loading Screen ────────────────────────────────────────────────────────
   if (loading) {
     return (
@@ -435,14 +429,12 @@ export default function Chat({ user, onLogout }: Props) {
         user={user}
         sessions={sessions}
         currentSessionId={currentSessionId}
-        onSelectSession={(id) => { updateCurrentSessionId(id); setIsSidebarOpen(false); }}
+        onSelectSession={(id) => { updateCurrentSessionId(id); }}
         onNewSession={createNewSession}
         onDeleteSession={deleteSession}
         onRenameSession={renameSession}
         onClearAll={() => setModalType('delete-all')}
         onLogout={handleLogout}
-        isOpen={isSidebarOpen}
-        onClose={handleCloseSidebar}
       />
 
       {/*
@@ -452,69 +444,24 @@ export default function Chat({ user, onLogout }: Props) {
       */}
       <main className="flex-1 flex flex-col min-w-0 bg-transparent relative z-20 pl-14">
 
-        {/*
-          ── MOBILE BACKDROP OVERLAY ──
-          FIX: Rendered inside <main> so it sits above the content but below the sidebar (z-[100]).
-          Clicking it fires handleCloseSidebar to collapse the sidebar.
-          Only visible when isSidebarOpen is true.
-        */}
-        <AnimatePresence>
-          {isSidebarOpen && (
-            <motion.div
-              key="sidebar-backdrop"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.2 }}
-              className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm"
-              onClick={handleCloseSidebar}
-              aria-hidden="true"
-            />
-          )}
-        </AnimatePresence>
-
         {/* ── HEADER ── */}
-        {/*
-          FIX: sticky top-0, proper flex layout, items vertically centred.
-          Left: hamburger menu button.
-          Centre: Logo + App name (centred absolutely so title stays truly centred).
-          Right: spacer to balance left side.
-        */}
         <header className="sticky top-0 z-30 h-14 md:h-16 bg-white/80 dark:bg-black/40 backdrop-blur-2xl border-b border-[--border] shrink-0">
-          <div className="relative flex items-center justify-between h-full px-3 md:px-5">
-
-            {/* Left — hamburger */}
-            <button
-              onClick={() => setIsSidebarOpen(true)}
-              className="p-2 bg-black/5 dark:bg-white/5 rounded-lg border border-[--border] text-[--text-muted] hover:text-indigo-600 transition-colors shrink-0"
-              aria-label="Open sidebar"
-            >
-              <Menu className="w-4 h-4 md:w-5 md:h-5" />
-            </button>
-
-            {/* Centre — Logo + name + session title (absolute centred) */}
-            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-              <div className="flex flex-col items-center gap-0.5 max-w-[55vw] sm:max-w-xs md:max-w-sm">
-                {/* App brand row */}
-                <div className="flex items-center gap-1.5">
-                  <StormLogo className="w-4 h-4 md:w-5 md:h-5 text-indigo-600 dark:text-indigo-500 shrink-0" />
-                  <span className="text-[10px] md:text-xs font-black text-[--text-main] uppercase tracking-widest leading-none">
-                    Scout AI
-                  </span>
-                  {/* Online dot — hidden on very small screens */}
-                  <div className="hidden sm:flex items-center gap-1 ml-1">
-                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  </div>
-                </div>
-                {/* Session name */}
-                <span className="text-[10px] font-semibold text-[--text-muted] truncate leading-none max-w-full">
-                  {sessions.find(s => s.id === currentSessionId)?.sessionName || 'New Chat'}
+          <div className="flex items-center justify-center h-full px-3 md:px-5">
+            {/* Centre — Logo + App name + session title */}
+            <div className="flex flex-col items-center gap-0.5 max-w-[70vw] sm:max-w-xs md:max-w-sm">
+              <div className="flex items-center gap-1.5">
+                <StormLogo className="w-4 h-4 md:w-5 md:h-5 text-indigo-600 dark:text-indigo-500 shrink-0" />
+                <span className="text-[10px] md:text-xs font-black text-[--text-main] uppercase tracking-widest leading-none">
+                  Scout AI
                 </span>
+                <div className="hidden sm:flex items-center gap-1 ml-1">
+                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                </div>
               </div>
+              <span className="text-[10px] font-semibold text-[--text-muted] truncate leading-none max-w-full">
+                {sessions.find(s => s.id === currentSessionId)?.sessionName || 'New Chat'}
+              </span>
             </div>
-
-            {/* Right — spacer (same width as hamburger button to keep centre truly centred) */}
-            <div className="w-9 md:w-10 shrink-0" aria-hidden="true" />
           </div>
         </header>
 
