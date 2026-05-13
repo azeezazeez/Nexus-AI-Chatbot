@@ -76,9 +76,32 @@ const BlinkingCursor = () => (
   />
 );
 
+// ── localStorage helpers ──────────────────────────────────────────────────────
+const SESSION_KEY = 'scout_current_session_id';
+
+const persistSessionId = (id: number | null) => {
+  if (id === null) {
+    localStorage.removeItem(SESSION_KEY);
+  } else {
+    localStorage.setItem(SESSION_KEY, String(id));
+  }
+};
+
+const readPersistedSessionId = (): number | null => {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    if (!raw) return null;
+    const parsed = parseInt(raw, 10);
+    return isNaN(parsed) ? null : parsed;
+  } catch {
+    return null;
+  }
+};
+
 export default function Chat({ user, onLogout }: Props) {
   const [sessions, setSessions] = useState<Session[]>([]);
-  const [currentSessionId, setCurrentSessionId] = useState<number | null>(null);
+  // Initialise from localStorage so refresh restores the last open chat
+  const [currentSessionId, setCurrentSessionId] = useState<number | null>(readPersistedSessionId);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
@@ -99,6 +122,13 @@ export default function Chat({ user, onLogout }: Props) {
   const abortControllerRef = useRef<AbortController | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const skipMessageLoadRef = useRef(false);
+
+  // ── Wrapped session setter — keeps localStorage in sync ──────────────────
+
+  const updateCurrentSessionId = useCallback((id: number | null) => {
+    setCurrentSessionId(id);
+    persistSessionId(id);
+  }, []);
 
   // ── Data Loading ──────────────────────────────────────────────────────────
 
@@ -126,6 +156,19 @@ export default function Chat({ user, onLogout }: Props) {
   }, [onLogout]);
 
   useEffect(() => { loadSessions(); }, [loadSessions]);
+
+  // After sessions load, verify the persisted session still exists.
+  // If it was deleted externally, fall back to no session.
+  useEffect(() => {
+    if (loading) return;
+    if (currentSessionId !== null) {
+      const stillExists = sessions.some(s => s.id === currentSessionId);
+      if (!stillExists) {
+        updateCurrentSessionId(null);
+        setMessages([]);
+      }
+    }
+  }, [sessions, loading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (currentSessionId) {
@@ -200,9 +243,13 @@ export default function Chat({ user, onLogout }: Props) {
 
       if (isNewSession && activeSessionId) {
         skipMessageLoadRef.current = true;
-        setCurrentSessionId(activeSessionId);
+        updateCurrentSessionId(activeSessionId);
         await loadSessions();
       }
+
+      // ── FIX: stop the spinner BEFORE adding the AI message so the
+      //    last message never renders with isTyping=true ──────────────
+      setIsTyping(false);
 
       const aiMsg: Message = {
         id: response.messageId || 'ai-' + Date.now(),
@@ -232,6 +279,7 @@ export default function Chat({ user, onLogout }: Props) {
     } catch (err: unknown) {
       clearTimeout(wakingTimer);
       setServerWaking(false);
+      setIsTyping(false); // also stop here on error
       if (err && typeof err === 'object' && 'name' in err && (err as { name: string }).name === 'AbortError') {
         console.log('Chat aborted');
       } else {
@@ -246,7 +294,7 @@ export default function Chat({ user, onLogout }: Props) {
         }]);
       }
     } finally {
-      setIsTyping(false);
+      // isTyping already set to false above — this just cleans up refs
       isSendingRef.current = false;
       abortControllerRef.current = null;
       setJustFinished(true);
@@ -267,7 +315,7 @@ export default function Chat({ user, onLogout }: Props) {
   };
 
   const createNewSession = () => {
-    setCurrentSessionId(null);
+    updateCurrentSessionId(null);
     setMessages([]);
     setInput('');
     setIsSidebarOpen(false);
@@ -284,7 +332,7 @@ export default function Chat({ user, onLogout }: Props) {
     try {
       await chatApi.deleteSession(sessionIdToDelete);
       if (currentSessionId === sessionIdToDelete) {
-        setCurrentSessionId(null);
+        updateCurrentSessionId(null);
         setMessages([]);
       }
       await loadSessions();
@@ -311,7 +359,7 @@ export default function Chat({ user, onLogout }: Props) {
   const confirmClearAll = async () => {
     try {
       await chatApi.clearSessions();
-      setCurrentSessionId(null);
+      updateCurrentSessionId(null);
       setMessages([]);
       await loadSessions();
     } catch (err: unknown) {
@@ -324,7 +372,10 @@ export default function Chat({ user, onLogout }: Props) {
 
   const handleLogout = async () => {
     try { await authApi.logout(); } catch (err: unknown) { console.error('Logout failed:', err); }
-    finally { onLogout(); }
+    finally {
+      updateCurrentSessionId(null);
+      onLogout();
+    }
   };
 
   const cleanMessageContent = (content: string): string =>
@@ -377,7 +428,7 @@ export default function Chat({ user, onLogout }: Props) {
         user={user}
         sessions={sessions}
         currentSessionId={currentSessionId}
-        onSelectSession={(id) => { setCurrentSessionId(id); setIsSidebarOpen(false); }}
+        onSelectSession={(id) => { updateCurrentSessionId(id); setIsSidebarOpen(false); }}
         onNewSession={createNewSession}
         onDeleteSession={deleteSession}
         onRenameSession={renameSession}
@@ -453,6 +504,8 @@ export default function Chat({ user, onLogout }: Props) {
               <div className="space-y-8 pb-32 pt-4">
                 {messages.map((msg, index) => {
                   const isEditing = editingMessage?.id === msg.id;
+                  // Only spin on the very last assistant message while actively typing
+                  const shouldSpin = isTyping && msg.role === 'assistant' && index === messages.length - 1;
                   return (
                     <div
                       key={msg.id || `msg-${index}`}
@@ -466,10 +519,8 @@ export default function Chat({ user, onLogout }: Props) {
                             </div>
                           ) : (
                             <StormLogo
-                              className={`w-6 h-6 text-indigo-500 dark:text-indigo-400 ${
-                              isTyping && index === messages.length - 1 && msg.role === 'assistant' ? 'animate-spin' : ''
-                                }`}
-                              />
+                              className={`w-6 h-6 text-indigo-500 dark:text-indigo-400 ${shouldSpin ? 'animate-spin' : ''}`}
+                            />
                           )}
                         </div>
 
