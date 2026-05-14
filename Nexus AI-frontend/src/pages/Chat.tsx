@@ -111,6 +111,9 @@ export default function Chat({ user, onLogout }: Props) {
   const [isTyping, setIsTyping] = useState(false);
   const [loading, setLoading] = useState(true);
   const [sessionsLoaded, setSessionsLoaded] = useState(false);
+  // ── FIX 2: track whether the sessions fetch itself errored ──
+  // If it did, we must NOT clear currentSessionId — the server may just be cold-starting.
+  const [sessionsError, setSessionsError] = useState(false);
   const [justFinished, setJustFinished] = useState(false);
   const [showScrollBottom, setShowScrollBottom] = useState(false);
   const [copiedId, setCopiedId] = useState<number | string | null>(null);
@@ -140,8 +143,10 @@ export default function Chat({ user, onLogout }: Props) {
       const response = await chatApi.getSessions() as any;
       setSessions(response.sessions || []);
       setSessionsLoaded(true);
+      setSessionsError(false); // ── FIX 2: clear error on success
     } catch (err: unknown) {
       console.error('Failed to load sessions:', err);
+      setSessionsError(true); // ── FIX 2: mark error so we don't clear the active session
       if (err && typeof err === 'object' && 'status' in err && (err as { status: number }).status === 401) onLogout();
     } finally {
       setLoading(false);
@@ -163,6 +168,9 @@ export default function Chat({ user, onLogout }: Props) {
   useEffect(() => {
     if (loading) return;
     if (!sessionsLoaded) return;
+    // ── FIX 2: If sessions fetch errored (e.g. cold server start on mobile),
+    // do NOT clear the stored session — the user's session still exists on the server.
+    if (sessionsError) return;
     if (currentSessionId !== null) {
       const stillExists = sessions.some(s => s.id === currentSessionId);
       if (!stillExists) {
@@ -170,7 +178,7 @@ export default function Chat({ user, onLogout }: Props) {
         setMessages([]);
       }
     }
-  }, [sessions, loading, sessionsLoaded, currentSessionId, updateCurrentSessionId]);
+  }, [sessions, loading, sessionsLoaded, sessionsError, currentSessionId, updateCurrentSessionId]);
 
   useEffect(() => {
     if (currentSessionId) {
@@ -262,6 +270,14 @@ export default function Chat({ user, onLogout }: Props) {
       ) {
         try {
           const { title } = await chatApi.generateTitle(messageText) as any;
+
+          // ── FIX 1: Optimistically update the session name in local state RIGHT NOW
+          // so the header reflects the new title immediately — no waiting for loadSessions().
+          setSessions(prev =>
+            prev.map(s => s.id === activeSessionId ? { ...s, sessionName: title } : s)
+          );
+
+          // Persist to server in the background; reload to sync any server-side changes.
           await chatApi.renameSession(activeSessionId, title);
           await loadSessions();
         } catch (renameErr: unknown) {
@@ -343,6 +359,10 @@ export default function Chat({ user, onLogout }: Props) {
   const renameSession = async (sid: number, newName: string) => {
     if (!newName.trim()) return;
     try {
+      // ── FIX 1 (sidebar rename): also optimistically update so header is instant
+      setSessions(prev =>
+        prev.map(s => s.id === sid ? { ...s, sessionName: newName } : s)
+      );
       await chatApi.renameSession(sid, newName);
       await loadSessions();
     } catch (err: unknown) {
