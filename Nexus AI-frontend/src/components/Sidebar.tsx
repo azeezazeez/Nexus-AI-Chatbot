@@ -1,12 +1,9 @@
 /**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- *
- * CHANGES:
- * - Removed collapsed icon rail on mobile/tablet (< lg)
- * - On lg+ desktop: keeps original collapsed rail behaviour
- * - Added `mobileOpen` prop so Chat.tsx can control drawer from header
- * - Removed "Share link" option from session context menu
+ * FIXES APPLIED:
+ * 1. Mobile sessions not showing — replaced filteredSessions useState (which was stale
+ *    on mobile drawer open) with searchResults state. filteredSessions is now a derived
+ *    value (searchResults ?? sessions) so it always reflects the latest prop on mount.
+ * 2. SessionPanel moved out of inline definition to prevent remount on every render.
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -38,6 +35,7 @@ interface Props {
 
 const PINNED_KEY = 'nexus_pinned_sessions';
 const SIDEBAR_SEEN_KEY = 'nexus_sidebar_seen';
+
 const loadPinnedIds = (): number[] => {
   try { return JSON.parse(localStorage.getItem(PINNED_KEY) || '[]'); } catch { return []; }
 };
@@ -84,146 +82,75 @@ function IconTooltip({ label, children }: { label: string; children: React.React
   );
 }
 
-export default function Sidebar({
+// ─── Session panel props ───────────────────────────────────────────────────────
+interface SessionPanelProps {
+  // data
+  user: User;
+  sessions: Session[];
+  currentSessionId: number | null;
+  pinnedIds: number[];
+  searchQuery: string;
+  isSearching: boolean;
+  searchResults: Session[] | null;
+  renamingId: number | null;
+  renameValue: string;
+  menuOpenId: number | null;
+  menuRef: React.RefObject<HTMLDivElement>;
+  searchInputRef: React.RefObject<HTMLInputElement>;
+  renameInputRef: React.RefObject<HTMLInputElement>;
+  // actions
+  onItemClick: () => void;
+  onNewSession: () => void;
+  onClearAll: () => void;
+  onSelectSession: (id: number) => void;
+  onLogout: () => void;
+  onSearchChange: (q: string) => void;
+  onMenuOpen: (id: number | null) => void;
+  onStartRename: (session: Session) => void;
+  onCommitRename: () => void;
+  onCancelRename: () => void;
+  onRenameValueChange: (v: string) => void;
+  onTogglePin: (id: number) => void;
+  onDelete: (id: number) => void;
+}
+
+// ─── Session panel — extracted as a named component so React does NOT remount ─
+function SessionPanel({
   user,
   sessions,
   currentSessionId,
-  onSelectSession,
+  pinnedIds,
+  searchQuery,
+  isSearching,
+  searchResults,
+  renamingId,
+  renameValue,
+  menuOpenId,
+  menuRef,
+  searchInputRef,
+  renameInputRef,
+  onItemClick,
   onNewSession,
-  onDeleteSession,
-  onRenameSession,
   onClearAll,
+  onSelectSession,
   onLogout,
-  onClose = () => {},
-  mobileOpen = false,
-  onMobileClose = () => {},
-}: Props) {
-  // Desktop: collapsed rail state (lg+ only)
-  const [desktopCollapsed, setDesktopCollapsed] = useState(() => {
-    return localStorage.getItem(SIDEBAR_SEEN_KEY) !== null;
-  });
-
-  const [searchQuery, setSearchQuery] = useState('');
-  const [filteredSessions, setFilteredSessions] = useState<Session[]>(sessions);
-  const [isSearching, setIsSearching] = useState(false);
-  const searchInputRef = useRef<HTMLInputElement>(null);
-  const [focusSearch, setFocusSearch] = useState(false);
-
-  const [menuOpenId, setMenuOpenId] = useState<number | null>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  const [renamingId, setRenamingId] = useState<number | null>(null);
-  const [renameValue, setRenameValue] = useState('');
-  const renameInputRef = useRef<HTMLInputElement>(null);
-
-  const [pinnedIds, setPinnedIds] = useState<number[]>(loadPinnedIds);
-
-  const expandDesktop = useCallback(() => {
-    setDesktopCollapsed(false);
-    localStorage.setItem(SIDEBAR_SEEN_KEY, '1');
-  }, []);
-  const expandDesktopToSearch = useCallback(() => {
-    setDesktopCollapsed(false);
-    localStorage.setItem(SIDEBAR_SEEN_KEY, '1');
-    setFocusSearch(true);
-  }, []);
-  const collapseDesktop = useCallback(() => {
-    setDesktopCollapsed(true);
-    onClose();
-  }, [onClose]);
-  const toggleDesktop = useCallback(() => {
-    if (desktopCollapsed) expandDesktop();
-    else collapseDesktop();
-  }, [desktopCollapsed, expandDesktop, collapseDesktop]);
-
-  useEffect(() => {
-    if (!desktopCollapsed && focusSearch) {
-      setTimeout(() => { searchInputRef.current?.focus(); setFocusSearch(false); }, 80);
-    }
-  }, [desktopCollapsed, focusSearch]);
-
-  useEffect(() => {
-    if (mobileOpen) {
-      setTimeout(() => searchInputRef.current?.focus(), 200);
-    }
-  }, [mobileOpen]);
-
-  useEffect(() => {
-    if (!searchQuery.trim()) setFilteredSessions(sessions);
-  }, [sessions, searchQuery]);
-
-  useEffect(() => {
-    if (!searchQuery.trim()) {
-      setFilteredSessions(sessions);
-      return;
-    }
-    const timer = setTimeout(async () => {
-      setIsSearching(true);
-      try {
-        const res = await chatApi.searchSessions(searchQuery);
-        setFilteredSessions((res as any).sessions || []);
-      } catch {
-        setFilteredSessions(sessions.filter(s =>
-          s.sessionName.toLowerCase().includes(searchQuery.toLowerCase())
-        ));
-      } finally { setIsSearching(false); }
-    }, 500);
-    return () => clearTimeout(timer);
-  }, [searchQuery, sessions]);
-
-  useEffect(() => {
-    if (menuOpenId === null) return;
-    const h = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpenId(null);
-    };
-    document.addEventListener('mousedown', h);
-    return () => document.removeEventListener('mousedown', h);
-  }, [menuOpenId]);
-
-  useEffect(() => {
-    if (renamingId !== null) setTimeout(() => renameInputRef.current?.focus(), 50);
-  }, [renamingId]);
-
-  const togglePin = useCallback((id: number) => {
-    setPinnedIds(prev => {
-      const next = prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id];
-      savePinnedIds(next);
-      return next;
-    });
-    setMenuOpenId(null);
-  }, []);
-
-  const startRename = useCallback((session: Session) => {
-    setRenamingId(session.id);
-    setRenameValue(session.sessionName);
-    setMenuOpenId(null);
-  }, []);
-
-  const commitRename = useCallback(() => {
-    if (renamingId !== null && renameValue.trim()) onRenameSession(renamingId, renameValue.trim());
-    setRenamingId(null);
-    setRenameValue('');
-  }, [renamingId, renameValue, onRenameSession]);
-
-  const cancelRename = useCallback(() => {
-    setRenamingId(null);
-    setRenameValue('');
-  }, []);
-
-  const handleDelete = useCallback((id: number) => {
-    onDeleteSession(id);
-    setMenuOpenId(null);
-    setPinnedIds(prev => {
-      const next = prev.filter(p => p !== id);
-      savePinnedIds(next);
-      return next;
-    });
-  }, [onDeleteSession]);
+  onSearchChange,
+  onMenuOpen,
+  onStartRename,
+  onCommitRename,
+  onCancelRename,
+  onRenameValueChange,
+  onTogglePin,
+  onDelete,
+}: SessionPanelProps) {
+  // FIX: filteredSessions is always derived — never stale on mobile drawer open
+  const filteredSessions: Session[] = searchResults ?? sessions;
 
   const sortedSessions = [
     ...filteredSessions.filter(s => pinnedIds.includes(s.id)),
     ...filteredSessions.filter(s => !pinnedIds.includes(s.id)),
   ];
+
   const grouped: { label: string; items: Session[] }[] = [];
   sortedSessions.forEach(session => {
     const label = pinnedIds.includes(session.id) ? 'Pinned' : getGroupLabel(session);
@@ -232,8 +159,7 @@ export default function Sidebar({
     else grouped.push({ label, items: [session] });
   });
 
-  // ─── Shared session list panel ───
-  const SessionPanel = ({ onItemClick }: { onItemClick: () => void }) => (
+  return (
     <>
       <div className="p-4 shrink-0">
         <button
@@ -256,13 +182,13 @@ export default function Sidebar({
             ref={searchInputRef}
             type="text"
             value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
+            onChange={e => onSearchChange(e.target.value)}
             placeholder="Search chats..."
             className="w-full pl-10 pr-8 py-2.5 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-xl text-xs font-medium text-zinc-800 dark:text-zinc-200 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all"
           />
           {searchQuery && (
             <button
-              onClick={() => setSearchQuery('')}
+              onClick={() => onSearchChange('')}
               className="absolute inset-y-0 right-3 flex items-center text-zinc-400 hover:text-zinc-600"
             >
               <X className="w-3.5 h-3.5" />
@@ -328,13 +254,13 @@ export default function Sidebar({
                           <input
                             ref={renameInputRef}
                             value={renameValue}
-                            onChange={e => setRenameValue(e.target.value)}
+                            onChange={e => onRenameValueChange(e.target.value)}
                             onKeyDown={e => {
-                              if (e.key === 'Enter') commitRename();
-                              if (e.key === 'Escape') cancelRename();
+                              if (e.key === 'Enter') onCommitRename();
+                              if (e.key === 'Escape') onCancelRename();
                               e.stopPropagation();
                             }}
-                            onBlur={commitRename}
+                            onBlur={onCommitRename}
                             onClick={e => e.stopPropagation()}
                             className="flex-1 min-w-0 bg-white dark:bg-zinc-900 border border-indigo-400 rounded-lg px-2 py-0.5 text-xs font-medium text-zinc-800 dark:text-zinc-200 focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
                           />
@@ -347,7 +273,7 @@ export default function Sidebar({
                           <button
                             onClick={e => {
                               e.stopPropagation();
-                              setMenuOpenId(isMenuOpen ? null : session.id);
+                              onMenuOpen(isMenuOpen ? null : session.id);
                             }}
                             className={`shrink-0 p-1 rounded-md transition-all ${
                               isMenuOpen
@@ -360,7 +286,7 @@ export default function Sidebar({
                         )}
                       </motion.div>
 
-                      {/* Context menu — Rename, Pin/Unpin, Delete only (Share removed) */}
+                      {/* Context menu */}
                       <AnimatePresence>
                         {isMenuOpen && (
                           <motion.div
@@ -372,13 +298,13 @@ export default function Sidebar({
                             onClick={e => e.stopPropagation()}
                           >
                             <button
-                              onClick={() => startRename(session)}
+                              onClick={() => onStartRename(session)}
                               className="w-full flex items-center gap-3 px-4 py-3 text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors"
                             >
                               <Edit3 className="w-4 h-4 text-zinc-400" /> Rename
                             </button>
                             <button
-                              onClick={() => togglePin(session.id)}
+                              onClick={() => onTogglePin(session.id)}
                               className="w-full flex items-center gap-3 px-4 py-3 text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors"
                             >
                               {isPinned ? <PinOff className="w-4 h-4 text-amber-500" /> : <Pin className="w-4 h-4 text-zinc-400" />}
@@ -386,7 +312,7 @@ export default function Sidebar({
                             </button>
                             <div className="mx-3 border-t border-zinc-100 dark:border-zinc-800" />
                             <button
-                              onClick={() => handleDelete(session.id)}
+                              onClick={() => onDelete(session.id)}
                               className="w-full flex items-center gap-3 px-4 py-3 text-xs font-semibold text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
                             >
                               <Trash2 className="w-4 h-4" /> Delete
@@ -403,6 +329,7 @@ export default function Sidebar({
         )}
       </div>
 
+      {/* Footer */}
       <div className="p-4 shrink-0 border-t border-zinc-200 dark:border-zinc-800">
         <div className="flex items-center gap-3 p-3 rounded-2xl bg-zinc-50 dark:bg-zinc-900 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors group mb-2">
           <UserAvatar name={user.username} className="w-9 h-9 text-xs shadow-sm group-hover:scale-105 transition-transform shrink-0" />
@@ -425,6 +352,199 @@ export default function Sidebar({
       </div>
     </>
   );
+}
+
+// ─── Main Sidebar component ────────────────────────────────────────────────────
+export default function Sidebar({
+  user,
+  sessions,
+  currentSessionId,
+  onSelectSession,
+  onNewSession,
+  onDeleteSession,
+  onRenameSession,
+  onClearAll,
+  onLogout,
+  onClose = () => {},
+  mobileOpen = false,
+  onMobileClose = () => {},
+}: Props) {
+  // Desktop: collapsed rail state (lg+ only)
+  const [desktopCollapsed, setDesktopCollapsed] = useState(() => {
+    return localStorage.getItem(SIDEBAR_SEEN_KEY) !== null;
+  });
+
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isSearching, setIsSearching] = useState(false);
+
+  // FIX: Use searchResults (null = no search active) instead of filteredSessions state.
+  // When null, the panel derives filteredSessions directly from the sessions prop,
+  // so it is never stale when the mobile drawer opens for the first time.
+  const [searchResults, setSearchResults] = useState<Session[] | null>(null);
+
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const [focusSearch, setFocusSearch] = useState(false);
+
+  const [menuOpenId, setMenuOpenId] = useState<number | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  const [renamingId, setRenamingId] = useState<number | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const renameInputRef = useRef<HTMLInputElement>(null);
+
+  const [pinnedIds, setPinnedIds] = useState<number[]>(loadPinnedIds);
+
+  // ── Desktop expand/collapse ──────────────────────────────────────────────
+  const expandDesktop = useCallback(() => {
+    setDesktopCollapsed(false);
+    localStorage.setItem(SIDEBAR_SEEN_KEY, '1');
+  }, []);
+
+  const expandDesktopToSearch = useCallback(() => {
+    setDesktopCollapsed(false);
+    localStorage.setItem(SIDEBAR_SEEN_KEY, '1');
+    setFocusSearch(true);
+  }, []);
+
+  const collapseDesktop = useCallback(() => {
+    setDesktopCollapsed(true);
+    onClose();
+  }, [onClose]);
+
+  const toggleDesktop = useCallback(() => {
+    if (desktopCollapsed) expandDesktop();
+    else collapseDesktop();
+  }, [desktopCollapsed, expandDesktop, collapseDesktop]);
+
+  useEffect(() => {
+    if (!desktopCollapsed && focusSearch) {
+      setTimeout(() => { searchInputRef.current?.focus(); setFocusSearch(false); }, 80);
+    }
+  }, [desktopCollapsed, focusSearch]);
+
+  // Focus search input when mobile drawer opens
+  useEffect(() => {
+    if (mobileOpen) {
+      setTimeout(() => searchInputRef.current?.focus(), 200);
+    }
+  }, [mobileOpen]);
+
+  // ── Search ───────────────────────────────────────────────────────────────
+  // FIX: When query is cleared, reset searchResults to null so the panel
+  // shows live sessions prop directly without any stale filtered state.
+  const handleSearchChange = useCallback((q: string) => {
+    setSearchQuery(q);
+    if (!q.trim()) {
+      setSearchResults(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!searchQuery.trim()) {
+      setSearchResults(null);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      setIsSearching(true);
+      try {
+        const res = await chatApi.searchSessions(searchQuery);
+        setSearchResults((res as any).sessions || []);
+      } catch {
+        setSearchResults(
+          sessions.filter(s =>
+            s.sessionName.toLowerCase().includes(searchQuery.toLowerCase())
+          )
+        );
+      } finally {
+        setIsSearching(false);
+      }
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [searchQuery, sessions]);
+
+  // ── Context menu close on outside click ─────────────────────────────────
+  useEffect(() => {
+    if (menuOpenId === null) return;
+    const h = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpenId(null);
+    };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, [menuOpenId]);
+
+  // ── Rename auto-focus ────────────────────────────────────────────────────
+  useEffect(() => {
+    if (renamingId !== null) setTimeout(() => renameInputRef.current?.focus(), 50);
+  }, [renamingId]);
+
+  // ── Pin ──────────────────────────────────────────────────────────────────
+  const togglePin = useCallback((id: number) => {
+    setPinnedIds(prev => {
+      const next = prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id];
+      savePinnedIds(next);
+      return next;
+    });
+    setMenuOpenId(null);
+  }, []);
+
+  // ── Rename ───────────────────────────────────────────────────────────────
+  const startRename = useCallback((session: Session) => {
+    setRenamingId(session.id);
+    setRenameValue(session.sessionName);
+    setMenuOpenId(null);
+  }, []);
+
+  const commitRename = useCallback(() => {
+    if (renamingId !== null && renameValue.trim()) onRenameSession(renamingId, renameValue.trim());
+    setRenamingId(null);
+    setRenameValue('');
+  }, [renamingId, renameValue, onRenameSession]);
+
+  const cancelRename = useCallback(() => {
+    setRenamingId(null);
+    setRenameValue('');
+  }, []);
+
+  // ── Delete ───────────────────────────────────────────────────────────────
+  const handleDelete = useCallback((id: number) => {
+    onDeleteSession(id);
+    setMenuOpenId(null);
+    setPinnedIds(prev => {
+      const next = prev.filter(p => p !== id);
+      savePinnedIds(next);
+      return next;
+    });
+  }, [onDeleteSession]);
+
+  // ── Shared panel props object ─────────────────────────────────────────────
+  const panelProps: SessionPanelProps = {
+    user,
+    sessions,
+    currentSessionId,
+    pinnedIds,
+    searchQuery,
+    isSearching,
+    searchResults,
+    renamingId,
+    renameValue,
+    menuOpenId,
+    menuRef,
+    searchInputRef,
+    renameInputRef,
+    onItemClick: () => {},        // overridden per usage below
+    onNewSession,
+    onClearAll,
+    onSelectSession,
+    onLogout,
+    onSearchChange: handleSearchChange,
+    onMenuOpen: setMenuOpenId,
+    onStartRename: startRename,
+    onCommitRename: commitRename,
+    onCancelRename: cancelRename,
+    onRenameValueChange: setRenameValue,
+    onTogglePin: togglePin,
+    onDelete: handleDelete,
+  };
 
   return (
     <>
@@ -468,7 +588,7 @@ export default function Sidebar({
                   <X className="w-5 h-5" />
                 </button>
               </div>
-              <SessionPanel onItemClick={onMobileClose} />
+              <SessionPanel {...panelProps} onItemClick={onMobileClose} />
             </motion.aside>
           </>
         )}
@@ -570,7 +690,7 @@ export default function Sidebar({
                   <h2 className="text-xl font-black tracking-tighter text-zinc-900 dark:text-white italic">NEXUS</h2>
                 </button>
               </div>
-              <SessionPanel onItemClick={collapseDesktop} />
+              <SessionPanel {...panelProps} onItemClick={collapseDesktop} />
             </aside>
           </>
         )}
