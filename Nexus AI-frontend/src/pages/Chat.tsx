@@ -105,6 +105,7 @@ export default function Chat({ user, onLogout }: Props) {
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [sessionsLoaded, setSessionsLoaded] = useState(false); // FIX: track successful load
   const [justFinished, setJustFinished] = useState(false);
   const [showScrollBottom, setShowScrollBottom] = useState(false);
   const [copiedId, setCopiedId] = useState<number | string | null>(null);
@@ -133,9 +134,11 @@ export default function Chat({ user, onLogout }: Props) {
       wakeUpServer();
       const response = await chatApi.getSessions() as any;
       setSessions(response.sessions || []);
+      setSessionsLoaded(true); // FIX: only mark loaded on success
     } catch (err: unknown) {
       console.error('Failed to load sessions:', err);
       if (err && typeof err === 'object' && 'status' in err && (err as { status: number }).status === 401) onLogout();
+      // FIX: do NOT set sessionsLoaded on error — preserves currentSessionId
     } finally {
       setLoading(false);
     }
@@ -155,6 +158,7 @@ export default function Chat({ user, onLogout }: Props) {
 
   useEffect(() => {
     if (loading) return;
+    if (!sessionsLoaded) return; // FIX: only clear session after a successful sessions load
     if (currentSessionId !== null) {
       const stillExists = sessions.some(s => s.id === currentSessionId);
       if (!stillExists) {
@@ -162,7 +166,7 @@ export default function Chat({ user, onLogout }: Props) {
         setMessages([]);
       }
     }
-  }, [sessions, loading]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sessions, loading, sessionsLoaded]); // FIX: added sessionsLoaded to deps
 
   useEffect(() => {
     if (currentSessionId) {
