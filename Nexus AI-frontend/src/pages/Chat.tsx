@@ -767,7 +767,7 @@ export default function Chat({ user, onLogout }: Props) {
             </div>
 
             <p className="mt-2 text-center text-[10px] font-medium text-[--text-muted]/40">
-              Nexus AI can make mistakes. Enter to send · Shift+Enter for new line.
+              Nexus AI can make mistakes. please double-check responses.
             </p>
           </div>
         </div>
