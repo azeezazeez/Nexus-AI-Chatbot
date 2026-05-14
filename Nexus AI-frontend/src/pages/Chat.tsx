@@ -211,6 +211,10 @@ export default function Chat({ user, onLogout }: Props) {
     else setMessages(prev => [...prev, tempUserMsg]);
 
     setInput('');
+    // Reset textarea height after clearing input
+    if (inputRef.current) {
+      inputRef.current.style.height = 'auto';
+    }
     const isNewSession = !currentSessionId;
 
     const wakingTimer = setTimeout(() => {
@@ -728,14 +732,18 @@ export default function Chat({ user, onLogout }: Props) {
                   onFocus={() => setInputFocused(true)}
                   onBlur={() => setInputFocused(false)}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !isTyping) {
+                    // Enter alone → send (if not loading a previous queued send)
+                    if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault();
-                      handleSendMessage();
+                      // Allow sending even while isTyping — the current request
+                      // will queue behind it via isSendingRef guard in sendMessage
+                      if (input.trim() && !isSendingRef.current) {
+                        handleSendMessage();
+                      }
                     }
-                    // plain Enter → newline (default textarea behaviour, no preventDefault)
+                    // Shift+Enter → newline (default textarea behaviour, no preventDefault)
                   }}
-                  disabled={isTyping}
-                  placeholder={showBlinkingCursor ? '' : 'Write a message... (Ctrl+Enter to send)'}
+                  placeholder={showBlinkingCursor ? '' : 'Write a message... (Shift+Enter for new line)'}
                   rows={1}
                   className="w-full px-4 py-3.5 bg-transparent focus:outline-none font-medium text-[--text-main] placeholder:text-zinc-400 dark:placeholder:text-zinc-500 text-sm leading-relaxed resize-none min-h-[52px] max-h-[160px] overflow-y-auto"
                   onInput={(e) => {
@@ -758,7 +766,7 @@ export default function Chat({ user, onLogout }: Props) {
                   whileHover={{ scale: isTyping || input.trim() ? 1.08 : 1.02 }}
                   whileTap={{ scale: 0.92 }}
                   onClick={isTyping ? handleStopResponse : () => handleSendMessage()}
-                  disabled={!input.trim() && !isTyping}
+                  disabled={!isTyping && !input.trim()}
                   aria-label={isTyping ? 'Stop response' : 'Send message'}
                   className={`relative flex items-center justify-center w-9 h-9 rounded-full transition-all duration-200 border-2 ${
                     isTyping
@@ -781,7 +789,7 @@ export default function Chat({ user, onLogout }: Props) {
             </div>
 
             <p className="mt-2 text-center text-[10px] font-medium text-[--text-muted]/40">
-              Nexus AI can make mistakes. Press Ctrl+Enter to send · Enter for new line.
+              Nexus AI can make mistakes. Enter to send · Shift+Enter for new line.
             </p>
           </div>
         </div>
