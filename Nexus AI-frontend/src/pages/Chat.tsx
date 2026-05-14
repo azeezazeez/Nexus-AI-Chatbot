@@ -47,7 +47,6 @@ const CodeBlock = ({ language, value }: { language: string; value: string }) => 
           <span className="uppercase tracking-widest hidden sm:inline">{copied ? 'Copied' : 'Copy'}</span>
         </button>
       </div>
-      {/* Horizontal scroll container for the code — critical for mobile */}
       <div className="overflow-x-auto w-full bg-[#282c34]">
         <SyntaxHighlighter
           style={oneDark}
@@ -59,7 +58,7 @@ const CodeBlock = ({ language, value }: { language: string; value: string }) => 
             fontSize: '0.8rem',
             background: 'transparent',
             lineHeight: '1.6',
-            minWidth: 'max-content', // lets long lines scroll rather than wrap
+            minWidth: 'max-content',
           }}
         >
           {value}
@@ -111,8 +110,6 @@ export default function Chat({ user, onLogout }: Props) {
   const [sessionIdToDelete, setSessionIdToDelete] = useState<number | null>(null);
   const [serverWaking, setServerWaking] = useState(false);
   const [inputFocused, setInputFocused] = useState(false);
-
-  // Mobile sidebar drawer state — controlled here so header can open it
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -163,7 +160,7 @@ export default function Chat({ user, onLogout }: Props) {
         setMessages([]);
       }
     }
-  }, [sessions, loading, sessionsLoaded]);
+  }, [sessions, loading, sessionsLoaded, currentSessionId, updateCurrentSessionId]);
 
   useEffect(() => {
     if (currentSessionId) {
@@ -211,10 +208,7 @@ export default function Chat({ user, onLogout }: Props) {
     else setMessages(prev => [...prev, tempUserMsg]);
 
     setInput('');
-    // Reset textarea height after clearing input
-    if (inputRef.current) {
-      inputRef.current.style.height = 'auto';
-    }
+    if (inputRef.current) inputRef.current.style.height = 'auto';
     const isNewSession = !currentSessionId;
 
     const wakingTimer = setTimeout(() => {
@@ -384,7 +378,7 @@ export default function Chat({ user, onLogout }: Props) {
     const messagesBeforeEdit = editedIndex > 0 ? messages.slice(0, editedIndex) : [];
     setEditingMessage(null);
     setEditInput('');
-    await sendMessage(editedText, messagesBeforeEdit, true); // isEdit=true → always rename
+    await sendMessage(editedText, messagesBeforeEdit, true);
   };
 
   const showBlinkingCursor = !input && (isTyping || justFinished);
@@ -412,9 +406,6 @@ export default function Chat({ user, onLogout }: Props) {
       {/* Ambient glow */}
       <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-indigo-500/5 rounded-full blur-[140px] pointer-events-none" />
 
-      {/* ── SIDEBAR ──
-          On mobile/tablet: rendered as a drawer controlled by mobileSidebarOpen.
-          On desktop (lg+): renders the collapsed rail / expanded panel itself. */}
       <Sidebar
         user={user}
         sessions={sessions}
@@ -429,20 +420,13 @@ export default function Chat({ user, onLogout }: Props) {
         onMobileClose={() => setMobileSidebarOpen(false)}
       />
 
-      {/*
-        ── MAIN CONTENT ──
-        Mobile/tablet: no left offset (no collapsed rail).
-        Desktop (lg+): pl-14 to account for collapsed icon rail.
-      */}
       <main className="flex-1 flex flex-col min-w-0 bg-transparent relative z-20 lg:pl-14">
 
         {/* ── HEADER ── */}
         <header className="sticky top-0 z-30 h-14 bg-white/90 dark:bg-black/50 backdrop-blur-2xl border-b border-[--border] shrink-0">
           <div className="flex items-center h-full px-3 gap-2">
 
-            {/* Left: hamburger (mobile/tablet only) + new chat */}
             <div className="flex items-center gap-1 shrink-0">
-              {/* Hamburger — only visible on mobile/tablet (hidden on lg+) */}
               <button
                 onClick={() => setMobileSidebarOpen(true)}
                 className="lg:hidden p-2 rounded-xl text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all"
@@ -450,10 +434,8 @@ export default function Chat({ user, onLogout }: Props) {
               >
                 <Menu className="w-5 h-5" />
               </button>
-
-              {/* New chat quick button */}
               <button
-                onClick={() => { createNewSession(); }}
+                onClick={createNewSession}
                 className="p-2 rounded-xl text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all"
                 aria-label="New chat"
                 title="New Chat"
@@ -476,7 +458,6 @@ export default function Chat({ user, onLogout }: Props) {
               </span>
             </div>
 
-            {/* Right: user avatar (mobile) */}
             <div className="shrink-0 lg:hidden">
               <UserAvatar
                 name={user.username}
@@ -549,11 +530,6 @@ export default function Chat({ user, onLogout }: Props) {
                         </div>
 
                         {/* Bubble */}
-                        {/*
-                          min-w-0 + overflow-hidden on the column wrapper ensures that
-                          wide children (code blocks) don't overflow the chat bubble.
-                          The code block itself has overflow-x-auto so users can swipe.
-                        */}
                         <div className={`flex flex-col gap-1 min-w-0 overflow-hidden ${msg.role === 'user' ? 'max-w-[88%] sm:max-w-[78%] items-end' : 'flex-1 items-start'}`}>
                           <div className={`w-full px-3 py-2.5 rounded-2xl shadow-sm border transition-all duration-300 backdrop-blur-xl ${
                             msg.role === 'assistant'
@@ -579,10 +555,17 @@ export default function Chat({ user, onLogout }: Props) {
                                   />
                                   <div className="flex justify-end items-center gap-2">
                                     <span className="text-[9px] text-zinc-400 mr-auto">⌘↵ send · Esc cancel</span>
-                                    <button onClick={handleCancelEdit} className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all rounded-lg ${msg.role === 'user' ? 'text-white/60 hover:text-white' : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100'}`}>
+                                    <button
+                                      onClick={handleCancelEdit}
+                                      className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all rounded-lg ${msg.role === 'user' ? 'text-white/60 hover:text-white' : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100'}`}
+                                    >
                                       Cancel
                                     </button>
-                                    <button onClick={handleSaveEdit} disabled={!editInput.trim() || isTyping} className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all shadow-lg disabled:opacity-40 ${msg.role === 'user' ? 'bg-white text-indigo-600 hover:bg-zinc-100' : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-indigo-500/20'}`}>
+                                    <button
+                                      onClick={handleSaveEdit}
+                                      disabled={!editInput.trim() || isTyping}
+                                      className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all shadow-lg disabled:opacity-40 ${msg.role === 'user' ? 'bg-white text-indigo-600 hover:bg-zinc-100' : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-indigo-500/20'}`}
+                                    >
                                       Send
                                     </button>
                                   </div>
@@ -598,7 +581,6 @@ export default function Chat({ user, onLogout }: Props) {
                                             <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 dark:bg-indigo-500" />
                                             <span className="text-[10px] font-black uppercase tracking-widest text-indigo-400 dark:text-indigo-500">Architecture</span>
                                           </div>
-                                          {/* horizontal scroll for text pre blocks */}
                                           <pre className="p-4 overflow-x-auto text-[0.8rem] leading-relaxed font-mono text-indigo-700 dark:text-indigo-300 whitespace-pre" {...props}>
                                             {children}
                                           </pre>
@@ -617,7 +599,6 @@ export default function Chat({ user, onLogout }: Props) {
                                         </code>
                                       );
                                     },
-                                    // Make tables scrollable on mobile
                                     table({ children, ...props }: any) {
                                       return (
                                         <div className="overflow-x-auto my-3 rounded-lg border border-zinc-200 dark:border-zinc-700">
@@ -633,8 +614,13 @@ export default function Chat({ user, onLogout }: Props) {
                             </div>
                           </div>
 
-                          {/* Actions */}
-                          <div className="flex items-center gap-1 mt-0.5 px-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          {/*
+                            ── Message action buttons ──
+                            On desktop (lg+): hidden by default, revealed on group hover.
+                            On mobile/tablet (< lg): always visible so touch users can access them.
+                            The `group` class is on the parent flex-col div above.
+                          */}
+                          <div className="flex items-center gap-1 mt-0.5 px-1 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity">
                             {msg.role === 'assistant' && (
                               <span className="text-[9px] font-black text-indigo-500/50 uppercase tracking-[0.2em] mr-auto pl-1">Nexus AI</span>
                             )}
@@ -645,7 +631,10 @@ export default function Chat({ user, onLogout }: Props) {
                             </span>
                             <div className="flex items-center gap-0.5">
                               {msg.role === 'user' && !isEditing && !isTyping && (
-                                <button onClick={() => handleStartEdit(msg)} className="p-1 px-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 hover:text-indigo-600 transition-all">
+                                <button
+                                  onClick={() => handleStartEdit(msg)}
+                                  className="p-1 px-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 hover:text-indigo-600 transition-all"
+                                >
                                   <Edit2 className="w-3.5 h-3.5" />
                                 </button>
                               )}
@@ -698,7 +687,7 @@ export default function Chat({ user, onLogout }: Props) {
                 <div ref={messagesEndRef} />
               </div>
             )}
-            {(messages.length === 0 && !isTyping) && <div ref={messagesEndRef} />}
+            {messages.length === 0 && !isTyping && <div ref={messagesEndRef} />}
           </div>
         </div>
 
@@ -732,18 +721,15 @@ export default function Chat({ user, onLogout }: Props) {
                   onFocus={() => setInputFocused(true)}
                   onBlur={() => setInputFocused(false)}
                   onKeyDown={(e) => {
-                    // Enter alone → send (if not loading a previous queued send)
                     if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault();
-                      // Allow sending even while isTyping — the current request
-                      // will queue behind it via isSendingRef guard in sendMessage
                       if (input.trim() && !isSendingRef.current) {
                         handleSendMessage();
                       }
                     }
-                    // Shift+Enter → newline (default textarea behaviour, no preventDefault)
+                    // Shift+Enter → newline (default textarea behaviour)
                   }}
-                  placeholder={showBlinkingCursor ? '' : 'Write a message...'}
+                  placeholder={showBlinkingCursor ? '' : 'Write a message... (Shift+Enter for new line)'}
                   rows={1}
                   className="w-full px-4 py-3.5 bg-transparent focus:outline-none font-medium text-[--text-main] placeholder:text-zinc-400 dark:placeholder:text-zinc-500 text-sm leading-relaxed resize-none min-h-[52px] max-h-[160px] overflow-y-auto"
                   onInput={(e) => {
