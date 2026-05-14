@@ -24,12 +24,12 @@ interface Props {
   onRenameSession: (id: number, name: string) => void;
   onClearAll: () => void;
   onLogout: () => void;
-  onClose?: () => void; // Optional: Called when sidebar collapses
+  onClose?: () => void;
 }
 
 // ── localStorage helpers ──────────────────────────────────────────────────────
 const PINNED_KEY = 'nexus_pinned_sessions';
-const SIDEBAR_SEEN_KEY = 'nexus_sidebar_seen'; // FIX: track first visit
+const SIDEBAR_SEEN_KEY = 'nexus_sidebar_seen';
 const loadPinnedIds = (): number[] => {
   try { return JSON.parse(localStorage.getItem(PINNED_KEY) || '[]'); } catch { return []; }
 };
@@ -108,10 +108,9 @@ export default function Sidebar({
   onRenameSession,
   onClearAll,
   onLogout,
-  onClose = () => {}, // Default empty function
+  onClose = () => {},
 }: Props) {
-  // FIX: collapsed defaults to true only after the first visit has been recorded;
-  // on first-ever load the sidebar opens so users discover their chats.
+  // FIX: open by default on first visit so users discover their chats
   const [collapsed, setCollapsed] = useState(() => {
     return localStorage.getItem(SIDEBAR_SEEN_KEY) !== null;
   });
@@ -122,26 +121,20 @@ export default function Sidebar({
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [focusSearch, setFocusSearch] = useState(false);
 
-  // Context menu
   const [menuOpenId, setMenuOpenId] = useState<number | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  // Inline rename
   const [renamingId, setRenamingId] = useState<number | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const renameInputRef = useRef<HTMLInputElement>(null);
 
-  // Pinned
   const [pinnedIds, setPinnedIds] = useState<number[]>(loadPinnedIds);
 
-  // Share toast
   const [shareToastVisible, setShareToastVisible] = useState(false);
   const [sharingId, setSharingId] = useState<number | null>(null);
   const [sharePending, setSharePending] = useState<number | null>(null);
 
   // ── Collapse helpers ──────────────────────────────────────────────────────
-  // FIX: mark sidebar as seen in localStorage when expanding so the default
-  // open-on-first-visit logic doesn't trigger again on subsequent page loads.
   const expand = useCallback(() => {
     setCollapsed(false);
     localStorage.setItem(SIDEBAR_SEEN_KEY, '1');
@@ -160,19 +153,16 @@ export default function Sidebar({
     else collapse();
   }, [collapsed, expand, collapse]);
 
-  // Focus search input when expanding via search icon
   useEffect(() => {
     if (!collapsed && focusSearch) {
       setTimeout(() => { searchInputRef.current?.focus(); setFocusSearch(false); }, 80);
     }
   }, [collapsed, focusSearch]);
 
-  // ── Sync sessions ─────────────────────────────────────────────────────────
   useEffect(() => {
     if (!searchQuery.trim()) setFilteredSessions(sessions);
   }, [sessions, searchQuery]);
 
-  // ── Search ────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!searchQuery.trim()) {
       setFilteredSessions(sessions);
@@ -192,7 +182,6 @@ export default function Sidebar({
     return () => clearTimeout(timer);
   }, [searchQuery, sessions]);
 
-  // ── Close context menu on outside click ───────────────────────────────────
   useEffect(() => {
     if (menuOpenId === null) return;
     const h = (e: MouseEvent) => {
@@ -202,12 +191,10 @@ export default function Sidebar({
     return () => document.removeEventListener('mousedown', h);
   }, [menuOpenId]);
 
-  // ── Focus rename input ────────────────────────────────────────────────────
   useEffect(() => {
     if (renamingId !== null) setTimeout(() => renameInputRef.current?.focus(), 50);
   }, [renamingId]);
 
-  // ── Handlers ─────────────────────────────────────────────────────────────
   const togglePin = useCallback((id: number) => {
     setPinnedIds(prev => {
       const next = prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id];
@@ -302,7 +289,8 @@ export default function Sidebar({
       <>
         <ShareToast visible={shareToastVisible} />
         <aside className="fixed inset-y-0 left-0 z-[100] w-14 bg-white dark:bg-zinc-950 border-r border-zinc-200 dark:border-zinc-800 flex flex-col items-center py-5 shadow-sm">
-          {/* Logo — click to toggle sidebar open/closed */}
+
+          {/* ── Logo: always visible on ALL screen sizes ── */}
           <IconTooltip label="Open sidebar">
             <button
               onClick={toggle}
@@ -313,61 +301,71 @@ export default function Sidebar({
             </button>
           </IconTooltip>
 
-          <div className="w-5 border-t border-zinc-100 dark:border-zinc-800 my-3" />
+          {/*
+            ── Desktop-only extra icons (lg = 1024px and above) ──
+            On mobile & tablet: completely hidden. Users access New Chat, Search,
+            Chats list, and Logout by tapping the logo to open the full sidebar.
+          */}
+          <div className="hidden lg:flex lg:flex-col lg:items-center lg:w-full lg:gap-1">
+            <div className="w-5 border-t border-zinc-100 dark:border-zinc-800 my-3" />
 
-          {/* New Chat */}
-          <IconTooltip label="New Chat">
-            <button
-              onClick={() => { onNewSession(); expand(); }}
-              className="w-9 h-9 rounded-xl flex items-center justify-center text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all"
-              title="New Chat"
-            >
-              <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
-                <circle cx="10" cy="10" r="7.5" />
-                <line x1="10" y1="6.5" x2="10" y2="13.5" />
-                <line x1="6.5" y1="10" x2="13.5" y2="10" />
-              </svg>
-            </button>
-          </IconTooltip>
+            {/* New Chat */}
+            <IconTooltip label="New Chat">
+              <button
+                onClick={() => { onNewSession(); expand(); }}
+                className="w-9 h-9 rounded-xl flex items-center justify-center text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all"
+                title="New Chat"
+              >
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+                  <circle cx="10" cy="10" r="7.5" />
+                  <line x1="10" y1="6.5" x2="10" y2="13.5" />
+                  <line x1="6.5" y1="10" x2="13.5" y2="10" />
+                </svg>
+              </button>
+            </IconTooltip>
 
-          {/* Search */}
-          <IconTooltip label="Search">
-            <button
-              onClick={expandToSearch}
-              className="w-9 h-9 rounded-xl flex items-center justify-center text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all"
-              title="Search"
-            >
-              <Search className="w-[18px] h-[18px]" strokeWidth={1.6} />
-            </button>
-          </IconTooltip>
+            {/* Search */}
+            <IconTooltip label="Search">
+              <button
+                onClick={expandToSearch}
+                className="w-9 h-9 rounded-xl flex items-center justify-center text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all"
+                title="Search"
+              >
+                <Search className="w-[18px] h-[18px]" strokeWidth={1.6} />
+              </button>
+            </IconTooltip>
 
-          {/* FIX: Chats — numeric badge so users can see saved chats count at a glance */}
-          <IconTooltip label={`Chats (${sessions.length})`}>
-            <button
-              onClick={expand}
-              className="w-9 h-9 rounded-xl flex items-center justify-center text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all relative"
-              title="Chats"
-            >
-              <MessageSquare className="w-[18px] h-[18px]" strokeWidth={1.6} />
-              {sessions.length > 0 && (
-                <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-indigo-500 text-white text-[9px] font-black flex items-center justify-center leading-none">
-                  {sessions.length > 9 ? '9+' : sessions.length}
-                </span>
-              )}
-            </button>
-          </IconTooltip>
+            {/* Chats */}
+            <IconTooltip label={`Chats (${sessions.length})`}>
+              <button
+                onClick={expand}
+                className="w-9 h-9 rounded-xl flex items-center justify-center text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all relative"
+                title="Chats"
+              >
+                <MessageSquare className="w-[18px] h-[18px]" strokeWidth={1.6} />
+                {sessions.length > 0 && (
+                  <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-indigo-500 text-white text-[9px] font-black flex items-center justify-center leading-none">
+                    {sessions.length > 9 ? '9+' : sessions.length}
+                  </span>
+                )}
+              </button>
+            </IconTooltip>
+          </div>
 
           <div className="flex-1" />
 
-          {/* User avatar */}
-          <IconTooltip label={user.username}>
-            <button onClick={expand} className="mb-1">
-              <UserAvatar
-                name={user.username}
-                className="w-8 h-8 text-xs shadow-sm hover:scale-105 transition-transform"
-              />
-            </button>
-          </IconTooltip>
+          {/* User avatar: desktop only */}
+          <div className="hidden lg:block mb-1">
+            <IconTooltip label={user.username}>
+              <button onClick={expand}>
+                <UserAvatar
+                  name={user.username}
+                  className="w-8 h-8 text-xs shadow-sm hover:scale-105 transition-transform"
+                />
+              </button>
+            </IconTooltip>
+          </div>
+
         </aside>
       </>
     );
@@ -380,7 +378,7 @@ export default function Sidebar({
     <AnimatePresence mode="wait">
       <ShareToast visible={shareToastVisible} />
 
-      {/* Backdrop — covers entire screen behind the panel; click to close */}
+      {/* Backdrop — click anywhere outside to close */}
       <motion.div
         key="sidebar-backdrop"
         initial={{ opacity: 0 }}
@@ -399,7 +397,6 @@ export default function Sidebar({
         {/* ── Header ── */}
         <div className="p-5 shrink-0">
           <div className="flex items-center justify-between mb-5">
-            {/* NexusLogo is the toggle — click to collapse */}
             <button
               onClick={collapse}
               className="flex items-center gap-2.5 group"
@@ -450,7 +447,6 @@ export default function Sidebar({
         </div>
 
         {/* ── Session List ── */}
-        {/* FIX: added WebkitOverflowScrolling and overscrollBehavior for iOS Safari scroll fix */}
         <div
           className="flex-1 overflow-y-auto px-3 min-h-0 pb-4"
           style={{ WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain' }}
@@ -528,6 +524,7 @@ export default function Sidebar({
                             </span>
                           )}
 
+                          {/* FIX: 3-dots always visible at opacity-60, full opacity on hover/active */}
                           {!isRenaming && (
                             <button
                               onClick={e => {
@@ -537,7 +534,7 @@ export default function Sidebar({
                               className={`shrink-0 p-1 rounded-md transition-all ${
                                 isMenuOpen
                                   ? 'opacity-100 bg-zinc-200 dark:bg-zinc-700 text-zinc-700 dark:text-zinc-300'
-                                  : 'opacity-0 group-hover/item:opacity-100 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-400'
+                                  : 'opacity-60 hover:opacity-100 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-400'
                               }`}
                               title="More options"
                             >
