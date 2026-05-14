@@ -29,6 +29,7 @@ interface Props {
 
 // ── localStorage helpers ──────────────────────────────────────────────────────
 const PINNED_KEY = 'nexus_pinned_sessions';
+const SIDEBAR_SEEN_KEY = 'nexus_sidebar_seen'; // FIX: track first visit
 const loadPinnedIds = (): number[] => {
   try { return JSON.parse(localStorage.getItem(PINNED_KEY) || '[]'); } catch { return []; }
 };
@@ -109,8 +110,11 @@ export default function Sidebar({
   onLogout,
   onClose = () => {}, // Default empty function
 }: Props) {
-  // collapsed = true by default; the NexusLogo icon is the sole toggle
-  const [collapsed, setCollapsed] = useState(true);
+  // FIX: collapsed defaults to true only after the first visit has been recorded;
+  // on first-ever load the sidebar opens so users discover their chats.
+  const [collapsed, setCollapsed] = useState(() => {
+    return localStorage.getItem(SIDEBAR_SEEN_KEY) !== null;
+  });
 
   const [searchQuery, setSearchQuery] = useState('');
   const [filteredSessions, setFilteredSessions] = useState<Session[]>(sessions);
@@ -136,10 +140,16 @@ export default function Sidebar({
   const [sharePending, setSharePending] = useState<number | null>(null);
 
   // ── Collapse helpers ──────────────────────────────────────────────────────
-  const expand = useCallback(() => setCollapsed(false), []);
-  const expandToSearch = useCallback(() => { 
-    setCollapsed(false); 
-    setFocusSearch(true); 
+  // FIX: mark sidebar as seen in localStorage when expanding so the default
+  // open-on-first-visit logic doesn't trigger again on subsequent page loads.
+  const expand = useCallback(() => {
+    setCollapsed(false);
+    localStorage.setItem(SIDEBAR_SEEN_KEY, '1');
+  }, []);
+  const expandToSearch = useCallback(() => {
+    setCollapsed(false);
+    localStorage.setItem(SIDEBAR_SEEN_KEY, '1');
+    setFocusSearch(true);
   }, []);
   const collapse = useCallback(() => {
     setCollapsed(true);
@@ -164,8 +174,8 @@ export default function Sidebar({
 
   // ── Search ────────────────────────────────────────────────────────────────
   useEffect(() => {
-    if (!searchQuery.trim()) { 
-      setFilteredSessions(sessions); 
+    if (!searchQuery.trim()) {
+      setFilteredSessions(sessions);
       return;
     }
     const timer = setTimeout(async () => {
@@ -252,22 +262,22 @@ export default function Sidebar({
 
   const commitRename = useCallback(() => {
     if (renamingId !== null && renameValue.trim()) onRenameSession(renamingId, renameValue.trim());
-    setRenamingId(null); 
+    setRenamingId(null);
     setRenameValue('');
   }, [renamingId, renameValue, onRenameSession]);
 
-  const cancelRename = useCallback(() => { 
-    setRenamingId(null); 
-    setRenameValue(''); 
+  const cancelRename = useCallback(() => {
+    setRenamingId(null);
+    setRenameValue('');
   }, []);
 
   const handleDelete = useCallback((id: number) => {
     onDeleteSession(id);
     setMenuOpenId(null);
-    setPinnedIds(prev => { 
-      const next = prev.filter(p => p !== id); 
-      savePinnedIds(next); 
-      return next; 
+    setPinnedIds(prev => {
+      const next = prev.filter(p => p !== id);
+      savePinnedIds(next);
+      return next;
     });
   }, [onDeleteSession]);
 
@@ -331,8 +341,8 @@ export default function Sidebar({
             </button>
           </IconTooltip>
 
-          {/* Chats */}
-          <IconTooltip label="Chats">
+          {/* FIX: Chats — numeric badge so users can see saved chats count at a glance */}
+          <IconTooltip label={`Chats (${sessions.length})`}>
             <button
               onClick={expand}
               className="w-9 h-9 rounded-xl flex items-center justify-center text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all relative"
@@ -340,7 +350,9 @@ export default function Sidebar({
             >
               <MessageSquare className="w-[18px] h-[18px]" strokeWidth={1.6} />
               {sessions.length > 0 && (
-                <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-indigo-500" />
+                <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-indigo-500 text-white text-[9px] font-black flex items-center justify-center leading-none">
+                  {sessions.length > 9 ? '9+' : sessions.length}
+                </span>
               )}
             </button>
           </IconTooltip>
@@ -438,7 +450,11 @@ export default function Sidebar({
         </div>
 
         {/* ── Session List ── */}
-        <div className="flex-1 overflow-y-auto px-3 min-h-0 pb-4">
+        {/* FIX: added WebkitOverflowScrolling and overscrollBehavior for iOS Safari scroll fix */}
+        <div
+          className="flex-1 overflow-y-auto px-3 min-h-0 pb-4"
+          style={{ WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain' }}
+        >
           {sortedSessions.length === 0 ? (
             <div className="mx-2 py-8 text-center bg-zinc-50 dark:bg-zinc-900 rounded-2xl border border-dashed border-zinc-200 dark:border-zinc-700">
               <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider leading-relaxed">
