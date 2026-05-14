@@ -9,7 +9,7 @@ import UserAvatar from '../components/UserAvatar';
 import ConfirmationModal from '../components/ConfirmationModal';
 import {
   ArrowDown, ArrowUp,
-  Copy, Check, Edit2, Menu, Plus,
+  Copy, Check, Edit2, Menu
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import type { Components } from 'react-markdown';
@@ -433,14 +433,6 @@ export default function Chat({ user, onLogout }: Props) {
                 aria-label="Open menu"
               >
                 <Menu className="w-5 h-5" />
-              </button>
-              <button
-                onClick={createNewSession}
-                className="p-2 rounded-xl text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all"
-                aria-label="New chat"
-                title="New Chat"
-              >
-                <Plus className="w-5 h-5" />
               </button>
             </div>
 
