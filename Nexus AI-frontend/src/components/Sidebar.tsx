@@ -1,6 +1,11 @@
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
+ *
+ * CHANGES:
+ * - Removed collapsed icon rail on mobile/tablet (< lg)
+ * - On lg+ desktop: keeps original collapsed rail behaviour
+ * - Added `mobileOpen` prop so Chat.tsx can control drawer from header
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -25,9 +30,11 @@ interface Props {
   onClearAll: () => void;
   onLogout: () => void;
   onClose?: () => void;
+  /** Controlled open state for mobile/tablet drawer (toggled from header) */
+  mobileOpen?: boolean;
+  onMobileClose?: () => void;
 }
 
-// ── localStorage helpers ──────────────────────────────────────────────────────
 const PINNED_KEY = 'nexus_pinned_sessions';
 const SIDEBAR_SEEN_KEY = 'nexus_sidebar_seen';
 const loadPinnedIds = (): number[] => {
@@ -37,7 +44,6 @@ const savePinnedIds = (ids: number[]) => {
   localStorage.setItem(PINNED_KEY, JSON.stringify(ids));
 };
 
-// ── Date grouping ─────────────────────────────────────────────────────────────
 const getGroupLabel = (session: Session): string => {
   const raw = (session as any).createdAt || (session as any).created_at;
   if (!raw) return 'Recent';
@@ -51,7 +57,6 @@ const getGroupLabel = (session: Session): string => {
   return date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
 };
 
-// ── Nexus Logo ────────────────────────────────────────────────────────────────
 function NexusLogo({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -61,7 +66,6 @@ function NexusLogo({ className }: { className?: string }) {
   );
 }
 
-// ── Tooltip wrapper for collapsed rail icons ──────────────────────────────────
 function IconTooltip({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="relative group/tip flex items-center justify-center w-full">
@@ -79,7 +83,6 @@ function IconTooltip({ label, children }: { label: string; children: React.React
   );
 }
 
-// ── Share toast ───────────────────────────────────────────────────────────────
 function ShareToast({ visible }: { visible: boolean }) {
   return (
     <AnimatePresence>
@@ -109,9 +112,11 @@ export default function Sidebar({
   onClearAll,
   onLogout,
   onClose = () => {},
+  mobileOpen = false,
+  onMobileClose = () => {},
 }: Props) {
-  // FIX: open by default on first visit so users discover their chats
-  const [collapsed, setCollapsed] = useState(() => {
+  // Desktop: collapsed rail state (lg+ only)
+  const [desktopCollapsed, setDesktopCollapsed] = useState(() => {
     return localStorage.getItem(SIDEBAR_SEEN_KEY) !== null;
   });
 
@@ -134,30 +139,36 @@ export default function Sidebar({
   const [sharingId, setSharingId] = useState<number | null>(null);
   const [sharePending, setSharePending] = useState<number | null>(null);
 
-  // ── Collapse helpers ──────────────────────────────────────────────────────
-  const expand = useCallback(() => {
-    setCollapsed(false);
+  const expandDesktop = useCallback(() => {
+    setDesktopCollapsed(false);
     localStorage.setItem(SIDEBAR_SEEN_KEY, '1');
   }, []);
-  const expandToSearch = useCallback(() => {
-    setCollapsed(false);
+  const expandDesktopToSearch = useCallback(() => {
+    setDesktopCollapsed(false);
     localStorage.setItem(SIDEBAR_SEEN_KEY, '1');
     setFocusSearch(true);
   }, []);
-  const collapse = useCallback(() => {
-    setCollapsed(true);
+  const collapseDesktop = useCallback(() => {
+    setDesktopCollapsed(true);
     onClose();
   }, [onClose]);
-  const toggle = useCallback(() => {
-    if (collapsed) expand();
-    else collapse();
-  }, [collapsed, expand, collapse]);
+  const toggleDesktop = useCallback(() => {
+    if (desktopCollapsed) expandDesktop();
+    else collapseDesktop();
+  }, [desktopCollapsed, expandDesktop, collapseDesktop]);
 
   useEffect(() => {
-    if (!collapsed && focusSearch) {
+    if (!desktopCollapsed && focusSearch) {
       setTimeout(() => { searchInputRef.current?.focus(); setFocusSearch(false); }, 80);
     }
-  }, [collapsed, focusSearch]);
+  }, [desktopCollapsed, focusSearch]);
+
+  // When mobile drawer opens, focus search after animation
+  useEffect(() => {
+    if (mobileOpen) {
+      setTimeout(() => searchInputRef.current?.focus(), 200);
+    }
+  }, [mobileOpen]);
 
   useEffect(() => {
     if (!searchQuery.trim()) setFilteredSessions(sessions);
@@ -268,7 +279,6 @@ export default function Sidebar({
     });
   }, [onDeleteSession]);
 
-  // ── Grouped sessions ──────────────────────────────────────────────────────
   const sortedSessions = [
     ...filteredSessions.filter(s => pinnedIds.includes(s.id)),
     ...filteredSessions.filter(s => !pinnedIds.includes(s.id)),
@@ -281,40 +291,271 @@ export default function Sidebar({
     else grouped.push({ label, items: [session] });
   });
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // COLLAPSED ICON RAIL
-  // ═══════════════════════════════════════════════════════════════════════════
-  if (collapsed) {
-    return (
-      <>
-        <ShareToast visible={shareToastVisible} />
-        <aside className="fixed inset-y-0 left-0 z-[100] w-14 bg-white dark:bg-zinc-950 border-r border-zinc-200 dark:border-zinc-800 flex flex-col items-center py-5 shadow-sm">
+  // ─── Shared session list panel (used in both mobile drawer + desktop expanded) ───
+  const SessionPanel = ({ onItemClick }: { onItemClick: () => void }) => (
+    <>
+      <div className="p-4 shrink-0">
+        <button
+          onClick={() => { onNewSession(); onItemClick(); }}
+          className="w-full py-2.5 px-4 bg-indigo-600 text-white rounded-2xl flex items-center gap-3 font-bold hover:opacity-90 transition-all active:scale-[0.98] group shadow-lg mb-3"
+        >
+          <div className="w-5 h-5 rounded-md bg-white/20 flex items-center justify-center group-hover:scale-110 transition-transform shrink-0">
+            <Plus className="w-3.5 h-3.5" />
+          </div>
+          <span className="uppercase tracking-widest text-xs">New Chat</span>
+        </button>
 
-          {/* ── Logo: always visible on ALL screen sizes ── */}
+        <div className="relative group">
+          <div className="absolute inset-y-0 left-3.5 flex items-center pointer-events-none text-zinc-400 group-focus-within:text-indigo-500 transition-colors">
+            {isSearching
+              ? <Sparkles className="w-3.5 h-3.5 animate-pulse" />
+              : <Search className="w-3.5 h-3.5" />}
+          </div>
+          <input
+            ref={searchInputRef}
+            type="text"
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            placeholder="Search chats..."
+            className="w-full pl-10 pr-8 py-2.5 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-xl text-xs font-medium text-zinc-800 dark:text-zinc-200 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery('')}
+              className="absolute inset-y-0 right-3 flex items-center text-zinc-400 hover:text-zinc-600"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div
+        className="flex-1 overflow-y-auto px-3 min-h-0 pb-4"
+        style={{ WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain' }}
+      >
+        {sortedSessions.length === 0 ? (
+          <div className="mx-2 py-8 text-center bg-zinc-50 dark:bg-zinc-900 rounded-2xl border border-dashed border-zinc-200 dark:border-zinc-700">
+            <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider leading-relaxed">
+              {searchQuery ? 'No matching chats' : 'No chats yet'}
+              <br />
+              <span className="opacity-60 font-medium">
+                {searchQuery ? 'Try a different query' : 'Start a new conversation'}
+              </span>
+            </p>
+          </div>
+        ) : (
+          grouped.map(group => (
+            <div key={group.label} className="mb-2">
+              <div className="flex items-center justify-between px-3 pt-4 pb-1.5">
+                <span className="text-[10px] font-black text-zinc-400 uppercase tracking-[0.2em]">
+                  {group.label}
+                </span>
+                {group.label !== 'Pinned' && !searchQuery && group === grouped[grouped.length - 1] && sessions.length > 0 && (
+                  <button
+                    onClick={onClearAll}
+                    title="Clear all"
+                    className="text-[9px] font-black text-red-400 hover:text-red-500 transition-colors flex items-center gap-1 px-1.5 py-0.5 rounded-md hover:bg-red-50"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+              <div className="space-y-0.5">
+                {group.items.map(session => {
+                  const isActive = currentSessionId === session.id;
+                  const isPinned = pinnedIds.includes(session.id);
+                  const isMenuOpen = menuOpenId === session.id;
+                  const isRenaming = renamingId === session.id;
+                  const isSharing = sharingId === session.id;
+                  const isPendingShare = sharePending === session.id;
+
+                  return (
+                    <div key={session.id} className="relative" ref={isMenuOpen ? menuRef : undefined}>
+                      <motion.div
+                        initial={{ opacity: 0, x: -6 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        className={`group/item flex items-center gap-2.5 px-3 py-2.5 rounded-xl cursor-pointer transition-all ${
+                          isActive
+                            ? 'bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300'
+                            : 'text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 hover:text-zinc-800 dark:hover:text-zinc-200'
+                        }`}
+                        onClick={() => { if (!isRenaming) { onSelectSession(session.id); onItemClick(); } }}
+                      >
+                        <div className={`shrink-0 w-1.5 h-1.5 rounded-full transition-colors ${
+                          isActive ? 'bg-indigo-500' : isPinned ? 'bg-amber-400' : 'bg-transparent'
+                        }`} />
+                        {isRenaming ? (
+                          <input
+                            ref={renameInputRef}
+                            value={renameValue}
+                            onChange={e => setRenameValue(e.target.value)}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter') commitRename();
+                              if (e.key === 'Escape') cancelRename();
+                              e.stopPropagation();
+                            }}
+                            onBlur={commitRename}
+                            onClick={e => e.stopPropagation()}
+                            className="flex-1 min-w-0 bg-white dark:bg-zinc-900 border border-indigo-400 rounded-lg px-2 py-0.5 text-xs font-medium text-zinc-800 dark:text-zinc-200 focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
+                          />
+                        ) : (
+                          <span className="flex-1 min-w-0 truncate text-xs font-semibold leading-snug">
+                            {session.sessionName}
+                          </span>
+                        )}
+                        {!isRenaming && (
+                          <button
+                            onClick={e => {
+                              e.stopPropagation();
+                              setMenuOpenId(isMenuOpen ? null : session.id);
+                            }}
+                            className={`shrink-0 p-1 rounded-md transition-all ${
+                              isMenuOpen
+                                ? 'opacity-100 bg-zinc-200 dark:bg-zinc-700 text-zinc-700 dark:text-zinc-300'
+                                : 'opacity-60 hover:opacity-100 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-400'
+                            }`}
+                          >
+                            <MoreHorizontal className="w-4 h-4" />
+                          </button>
+                        )}
+                      </motion.div>
+
+                      <AnimatePresence>
+                        {isMenuOpen && (
+                          <motion.div
+                            initial={{ opacity: 0, scale: 0.92, y: -4 }}
+                            animate={{ opacity: 1, scale: 1, y: 0 }}
+                            exit={{ opacity: 0, scale: 0.92, y: -4 }}
+                            transition={{ duration: 0.12 }}
+                            className="absolute right-0 top-full mt-1 z-[200] w-44 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-2xl shadow-xl shadow-black/10 overflow-hidden"
+                            onClick={e => e.stopPropagation()}
+                          >
+                            <button onClick={() => startRename(session)} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors">
+                              <Edit3 className="w-4 h-4 text-zinc-400" /> Rename
+                            </button>
+                            <button onClick={() => togglePin(session.id)} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors">
+                              {isPinned ? <PinOff className="w-4 h-4 text-amber-500" /> : <Pin className="w-4 h-4 text-zinc-400" />}
+                              {isPinned ? 'Unpin' : 'Pin'}
+                            </button>
+                            <button onClick={() => handleShare(session)} disabled={isPendingShare} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors disabled:opacity-50">
+                              {isSharing ? <Check className="w-4 h-4 text-emerald-500" /> : isPendingShare ? <Sparkles className="w-4 h-4 text-indigo-400 animate-pulse" /> : <Link className="w-4 h-4 text-zinc-400" />}
+                              {isSharing ? 'Copied!' : isPendingShare ? 'Generating…' : 'Share link'}
+                            </button>
+                            <div className="mx-3 border-t border-zinc-100 dark:border-zinc-800" />
+                            <button onClick={() => handleDelete(session.id)} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-semibold text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors">
+                              <Trash2 className="w-4 h-4" /> Delete
+                            </button>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      <div className="p-4 shrink-0 border-t border-zinc-200 dark:border-zinc-800">
+        <div className="flex items-center gap-3 p-3 rounded-2xl bg-zinc-50 dark:bg-zinc-900 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors group mb-2">
+          <UserAvatar name={user.username} className="w-9 h-9 text-xs shadow-sm group-hover:scale-105 transition-transform shrink-0" />
+          <div className="flex-1 overflow-hidden">
+            <p className="text-xs font-black truncate text-zinc-800 dark:text-zinc-200 uppercase tracking-wider">
+              {user.username}
+            </p>
+            <div className="flex items-center gap-1.5 mt-0.5">
+              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+              <p className="text-[9px] font-bold text-zinc-400 uppercase tracking-[0.15em]">Online</p>
+            </div>
+          </div>
+        </div>
+        <button
+          onClick={onLogout}
+          className="w-full flex items-center justify-center gap-2.5 p-2.5 text-[10px] font-black text-zinc-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-xl transition-all uppercase tracking-[0.2em]"
+        >
+          <LogOut className="w-3.5 h-3.5" /> Logout
+        </button>
+      </div>
+    </>
+  );
+
+  return (
+    <>
+      <ShareToast visible={shareToastVisible} />
+
+      {/* ═══════════════════════════════════════════════════
+          MOBILE / TABLET DRAWER  (hidden on lg+)
+          Opened by header hamburger via `mobileOpen` prop
+      ═══════════════════════════════════════════════════ */}
+      <AnimatePresence>
+        {mobileOpen && (
+          <>
+            {/* Backdrop */}
+            <motion.div
+              key="mobile-backdrop"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="lg:hidden fixed inset-0 z-40 bg-black/50 backdrop-blur-sm"
+              onClick={onMobileClose}
+              aria-hidden="true"
+            />
+            {/* Drawer */}
+            <motion.aside
+              key="mobile-drawer"
+              initial={{ x: '-100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '-100%' }}
+              transition={{ type: 'spring', stiffness: 320, damping: 32 }}
+              className="lg:hidden fixed inset-y-0 left-0 z-50 w-72 bg-white dark:bg-zinc-950 border-r border-zinc-200 dark:border-zinc-800 flex flex-col h-full shadow-2xl"
+              onClick={e => e.stopPropagation()}
+            >
+              {/* Drawer header with close button */}
+              <div className="flex items-center justify-between px-5 pt-5 pb-2 shrink-0">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-500/20 p-1.5">
+                    <NexusLogo className="w-full h-full text-white" />
+                  </div>
+                  <h2 className="text-lg font-black tracking-tighter text-zinc-900 dark:text-white italic">NEXUS</h2>
+                </div>
+                <button
+                  onClick={onMobileClose}
+                  className="p-2 rounded-xl text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all"
+                  aria-label="Close menu"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <SessionPanel onItemClick={onMobileClose} />
+            </motion.aside>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* ═══════════════════════════════════════════════════
+          DESKTOP COLLAPSED ICON RAIL  (lg+ only)
+      ═══════════════════════════════════════════════════ */}
+      {desktopCollapsed && (
+        <aside className="hidden lg:flex fixed inset-y-0 left-0 z-[100] w-14 bg-white dark:bg-zinc-950 border-r border-zinc-200 dark:border-zinc-800 flex-col items-center py-5 shadow-sm">
           <IconTooltip label="Open sidebar">
             <button
-              onClick={toggle}
+              onClick={toggleDesktop}
               className="w-9 h-9 rounded-xl flex items-center justify-center bg-gradient-to-br from-indigo-500 to-purple-600 hover:opacity-90 transition-all shadow-lg shadow-indigo-500/20"
               title="Open sidebar"
             >
-              <NexusLogo className="w-5 h-5" />
+              <NexusLogo className="w-5 h-5 text-white" />
             </button>
           </IconTooltip>
 
-          {/*
-            ── Desktop-only extra icons (lg = 1024px and above) ──
-            On mobile & tablet: completely hidden. Users access New Chat, Search,
-            Chats list, and Logout by tapping the logo to open the full sidebar.
-          */}
-          <div className="hidden lg:flex lg:flex-col lg:items-center lg:w-full lg:gap-1">
+          <div className="flex flex-col items-center w-full gap-1">
             <div className="w-5 border-t border-zinc-100 dark:border-zinc-800 my-3" />
-
-            {/* New Chat */}
             <IconTooltip label="New Chat">
               <button
-                onClick={() => { onNewSession(); expand(); }}
+                onClick={() => { onNewSession(); expandDesktop(); }}
                 className="w-9 h-9 rounded-xl flex items-center justify-center text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all"
-                title="New Chat"
               >
                 <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
                   <circle cx="10" cy="10" r="7.5" />
@@ -323,24 +564,18 @@ export default function Sidebar({
                 </svg>
               </button>
             </IconTooltip>
-
-            {/* Search */}
             <IconTooltip label="Search">
               <button
-                onClick={expandToSearch}
+                onClick={expandDesktopToSearch}
                 className="w-9 h-9 rounded-xl flex items-center justify-center text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all"
-                title="Search"
               >
                 <Search className="w-[18px] h-[18px]" strokeWidth={1.6} />
               </button>
             </IconTooltip>
-
-            {/* Chats */}
             <IconTooltip label={`Chats (${sessions.length})`}>
               <button
-                onClick={expand}
+                onClick={expandDesktop}
                 className="w-9 h-9 rounded-xl flex items-center justify-center text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all relative"
-                title="Chats"
               >
                 <MessageSquare className="w-[18px] h-[18px]" strokeWidth={1.6} />
                 {sessions.length > 0 && (
@@ -353,256 +588,54 @@ export default function Sidebar({
           </div>
 
           <div className="flex-1" />
-
-          {/* User avatar: desktop only */}
-          <div className="hidden lg:block mb-1">
-            <IconTooltip label={user.username}>
-              <button onClick={expand}>
-                <UserAvatar
-                  name={user.username}
-                  className="w-8 h-8 text-xs shadow-sm hover:scale-105 transition-transform"
-                />
-              </button>
-            </IconTooltip>
-          </div>
-
-        </aside>
-      </>
-    );
-  }
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // EXPANDED FULL SIDEBAR
-  // ═══════════════════════════════════════════════════════════════════════════
-  return (
-    <AnimatePresence mode="wait">
-      <ShareToast visible={shareToastVisible} />
-
-      {/* Backdrop — click anywhere outside to close */}
-      <motion.div
-        key="sidebar-backdrop"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        transition={{ duration: 0.2 }}
-        className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm"
-        onClick={collapse}
-        aria-hidden="true"
-      />
-
-      <aside
-        className="fixed inset-y-0 left-0 z-[100] w-72 bg-white dark:bg-zinc-950 border-r border-zinc-200 dark:border-zinc-800 flex flex-col h-full shadow-2xl"
-        onClick={e => e.stopPropagation()}
-      >
-        {/* ── Header ── */}
-        <div className="p-5 shrink-0">
-          <div className="flex items-center justify-between mb-5">
-            <button
-              onClick={collapse}
-              className="flex items-center gap-2.5 group"
-              title="Close sidebar"
-            >
-              <div className="w-9 h-9 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-500/20 p-1.5 group-hover:opacity-80 transition-opacity">
-                <NexusLogo className="w-full h-full" />
-              </div>
-              <h2 className="text-xl font-black tracking-tighter text-zinc-900 dark:text-white italic">NEXUS</h2>
+          <IconTooltip label={user.username}>
+            <button onClick={expandDesktop}>
+              <UserAvatar
+                name={user.username}
+                className="w-8 h-8 text-xs shadow-sm hover:scale-105 transition-transform"
+              />
             </button>
-          </div>
+          </IconTooltip>
+        </aside>
+      )}
 
-          {/* New Chat */}
-          <button
-            onClick={() => { onNewSession(); collapse(); }}
-            className="w-full py-2.5 px-4 bg-indigo-600 text-white rounded-2xl flex items-center gap-3 font-bold hover:opacity-90 transition-all active:scale-[0.98] group shadow-lg"
-          >
-            <div className="w-5 h-5 rounded-md bg-white/20 flex items-center justify-center group-hover:scale-110 transition-transform shrink-0">
-              <Plus className="w-3.5 h-3.5" />
-            </div>
-            <span className="uppercase tracking-widest text-xs">New Chat</span>
-          </button>
-
-          {/* Search */}
-          <div className="mt-3 relative group">
-            <div className="absolute inset-y-0 left-3.5 flex items-center pointer-events-none text-zinc-400 group-focus-within:text-indigo-500 transition-colors">
-              {isSearching
-                ? <Sparkles className="w-3.5 h-3.5 animate-pulse" />
-                : <Search className="w-3.5 h-3.5" />}
-            </div>
-            <input
-              ref={searchInputRef}
-              type="text"
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              placeholder="Search chats..."
-              className="w-full pl-10 pr-8 py-2.5 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-xl text-xs font-medium text-zinc-800 dark:text-zinc-200 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all"
+      {/* ═══════════════════════════════════════════════════
+          DESKTOP EXPANDED FULL SIDEBAR  (lg+ only)
+      ═══════════════════════════════════════════════════ */}
+      <AnimatePresence mode="wait">
+        {!desktopCollapsed && (
+          <>
+            <motion.div
+              key="desktop-backdrop"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="hidden lg:block fixed inset-0 z-40 bg-black/40 backdrop-blur-sm"
+              onClick={collapseDesktop}
+              aria-hidden="true"
             />
-            {searchQuery && (
-              <button
-                onClick={() => setSearchQuery('')}
-                className="absolute inset-y-0 right-3 flex items-center text-zinc-400 hover:text-zinc-600"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* ── Session List ── */}
-        <div
-          className="flex-1 overflow-y-auto px-3 min-h-0 pb-4"
-          style={{ WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain' }}
-        >
-          {sortedSessions.length === 0 ? (
-            <div className="mx-2 py-8 text-center bg-zinc-50 dark:bg-zinc-900 rounded-2xl border border-dashed border-zinc-200 dark:border-zinc-700">
-              <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider leading-relaxed">
-                {searchQuery ? 'No matching chats' : 'No chats yet'}
-                <br />
-                <span className="opacity-60 font-medium">
-                  {searchQuery ? 'Try a different query' : 'Start a new conversation'}
-                </span>
-              </p>
-            </div>
-          ) : (
-            grouped.map(group => (
-              <div key={group.label} className="mb-2">
-                <div className="flex items-center justify-between px-3 pt-4 pb-1.5">
-                  <span className="text-[10px] font-black text-zinc-400 uppercase tracking-[0.2em]">
-                    {group.label}
-                  </span>
-                  {group.label !== 'Pinned' && !searchQuery && group === grouped[grouped.length - 1] && sessions.length > 0 && (
-                    <button
-                      onClick={onClearAll}
-                      title="Clear all"
-                      className="text-[9px] font-black text-red-400 hover:text-red-500 transition-colors flex items-center gap-1 px-1.5 py-0.5 rounded-md hover:bg-red-50"
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </button>
-                  )}
-                </div>
-
-                <div className="space-y-0.5">
-                  {group.items.map(session => {
-                    const isActive = currentSessionId === session.id;
-                    const isPinned = pinnedIds.includes(session.id);
-                    const isMenuOpen = menuOpenId === session.id;
-                    const isRenaming = renamingId === session.id;
-                    const isSharing = sharingId === session.id;
-                    const isPendingShare = sharePending === session.id;
-
-                    return (
-                      <div key={session.id} className="relative" ref={isMenuOpen ? menuRef : undefined}>
-                        <motion.div
-                          initial={{ opacity: 0, x: -6 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          className={`group/item flex items-center gap-2.5 px-3 py-2.5 rounded-xl cursor-pointer transition-all ${
-                            isActive
-                              ? 'bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300'
-                              : 'text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 hover:text-zinc-800 dark:hover:text-zinc-200'
-                          }`}
-                          onClick={() => { if (!isRenaming) { onSelectSession(session.id); collapse(); } }}
-                        >
-                          <div className={`shrink-0 w-1.5 h-1.5 rounded-full transition-colors ${
-                            isActive ? 'bg-indigo-500' : isPinned ? 'bg-amber-400' : 'bg-transparent'
-                          }`} />
-
-                          {isRenaming ? (
-                            <input
-                              ref={renameInputRef}
-                              value={renameValue}
-                              onChange={e => setRenameValue(e.target.value)}
-                              onKeyDown={e => {
-                                if (e.key === 'Enter') commitRename();
-                                if (e.key === 'Escape') cancelRename();
-                                e.stopPropagation();
-                              }}
-                              onBlur={commitRename}
-                              onClick={e => e.stopPropagation()}
-                              className="flex-1 min-w-0 bg-white dark:bg-zinc-900 border border-indigo-400 rounded-lg px-2 py-0.5 text-xs font-medium text-zinc-800 dark:text-zinc-200 focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
-                            />
-                          ) : (
-                            <span className="flex-1 min-w-0 truncate text-xs font-semibold leading-snug">
-                              {session.sessionName}
-                            </span>
-                          )}
-
-                          {/* FIX: 3-dots always visible at opacity-60, full opacity on hover/active */}
-                          {!isRenaming && (
-                            <button
-                              onClick={e => {
-                                e.stopPropagation();
-                                setMenuOpenId(isMenuOpen ? null : session.id);
-                              }}
-                              className={`shrink-0 p-1 rounded-md transition-all ${
-                                isMenuOpen
-                                  ? 'opacity-100 bg-zinc-200 dark:bg-zinc-700 text-zinc-700 dark:text-zinc-300'
-                                  : 'opacity-60 hover:opacity-100 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-400'
-                              }`}
-                              title="More options"
-                            >
-                              <MoreHorizontal className="w-4 h-4" />
-                            </button>
-                          )}
-                        </motion.div>
-
-                        {/* Context menu dropdown */}
-                        <AnimatePresence>
-                          {isMenuOpen && (
-                            <motion.div
-                              initial={{ opacity: 0, scale: 0.92, y: -4 }}
-                              animate={{ opacity: 1, scale: 1, y: 0 }}
-                              exit={{ opacity: 0, scale: 0.92, y: -4 }}
-                              transition={{ duration: 0.12 }}
-                              className="absolute right-0 top-full mt-1 z-[200] w-44 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-2xl shadow-xl shadow-black/10 overflow-hidden"
-                              onClick={e => e.stopPropagation()}
-                            >
-                              <button onClick={() => startRename(session)} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors">
-                                <Edit3 className="w-4 h-4 text-zinc-400" /> Rename
-                              </button>
-                              <button onClick={() => togglePin(session.id)} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors">
-                                {isPinned ? <PinOff className="w-4 h-4 text-amber-500" /> : <Pin className="w-4 h-4 text-zinc-400" />}
-                                {isPinned ? 'Unpin' : 'Pin'}
-                              </button>
-                              <button onClick={() => handleShare(session)} disabled={isPendingShare} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors disabled:opacity-50">
-                                {isSharing ? <Check className="w-4 h-4 text-emerald-500" /> : isPendingShare ? <Sparkles className="w-4 h-4 text-indigo-400 animate-pulse" /> : <Link className="w-4 h-4 text-zinc-400" />}
-                                {isSharing ? 'Copied!' : isPendingShare ? 'Generating…' : 'Share link'}
-                              </button>
-                              <div className="mx-3 border-t border-zinc-100 dark:border-zinc-800" />
-                              <button onClick={() => handleDelete(session.id)} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-semibold text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors">
-                                <Trash2 className="w-4 h-4" /> Delete
-                              </button>
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
-                      </div>
-                    );
-                  })}
-                </div>
+            <aside
+              className="hidden lg:flex fixed inset-y-0 left-0 z-[100] w-72 bg-white dark:bg-zinc-950 border-r border-zinc-200 dark:border-zinc-800 flex-col h-full shadow-2xl"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between px-5 pt-5 pb-2 shrink-0">
+                <button
+                  onClick={collapseDesktop}
+                  className="flex items-center gap-2.5 group"
+                  title="Close sidebar"
+                >
+                  <div className="w-9 h-9 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-500/20 p-1.5 group-hover:opacity-80 transition-opacity">
+                    <NexusLogo className="w-full h-full text-white" />
+                  </div>
+                  <h2 className="text-xl font-black tracking-tighter text-zinc-900 dark:text-white italic">NEXUS</h2>
+                </button>
               </div>
-            ))
-          )}
-        </div>
-
-        {/* ── Footer ── */}
-        <div className="p-4 shrink-0 border-t border-zinc-200 dark:border-zinc-800">
-          <div className="flex items-center gap-3 p-3 rounded-2xl bg-zinc-50 dark:bg-zinc-900 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors group mb-2">
-            <UserAvatar name={user.username} className="w-9 h-9 text-xs shadow-sm group-hover:scale-105 transition-transform shrink-0" />
-            <div className="flex-1 overflow-hidden">
-              <p className="text-xs font-black truncate text-zinc-800 dark:text-zinc-200 uppercase tracking-wider">
-                {user.username}
-              </p>
-              <div className="flex items-center gap-1.5 mt-0.5">
-                <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                <p className="text-[9px] font-bold text-zinc-400 uppercase tracking-[0.15em]">Online</p>
-              </div>
-            </div>
-          </div>
-          <button
-            onClick={onLogout}
-            className="w-full flex items-center justify-center gap-2.5 p-2.5 text-[10px] font-black text-zinc-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-xl transition-all uppercase tracking-[0.2em]"
-          >
-            <LogOut className="w-3.5 h-3.5" /> Logout
-          </button>
-        </div>
-      </aside>
-    </AnimatePresence>
+              <SessionPanel onItemClick={collapseDesktop} />
+            </aside>
+          </>
+        )}
+      </AnimatePresence>
+    </>
   );
 }
