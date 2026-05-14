@@ -9,8 +9,18 @@ import UserAvatar from '../components/UserAvatar';
 import ConfirmationModal from '../components/ConfirmationModal';
 import {
   ArrowDown, ArrowUp,
-  Copy, Check, Edit2, Menu
+  Copy, Check, Edit2
 } from 'lucide-react';
+
+// NexusLogo — matches the icon used in the Sidebar collapsed rail
+function NexusLogo({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="2" y="2" width="32" height="32" rx="8" ry="8" stroke="currentColor" strokeWidth="2.2" fill="none" />
+      <line x1="10" y1="2" x2="10" y2="34" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+    </svg>
+  );
+}
 import ReactMarkdown from 'react-markdown';
 import type { Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -68,12 +78,12 @@ const CodeBlock = ({ language, value }: { language: string; value: string }) => 
   );
 };
 
-// Blinking cursor
+// Blinking cursor component
 const BlinkingCursor = () => (
   <motion.span
     animate={{ opacity: [1, 0, 1] }}
     transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-    className="inline-block w-[2px] h-[1.1em] bg-indigo-500 align-middle ml-0.5 rounded-full"
+    className="inline-block w-[2px] h-[1.1em] bg-indigo-500 align-middle rounded-full"
     style={{ verticalAlign: 'text-bottom' }}
   />
 );
@@ -381,7 +391,9 @@ export default function Chat({ user, onLogout }: Props) {
     await sendMessage(editedText, messagesBeforeEdit, true);
   };
 
-  const showBlinkingCursor = !input && (isTyping || justFinished);
+  // FIX: Only show blinking cursor overlay when input is empty AND not focused AND (typing or just finished)
+  const showBlinkingCursor = !input && !inputFocused && (isTyping || justFinished);
+
   const currentSessionName = sessions.find(s => s.id === currentSessionId)?.sessionName || 'New Chat';
 
   // ── Loading Screen ────────────────────────────────────────────────────────
@@ -429,10 +441,10 @@ export default function Chat({ user, onLogout }: Props) {
             <div className="flex items-center gap-1 shrink-0">
               <button
                 onClick={() => setMobileSidebarOpen(true)}
-                className="lg:hidden p-2 rounded-xl text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all"
+                className="lg:hidden p-1.5 rounded-xl text-zinc-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all"
                 aria-label="Open menu"
               >
-                <Menu className="w-5 h-5" />
+                <NexusLogo className="w-6 h-6" />
               </button>
             </div>
 
@@ -610,7 +622,6 @@ export default function Chat({ user, onLogout }: Props) {
                             ── Message action buttons ──
                             On desktop (lg+): hidden by default, revealed on group hover.
                             On mobile/tablet (< lg): always visible so touch users can access them.
-                            The `group` class is on the parent flex-col div above.
                           */}
                           <div className="flex items-center gap-1 mt-0.5 px-1 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity">
                             {msg.role === 'assistant' && (
@@ -706,6 +717,13 @@ export default function Chat({ user, onLogout }: Props) {
             {/* Input container */}
             <div className={`relative flex flex-row items-end bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-lg transition-all overflow-hidden ${justFinished ? 'animate-blink' : ''}`}>
               <div className="relative flex-1 min-w-0">
+                {/*
+                  FIX: textarea placeholder is hidden via placeholder:text-transparent when
+                  showing the custom blinking cursor overlay, so the browser's native
+                  placeholder text doesn't compete with our overlay.
+                  caret-color is set to transparent only when overlay is active so the
+                  native blinking | caret doesn't show through.
+                */}
                 <textarea
                   ref={inputRef}
                   value={input}
@@ -723,17 +741,27 @@ export default function Chat({ user, onLogout }: Props) {
                   }}
                   placeholder={showBlinkingCursor ? '' : 'Write a message...'}
                   rows={1}
-                  className="w-full px-4 py-3.5 bg-transparent focus:outline-none font-medium text-[--text-main] placeholder:text-zinc-400 dark:placeholder:text-zinc-500 text-sm leading-relaxed resize-none min-h-[52px] max-h-[160px] overflow-y-auto"
+                  className={`w-full px-4 py-3.5 bg-transparent focus:outline-none font-medium text-[--text-main] placeholder:text-zinc-400 dark:placeholder:text-zinc-500 text-sm leading-relaxed resize-none min-h-[52px] max-h-[160px] overflow-y-auto ${showBlinkingCursor ? 'caret-transparent' : ''}`}
                   onInput={(e) => {
                     const target = e.target as HTMLTextAreaElement;
                     target.style.height = 'auto';
                     target.style.height = `${Math.min(target.scrollHeight, 160)}px`;
                   }}
                 />
-                {showBlinkingCursor && !inputFocused && (
-                  <div className="absolute left-4 top-1/2 -translate-y-1/2 flex items-center gap-1 pointer-events-none">
-                    <span className="text-sm font-medium text-zinc-400 dark:text-zinc-500">Write a message</span>
+
+                {/*
+                  FIX: Blinking cursor overlay — only shown when:
+                  - input is empty
+                  - input is NOT focused (so it doesn't fight the real caret)
+                  - AI is typing OR just finished
+                  Cursor is placed BEFORE the placeholder text (start of line).
+                */}
+                {showBlinkingCursor && (
+                  <div className="absolute left-4 top-0 bottom-0 flex items-center gap-1.5 pointer-events-none">
                     <BlinkingCursor />
+                    <span className="text-sm font-medium text-zinc-400 dark:text-zinc-500">
+                      Write a message...
+                    </span>
                   </div>
                 )}
               </div>
