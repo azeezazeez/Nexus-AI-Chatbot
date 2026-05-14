@@ -721,7 +721,7 @@ export default function Chat({ user, onLogout }: Props) {
                     }
                     // Shift+Enter → newline (default textarea behaviour)
                   }}
-                  placeholder={showBlinkingCursor ? '' : 'Write a message... (Shift+Enter for new line)'}
+                  placeholder={showBlinkingCursor ? '' : 'Write a message...'}
                   rows={1}
                   className="w-full px-4 py-3.5 bg-transparent focus:outline-none font-medium text-[--text-main] placeholder:text-zinc-400 dark:placeholder:text-zinc-500 text-sm leading-relaxed resize-none min-h-[52px] max-h-[160px] overflow-y-auto"
                   onInput={(e) => {
