@@ -6,6 +6,7 @@
  * - Removed collapsed icon rail on mobile/tablet (< lg)
  * - On lg+ desktop: keeps original collapsed rail behaviour
  * - Added `mobileOpen` prop so Chat.tsx can control drawer from header
+ * - Removed "Share link" option from session context menu
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -13,7 +14,7 @@ import { Session, User } from '../types';
 import {
   Plus, LogOut, Trash2, X, Search, Sparkles,
   MoreHorizontal, Pin, PinOff, Edit3, Check,
-  MessageSquare, Link,
+  MessageSquare,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import UserAvatar from './UserAvatar';
@@ -83,24 +84,6 @@ function IconTooltip({ label, children }: { label: string; children: React.React
   );
 }
 
-function ShareToast({ visible }: { visible: boolean }) {
-  return (
-    <AnimatePresence>
-      {visible && (
-        <motion.div
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: 8 }}
-          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[400] bg-zinc-900 text-white text-xs font-semibold px-4 py-2.5 rounded-2xl shadow-xl flex items-center gap-2"
-        >
-          <Check className="w-3.5 h-3.5 text-emerald-400" />
-          Link copied to clipboard!
-        </motion.div>
-      )}
-    </AnimatePresence>
-  );
-}
-
 export default function Sidebar({
   user,
   sessions,
@@ -135,10 +118,6 @@ export default function Sidebar({
 
   const [pinnedIds, setPinnedIds] = useState<number[]>(loadPinnedIds);
 
-  const [shareToastVisible, setShareToastVisible] = useState(false);
-  const [sharingId, setSharingId] = useState<number | null>(null);
-  const [sharePending, setSharePending] = useState<number | null>(null);
-
   const expandDesktop = useCallback(() => {
     setDesktopCollapsed(false);
     localStorage.setItem(SIDEBAR_SEEN_KEY, '1');
@@ -163,7 +142,6 @@ export default function Sidebar({
     }
   }, [desktopCollapsed, focusSearch]);
 
-  // When mobile drawer opens, focus search after animation
   useEffect(() => {
     if (mobileOpen) {
       setTimeout(() => searchInputRef.current?.focus(), 200);
@@ -215,43 +193,6 @@ export default function Sidebar({
     setMenuOpenId(null);
   }, []);
 
-  const handleShare = useCallback(async (session: Session) => {
-    setMenuOpenId(null);
-    setSharePending(session.id);
-    try {
-      const result = await (chatApi as any).shareSession(session.id);
-      const url: string = result?.shareUrl || result?.share_url || result?.url || '';
-      const copy = (text: string) => {
-        if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text);
-        const el = document.createElement('textarea');
-        el.value = text;
-        document.body.appendChild(el);
-        el.select();
-        document.execCommand('copy');
-        document.body.removeChild(el);
-      };
-      await copy(url || `${window.location.origin}/share/${session.id}`);
-      setSharingId(session.id);
-      setShareToastVisible(true);
-      setTimeout(() => { setSharingId(null); setShareToastVisible(false); }, 2200);
-    } catch {
-      const fallbackUrl = `${window.location.origin}/share/${session.id}`;
-      try { await navigator.clipboard.writeText(fallbackUrl); } catch {
-        const el = document.createElement('textarea');
-        el.value = fallbackUrl;
-        document.body.appendChild(el);
-        el.select();
-        document.execCommand('copy');
-        document.body.removeChild(el);
-      }
-      setSharingId(session.id);
-      setShareToastVisible(true);
-      setTimeout(() => { setSharingId(null); setShareToastVisible(false); }, 2200);
-    } finally {
-      setSharePending(null);
-    }
-  }, []);
-
   const startRename = useCallback((session: Session) => {
     setRenamingId(session.id);
     setRenameValue(session.sessionName);
@@ -291,7 +232,7 @@ export default function Sidebar({
     else grouped.push({ label, items: [session] });
   });
 
-  // ─── Shared session list panel (used in both mobile drawer + desktop expanded) ───
+  // ─── Shared session list panel ───
   const SessionPanel = ({ onItemClick }: { onItemClick: () => void }) => (
     <>
       <div className="p-4 shrink-0">
@@ -367,8 +308,6 @@ export default function Sidebar({
                   const isPinned = pinnedIds.includes(session.id);
                   const isMenuOpen = menuOpenId === session.id;
                   const isRenaming = renamingId === session.id;
-                  const isSharing = sharingId === session.id;
-                  const isPendingShare = sharePending === session.id;
 
                   return (
                     <div key={session.id} className="relative" ref={isMenuOpen ? menuRef : undefined}>
@@ -421,6 +360,7 @@ export default function Sidebar({
                         )}
                       </motion.div>
 
+                      {/* Context menu — Rename, Pin/Unpin, Delete only (Share removed) */}
                       <AnimatePresence>
                         {isMenuOpen && (
                           <motion.div
@@ -431,19 +371,24 @@ export default function Sidebar({
                             className="absolute right-0 top-full mt-1 z-[200] w-44 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-2xl shadow-xl shadow-black/10 overflow-hidden"
                             onClick={e => e.stopPropagation()}
                           >
-                            <button onClick={() => startRename(session)} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors">
+                            <button
+                              onClick={() => startRename(session)}
+                              className="w-full flex items-center gap-3 px-4 py-3 text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors"
+                            >
                               <Edit3 className="w-4 h-4 text-zinc-400" /> Rename
                             </button>
-                            <button onClick={() => togglePin(session.id)} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors">
+                            <button
+                              onClick={() => togglePin(session.id)}
+                              className="w-full flex items-center gap-3 px-4 py-3 text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors"
+                            >
                               {isPinned ? <PinOff className="w-4 h-4 text-amber-500" /> : <Pin className="w-4 h-4 text-zinc-400" />}
                               {isPinned ? 'Unpin' : 'Pin'}
                             </button>
-                            <button onClick={() => handleShare(session)} disabled={isPendingShare} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors disabled:opacity-50">
-                              {isSharing ? <Check className="w-4 h-4 text-emerald-500" /> : isPendingShare ? <Sparkles className="w-4 h-4 text-indigo-400 animate-pulse" /> : <Link className="w-4 h-4 text-zinc-400" />}
-                              {isSharing ? 'Copied!' : isPendingShare ? 'Generating…' : 'Share link'}
-                            </button>
                             <div className="mx-3 border-t border-zinc-100 dark:border-zinc-800" />
-                            <button onClick={() => handleDelete(session.id)} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-semibold text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors">
+                            <button
+                              onClick={() => handleDelete(session.id)}
+                              className="w-full flex items-center gap-3 px-4 py-3 text-xs font-semibold text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
+                            >
                               <Trash2 className="w-4 h-4" /> Delete
                             </button>
                           </motion.div>
@@ -483,16 +428,12 @@ export default function Sidebar({
 
   return (
     <>
-      <ShareToast visible={shareToastVisible} />
-
       {/* ═══════════════════════════════════════════════════
           MOBILE / TABLET DRAWER  (hidden on lg+)
-          Opened by header hamburger via `mobileOpen` prop
       ═══════════════════════════════════════════════════ */}
       <AnimatePresence>
         {mobileOpen && (
           <>
-            {/* Backdrop */}
             <motion.div
               key="mobile-backdrop"
               initial={{ opacity: 0 }}
@@ -503,7 +444,6 @@ export default function Sidebar({
               onClick={onMobileClose}
               aria-hidden="true"
             />
-            {/* Drawer */}
             <motion.aside
               key="mobile-drawer"
               initial={{ x: '-100%' }}
@@ -513,7 +453,6 @@ export default function Sidebar({
               className="lg:hidden fixed inset-y-0 left-0 z-50 w-72 bg-white dark:bg-zinc-950 border-r border-zinc-200 dark:border-zinc-800 flex flex-col h-full shadow-2xl"
               onClick={e => e.stopPropagation()}
             >
-              {/* Drawer header with close button */}
               <div className="flex items-center justify-between px-5 pt-5 pb-2 shrink-0">
                 <div className="flex items-center gap-2.5">
                   <div className="w-8 h-8 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-500/20 p-1.5">
