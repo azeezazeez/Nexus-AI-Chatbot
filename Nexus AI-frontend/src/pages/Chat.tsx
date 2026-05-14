@@ -9,7 +9,7 @@ import UserAvatar from '../components/UserAvatar';
 import ConfirmationModal from '../components/ConfirmationModal';
 import {
   ArrowDown, ArrowUp,
-  Copy, Check, Edit2,
+  Copy, Check, Edit2, Menu, Plus,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import type { Components } from 'react-markdown';
@@ -22,6 +22,7 @@ interface Props {
   onLogout: () => void;
 }
 
+// ── Code block — horizontally scrollable on mobile ──────────────────────────
 const CodeBlock = ({ language, value }: { language: string; value: string }) => {
   const [copied, setCopied] = useState(false);
 
@@ -32,31 +33,33 @@ const CodeBlock = ({ language, value }: { language: string; value: string }) => 
   };
 
   return (
-    <div className="group/code relative my-6 overflow-hidden rounded-xl border border-white/20 dark:border-white/10 shadow-2xl backdrop-blur-xl bg-white/5 dark:bg-black/20 transition-all">
-      <div className="flex items-center justify-between px-4 py-2.5 bg-white/10 dark:bg-black/20 border-b border-white/10">
+    <div className="group/code relative my-4 overflow-hidden rounded-xl border border-white/20 dark:border-white/10 shadow-xl backdrop-blur-xl bg-white/5 dark:bg-black/20 transition-all w-full">
+      <div className="flex items-center justify-between px-3 py-2 bg-white/10 dark:bg-black/20 border-b border-white/10">
         <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest flex items-center gap-2">
-          <div className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
+          <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 shrink-0" />
           {language || 'code'}
         </span>
         <button
           onClick={handleCopy}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-100 dark:bg-zinc-800 text-[10px] font-black text-zinc-500 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all hover:scale-105 active:scale-95"
+          className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-100 dark:bg-zinc-800 text-[10px] font-black text-zinc-500 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all hover:scale-105 active:scale-95 shrink-0"
         >
           {copied ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
-          <span className="uppercase tracking-widest">{copied ? 'Copied' : 'Copy'}</span>
+          <span className="uppercase tracking-widest hidden sm:inline">{copied ? 'Copied' : 'Copy'}</span>
         </button>
       </div>
-      <div className="p-0 bg-[#282c34]">
+      {/* Horizontal scroll container for the code — critical for mobile */}
+      <div className="overflow-x-auto w-full bg-[#282c34]">
         <SyntaxHighlighter
           style={oneDark}
           language={language || 'text'}
           PreTag="div"
           customStyle={{
             margin: 0,
-            padding: '1.25rem',
-            fontSize: '0.85rem',
+            padding: '1rem',
+            fontSize: '0.8rem',
             background: 'transparent',
             lineHeight: '1.6',
+            minWidth: 'max-content', // lets long lines scroll rather than wrap
           }}
         >
           {value}
@@ -66,7 +69,7 @@ const CodeBlock = ({ language, value }: { language: string; value: string }) => 
   );
 };
 
-// Blinking cursor component
+// Blinking cursor
 const BlinkingCursor = () => (
   <motion.span
     animate={{ opacity: [1, 0, 1] }}
@@ -78,24 +81,17 @@ const BlinkingCursor = () => (
 
 // ── localStorage helpers ──────────────────────────────────────────────────────
 const SESSION_KEY = 'scout_current_session_id';
-
 const persistSessionId = (id: number | null) => {
-  if (id === null) {
-    localStorage.removeItem(SESSION_KEY);
-  } else {
-    localStorage.setItem(SESSION_KEY, String(id));
-  }
+  if (id === null) localStorage.removeItem(SESSION_KEY);
+  else localStorage.setItem(SESSION_KEY, String(id));
 };
-
 const readPersistedSessionId = (): number | null => {
   try {
     const raw = localStorage.getItem(SESSION_KEY);
     if (!raw) return null;
     const parsed = parseInt(raw, 10);
     return isNaN(parsed) ? null : parsed;
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 };
 
 export default function Chat({ user, onLogout }: Props) {
@@ -105,7 +101,7 @@ export default function Chat({ user, onLogout }: Props) {
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [sessionsLoaded, setSessionsLoaded] = useState(false); // FIX: track successful load
+  const [sessionsLoaded, setSessionsLoaded] = useState(false);
   const [justFinished, setJustFinished] = useState(false);
   const [showScrollBottom, setShowScrollBottom] = useState(false);
   const [copiedId, setCopiedId] = useState<number | string | null>(null);
@@ -116,13 +112,15 @@ export default function Chat({ user, onLogout }: Props) {
   const [serverWaking, setServerWaking] = useState(false);
   const [inputFocused, setInputFocused] = useState(false);
 
+  // Mobile sidebar drawer state — controlled here so header can open it
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const isSendingRef = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const skipMessageLoadRef = useRef(false);
 
-  // ── Wrapped session setter ────────────────────────────────────────────────
   const updateCurrentSessionId = useCallback((id: number | null) => {
     setCurrentSessionId(id);
     persistSessionId(id);
@@ -134,11 +132,10 @@ export default function Chat({ user, onLogout }: Props) {
       wakeUpServer();
       const response = await chatApi.getSessions() as any;
       setSessions(response.sessions || []);
-      setSessionsLoaded(true); // FIX: only mark loaded on success
+      setSessionsLoaded(true);
     } catch (err: unknown) {
       console.error('Failed to load sessions:', err);
       if (err && typeof err === 'object' && 'status' in err && (err as { status: number }).status === 401) onLogout();
-      // FIX: do NOT set sessionsLoaded on error — preserves currentSessionId
     } finally {
       setLoading(false);
     }
@@ -158,7 +155,7 @@ export default function Chat({ user, onLogout }: Props) {
 
   useEffect(() => {
     if (loading) return;
-    if (!sessionsLoaded) return; // FIX: only clear session after a successful sessions load
+    if (!sessionsLoaded) return;
     if (currentSessionId !== null) {
       const stillExists = sessions.some(s => s.id === currentSessionId);
       if (!stillExists) {
@@ -166,7 +163,7 @@ export default function Chat({ user, onLogout }: Props) {
         setMessages([]);
       }
     }
-  }, [sessions, loading, sessionsLoaded]); // FIX: added sessionsLoaded to deps
+  }, [sessions, loading, sessionsLoaded]);
 
   useEffect(() => {
     if (currentSessionId) {
@@ -184,14 +181,13 @@ export default function Chat({ user, onLogout }: Props) {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isTyping]);
 
-  // ── Scroll ────────────────────────────────────────────────────────────────
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
     setShowScrollBottom(scrollHeight - scrollTop - clientHeight > 100);
   };
 
   // ── Core send ─────────────────────────────────────────────────────────────
-  const sendMessage = async (messageText: string, messagesSnapshot?: Message[]) => {
+  const sendMessage = async (messageText: string, messagesSnapshot?: Message[], isEdit = false) => {
     if (!messageText.trim()) return;
     if (isSendingRef.current) return;
 
@@ -211,14 +207,10 @@ export default function Chat({ user, onLogout }: Props) {
       timestamp: new Date().toISOString(),
     };
 
-    if (messagesSnapshot) {
-      setMessages([...messagesSnapshot, tempUserMsg]);
-    } else {
-      setMessages(prev => [...prev, tempUserMsg]);
-    }
+    if (messagesSnapshot) setMessages([...messagesSnapshot, tempUserMsg]);
+    else setMessages(prev => [...prev, tempUserMsg]);
 
     setInput('');
-
     const isNewSession = !currentSessionId;
 
     const wakingTimer = setTimeout(() => {
@@ -227,10 +219,7 @@ export default function Chat({ user, onLogout }: Props) {
 
     try {
       const response = await chatApi.sendMessage(
-        messageText,
-        currentSessionId,
-        controller.signal,
-        'default'
+        messageText, currentSessionId, controller.signal, 'default'
       ) as any;
 
       clearTimeout(wakingTimer);
@@ -260,8 +249,8 @@ export default function Chat({ user, onLogout }: Props) {
       });
 
       if (
-        (isNewSession || sessions.find(s => s.id === activeSessionId)?.sessionName === 'New Chat') &&
-        activeSessionId
+        activeSessionId &&
+        (isNewSession || isEdit || sessions.find(s => s.id === activeSessionId)?.sessionName === 'New Chat')
       ) {
         try {
           const { title } = await chatApi.generateTitle(messageText) as any;
@@ -379,17 +368,11 @@ export default function Chat({ user, onLogout }: Props) {
   const cleanMessageContent = (content: string): string =>
     content.replace(/\n?\n?\[Attached Files:.*?\]/g, '').trim();
 
-  // ── Edit handlers ─────────────────────────────────────────────────────────
   const handleStartEdit = (msg: Message) => {
     setEditingMessage({ id: msg.id, content: cleanMessageContent(msg.content) });
     setEditInput(cleanMessageContent(msg.content));
   };
-
-  const handleCancelEdit = () => {
-    setEditingMessage(null);
-    setEditInput('');
-  };
-
+  const handleCancelEdit = () => { setEditingMessage(null); setEditInput(''); };
   const handleSaveEdit = async () => {
     if (!editingMessage || !editInput.trim()) return;
     const editedText = editInput.trim();
@@ -397,13 +380,11 @@ export default function Chat({ user, onLogout }: Props) {
     const messagesBeforeEdit = editedIndex > 0 ? messages.slice(0, editedIndex) : [];
     setEditingMessage(null);
     setEditInput('');
-    await sendMessage(editedText, messagesBeforeEdit);
+    await sendMessage(editedText, messagesBeforeEdit, true); // isEdit=true → always rename
   };
 
-  // ── Derived values & stable callbacks — MUST be before any early return ───
-  // Rule of Hooks: hooks and values derived from hooks cannot appear after
-  // a conditional return. Keep ALL of them here, above the loading guard.
   const showBlinkingCursor = !input && (isTyping || justFinished);
+  const currentSessionName = sessions.find(s => s.id === currentSessionId)?.sessionName || 'New Chat';
 
   // ── Loading Screen ────────────────────────────────────────────────────────
   if (loading) {
@@ -422,13 +403,14 @@ export default function Chat({ user, onLogout }: Props) {
   }
 
   return (
-    // FIX: Use h-[100dvh] for mobile browser chrome, flex layout root
-    <div className="flex h-screen h-[100dvh] overflow-hidden bg-[--bg-main] relative transition-colors duration-300 font-sans">
+    <div className="flex h-[100dvh] overflow-hidden bg-[--bg-main] relative transition-colors duration-300 font-sans">
 
-      {/* Ambient background glow */}
-      <div className="absolute top-0 right-0 w-[800px] h-[800px] bg-indigo-500/5 rounded-full blur-[160px] pointer-events-none" />
+      {/* Ambient glow */}
+      <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-indigo-500/5 rounded-full blur-[140px] pointer-events-none" />
 
-      {/* ── SIDEBAR ── */}
+      {/* ── SIDEBAR ──
+          On mobile/tablet: rendered as a drawer controlled by mobileSidebarOpen.
+          On desktop (lg+): renders the collapsed rail / expanded panel itself. */}
       <Sidebar
         user={user}
         sessions={sessions}
@@ -439,61 +421,88 @@ export default function Chat({ user, onLogout }: Props) {
         onRenameSession={renameSession}
         onClearAll={() => setModalType('delete-all')}
         onLogout={handleLogout}
+        mobileOpen={mobileSidebarOpen}
+        onMobileClose={() => setMobileSidebarOpen(false)}
       />
 
       {/*
-        ── MAIN CONTENT AREA ──
-        FIX: pl-14 on all screens to account for the collapsed sidebar rail (w-14).
-        On mobile when sidebar is open, we also show the backdrop overlay below.
+        ── MAIN CONTENT ──
+        Mobile/tablet: no left offset (no collapsed rail).
+        Desktop (lg+): pl-14 to account for collapsed icon rail.
       */}
-      <main className="flex-1 flex flex-col min-w-0 bg-transparent relative z-20 pl-14">
+      <main className="flex-1 flex flex-col min-w-0 bg-transparent relative z-20 lg:pl-14">
 
         {/* ── HEADER ── */}
-        <header className="sticky top-0 z-30 h-14 md:h-16 bg-white/80 dark:bg-black/40 backdrop-blur-2xl border-b border-[--border] shrink-0">
-          <div className="flex items-center justify-center h-full px-3 md:px-5">
-            {/* Centre — Logo + App name + session title */}
-            <div className="flex flex-col items-center gap-0.5 max-w-[70vw] sm:max-w-xs md:max-w-sm">
+        <header className="sticky top-0 z-30 h-14 bg-white/90 dark:bg-black/50 backdrop-blur-2xl border-b border-[--border] shrink-0">
+          <div className="flex items-center h-full px-3 gap-2">
+
+            {/* Left: hamburger (mobile/tablet only) + new chat */}
+            <div className="flex items-center gap-1 shrink-0">
+              {/* Hamburger — only visible on mobile/tablet (hidden on lg+) */}
+              <button
+                onClick={() => setMobileSidebarOpen(true)}
+                className="lg:hidden p-2 rounded-xl text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all"
+                aria-label="Open menu"
+              >
+                <Menu className="w-5 h-5" />
+              </button>
+
+              {/* New chat quick button */}
+              <button
+                onClick={() => { createNewSession(); }}
+                className="p-2 rounded-xl text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all"
+                aria-label="New chat"
+                title="New Chat"
+              >
+                <Plus className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Centre — Logo + title */}
+            <div className="flex-1 flex flex-col items-center justify-center min-w-0">
               <div className="flex items-center gap-1.5">
-                <StormLogo className="w-4 h-4 md:w-5 md:h-5 text-indigo-600 dark:text-indigo-500 shrink-0" />
-                <span className="text-[10px] md:text-xs font-black text-[--text-main] uppercase tracking-widest leading-none">
+                <StormLogo className="w-4 h-4 text-indigo-600 dark:text-indigo-500 shrink-0" />
+                <span className="text-[10px] font-black text-[--text-main] uppercase tracking-widest leading-none">
                   Nexus AI
                 </span>
-                <div className="hidden sm:flex items-center gap-1 ml-1">
-                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                </div>
+                <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
               </div>
-              <span className="text-[10px] font-semibold text-[--text-muted] truncate leading-none max-w-full">
-                {sessions.find(s => s.id === currentSessionId)?.sessionName || 'New Chat'}
+              <span className="text-[10px] font-semibold text-[--text-muted] truncate leading-none max-w-[180px] sm:max-w-xs mt-0.5">
+                {currentSessionName}
               </span>
+            </div>
+
+            {/* Right: user avatar (mobile) */}
+            <div className="shrink-0 lg:hidden">
+              <UserAvatar
+                name={user.username}
+                className="w-7 h-7 text-[10px] shadow-sm cursor-pointer"
+                onClick={() => setMobileSidebarOpen(true)}
+              />
             </div>
           </div>
         </header>
 
         {/* ── MESSAGES SCROLL AREA ── */}
-        {/*
-          FIX: flex-1 + overflow-y-auto ensures this fills available height between
-          header and input bar, and scrolls independently. pb-4 gives breathing room
-          above the sticky input bar.
-        */}
         <div
           className="flex-1 overflow-y-auto scroll-hide"
           onScroll={handleScroll}
         >
-          <div className="max-w-3xl mx-auto px-3 sm:px-4 md:px-6 py-6 md:py-10">
+          <div className="max-w-3xl mx-auto px-3 sm:px-4 md:px-6 py-6">
             {messages.length === 0 && !isTyping ? (
-              /* ── Empty state / welcome screen ── */
-              <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-2 max-w-2xl mx-auto">
+              /* ── Empty / welcome ── */
+              <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-2 max-w-xl mx-auto">
                 <motion.div
                   initial={{ scale: 0.8, opacity: 0 }}
                   animate={{ scale: 1, opacity: 1 }}
-                  className="flex items-center justify-center mb-8 text-indigo-600"
+                  className="flex items-center justify-center mb-6 text-indigo-600"
                 >
-                  <StormLogo className="w-12 h-12 md:w-14 md:h-14" />
+                  <StormLogo className="w-12 h-12" />
                 </motion.div>
-                <h2 className="text-2xl md:text-3xl font-bold text-[--text-main] mb-6 tracking-tight">
+                <h2 className="text-xl sm:text-2xl font-bold text-[--text-main] mb-5 tracking-tight">
                   How can I help you today?
                 </h2>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 w-full">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full">
                   {[
                     'Plan a 3-day trip to Tokyo',
                     'How to build a SaaS with React?',
@@ -503,7 +512,7 @@ export default function Chat({ user, onLogout }: Props) {
                     <button
                       key={i}
                       onClick={() => handleSendMessage(undefined, s)}
-                      className="group p-3.5 md:p-4 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm font-medium text-[--text-muted] hover:text-indigo-600 hover:border-indigo-600/30 transition-all text-left shadow-sm"
+                      className="p-3 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm font-medium text-[--text-muted] hover:text-indigo-600 hover:border-indigo-600/30 transition-all text-left shadow-sm active:scale-[0.98]"
                     >
                       <span className="block truncate">{s}</span>
                     </button>
@@ -512,7 +521,7 @@ export default function Chat({ user, onLogout }: Props) {
               </div>
             ) : (
               /* ── Message list ── */
-              <div className="space-y-6 md:space-y-8 pb-6 pt-2">
+              <div className="space-y-5 pb-6 pt-2">
                 {messages.map((msg, index) => {
                   const isEditing = editingMessage?.id === msg.id;
                   const shouldSpin = isTyping && msg.role === 'assistant' && index === messages.length - 1;
@@ -521,9 +530,9 @@ export default function Chat({ user, onLogout }: Props) {
                       key={msg.id || `msg-${index}`}
                       className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} group`}
                     >
-                      <div className={`flex gap-2.5 md:gap-3 w-full ${msg.role === 'user' ? 'flex-row-reverse justify-start' : 'flex-row'}`}>
+                      <div className={`flex gap-2 w-full ${msg.role === 'user' ? 'flex-row-reverse justify-start' : 'flex-row'}`}>
                         {/* Avatar */}
-                        <div className="w-7 h-7 md:w-8 md:h-8 shrink-0 flex items-center justify-center mt-1">
+                        <div className="w-7 h-7 shrink-0 flex items-center justify-center mt-1">
                           {msg.role === 'user' ? (
                             <div className="w-full h-full rounded-full border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 flex items-center justify-center shadow-sm overflow-hidden">
                               <UserAvatar name={user?.username || 'User'} className="w-full h-full text-[10px]" />
@@ -535,27 +544,29 @@ export default function Chat({ user, onLogout }: Props) {
                           )}
                         </div>
 
-                        {/* Bubble + actions */}
-                        <div className={`flex flex-col gap-1 min-w-0 ${msg.role === 'user' ? 'max-w-[85%] md:max-w-[75%] items-end' : 'max-w-[90%] md:max-w-[80%] items-start'}`}>
-                          <div className={`px-4 py-3 rounded-2xl shadow-sm border transition-all duration-300 backdrop-blur-xl ${
+                        {/* Bubble */}
+                        {/*
+                          min-w-0 + overflow-hidden on the column wrapper ensures that
+                          wide children (code blocks) don't overflow the chat bubble.
+                          The code block itself has overflow-x-auto so users can swipe.
+                        */}
+                        <div className={`flex flex-col gap-1 min-w-0 overflow-hidden ${msg.role === 'user' ? 'max-w-[88%] sm:max-w-[78%] items-end' : 'flex-1 items-start'}`}>
+                          <div className={`w-full px-3 py-2.5 rounded-2xl shadow-sm border transition-all duration-300 backdrop-blur-xl ${
                             msg.role === 'assistant'
                               ? 'bg-white/80 dark:bg-zinc-900/40 border-zinc-200/40 dark:border-zinc-800/40 text-[--text-main] rounded-tl-none'
                               : 'bg-white/50 dark:bg-white/5 border-zinc-200/30 dark:border-white/10 text-[--text-main] rounded-tr-none'
                           }`}>
-                            <div className="text-sm md:text-base leading-relaxed markdown-body max-w-none">
+                            <div className="text-sm leading-relaxed markdown-body max-w-none">
                               {isEditing ? (
-                                <div className="flex flex-col gap-3 min-w-[200px] sm:min-w-[340px] p-1">
+                                <div className="flex flex-col gap-3 min-w-[200px] p-1">
                                   <textarea
                                     value={editInput}
                                     onChange={(e) => setEditInput(e.target.value)}
                                     onKeyDown={(e) => {
-                                      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-                                        e.preventDefault();
-                                        handleSaveEdit();
-                                      }
+                                      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); handleSaveEdit(); }
                                       if (e.key === 'Escape') handleCancelEdit();
                                     }}
-                                    className={`w-full border rounded-xl p-3 text-sm focus:outline-none focus:ring-2 focus:ring-white/20 transition-all resize-none font-medium min-h-[100px] ${
+                                    className={`w-full border rounded-xl p-3 text-sm focus:outline-none focus:ring-2 focus:ring-white/20 transition-all resize-none font-medium min-h-[80px] ${
                                       msg.role === 'user'
                                         ? 'bg-black/20 border-white/10 text-white placeholder:text-white/30'
                                         : 'bg-zinc-50 dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700 text-zinc-900 dark:text-zinc-100'
@@ -563,24 +574,11 @@ export default function Chat({ user, onLogout }: Props) {
                                     autoFocus
                                   />
                                   <div className="flex justify-end items-center gap-2">
-                                    <span className="text-[9px] text-zinc-400 mr-auto">⌘↵ to send · Esc to cancel</span>
-                                    <button
-                                      onClick={handleCancelEdit}
-                                      className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all rounded-lg ${
-                                        msg.role === 'user' ? 'text-white/60 hover:text-white' : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100'
-                                      }`}
-                                    >
+                                    <span className="text-[9px] text-zinc-400 mr-auto">⌘↵ send · Esc cancel</span>
+                                    <button onClick={handleCancelEdit} className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all rounded-lg ${msg.role === 'user' ? 'text-white/60 hover:text-white' : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100'}`}>
                                       Cancel
                                     </button>
-                                    <button
-                                      onClick={handleSaveEdit}
-                                      disabled={!editInput.trim() || isTyping}
-                                      className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all shadow-lg disabled:opacity-40 disabled:cursor-not-allowed ${
-                                        msg.role === 'user'
-                                          ? 'bg-white text-indigo-600 hover:bg-zinc-100'
-                                          : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-indigo-500/20'
-                                      }`}
-                                    >
+                                    <button onClick={handleSaveEdit} disabled={!editInput.trim() || isTyping} className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all shadow-lg disabled:opacity-40 ${msg.role === 'user' ? 'bg-white text-indigo-600 hover:bg-zinc-100' : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-indigo-500/20'}`}>
                                       Send
                                     </button>
                                   </div>
@@ -590,48 +588,51 @@ export default function Chat({ user, onLogout }: Props) {
                                   remarkPlugins={[remarkGfm]}
                                   components={{
                                     pre({ children, ...props }: any) {
-                                          return (
-                      <div className="my-6 overflow-hidden rounded-xl border border-indigo-200/40 dark:border-indigo-500/20 shadow-lg bg-gradient-to-br from-indigo-50/80 to-violet-50/60 dark:from-indigo-950/50 dark:to-violet-950/40 backdrop-blur-xl">
-                      <div className="flex items-center gap-2 px-4 py-2 border-b border-indigo-200/30 dark:border-indigo-500/15 bg-indigo-100/40 dark:bg-indigo-900/20">
-                      <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 dark:bg-indigo-500" />
-                      <span className="text-[10px] font-black uppercase tracking-widest text-indigo-400 dark:text-indigo-500">Architecture</span>
-                            </div>
-                                <pre
-                                className="p-5 overflow-x-auto text-[0.82rem] leading-relaxed font-mono text-indigo-700 dark:text-indigo-300 whitespace-pre"
-                                    {...props}
-                                          >
-                                    {children}
-                                    </pre>
+                                      return (
+                                        <div className="my-4 overflow-hidden rounded-xl border border-indigo-200/40 dark:border-indigo-500/20 shadow-lg bg-gradient-to-br from-indigo-50/80 to-violet-50/60 dark:from-indigo-950/50 dark:to-violet-950/40 backdrop-blur-xl">
+                                          <div className="flex items-center gap-2 px-4 py-2 border-b border-indigo-200/30 dark:border-indigo-500/15 bg-indigo-100/40 dark:bg-indigo-900/20">
+                                            <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 dark:bg-indigo-500" />
+                                            <span className="text-[10px] font-black uppercase tracking-widest text-indigo-400 dark:text-indigo-500">Architecture</span>
                                           </div>
-                                                    );
-                                                          },
-                                code({ className, children, ...props }: any) {
+                                          {/* horizontal scroll for text pre blocks */}
+                                          <pre className="p-4 overflow-x-auto text-[0.8rem] leading-relaxed font-mono text-indigo-700 dark:text-indigo-300 whitespace-pre" {...props}>
+                                            {children}
+                                          </pre>
+                                        </div>
+                                      );
+                                    },
+                                    code({ className, children, ...props }: any) {
                                       const match = /language-(\w+)/.exec(className || '');
-                                          const content = String(children).replace(/\n$/, '');
+                                      const content = String(children).replace(/\n$/, '');
                                       const isInline = props.inline || !className;
-                                  return !isInline && match ? (
-                                <CodeBlock language={match[1]} value={content} />
-                                              ) : (
-                                           <code
-                        className={`${className || ''} bg-zinc-100/50 dark:bg-white/5 text-indigo-500 px-1 py-0.5 rounded font-mono text-[0.85em]`}
-                                    {...props}
-                                  >
-                                        {children}
+                                      return !isInline && match ? (
+                                        <CodeBlock language={match[1]} value={content} />
+                                      ) : (
+                                        <code className={`${className || ''} bg-zinc-100/50 dark:bg-white/5 text-indigo-500 px-1 py-0.5 rounded font-mono text-[0.85em] break-words`} {...props}>
+                                          {children}
                                         </code>
-                                                );
-                                                  }
-                                                    } as Components}
-                                        >
+                                      );
+                                    },
+                                    // Make tables scrollable on mobile
+                                    table({ children, ...props }: any) {
+                                      return (
+                                        <div className="overflow-x-auto my-3 rounded-lg border border-zinc-200 dark:border-zinc-700">
+                                          <table className="min-w-full text-sm" {...props}>{children}</table>
+                                        </div>
+                                      );
+                                    },
+                                  } as Components}
+                                >
                                   {cleanMessageContent(msg.content)}
                                 </ReactMarkdown>
                               )}
                             </div>
                           </div>
 
-                          {/* Actions row */}
-                          <div className="flex items-center gap-1 mt-1 px-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          {/* Actions */}
+                          <div className="flex items-center gap-1 mt-0.5 px-1 opacity-0 group-hover:opacity-100 transition-opacity">
                             {msg.role === 'assistant' && (
-                              <span className="text-[10px] font-black text-indigo-500/50 uppercase tracking-[0.2em] mr-auto pl-1">Nexus AI</span>
+                              <span className="text-[9px] font-black text-indigo-500/50 uppercase tracking-[0.2em] mr-auto pl-1">Nexus AI</span>
                             )}
                             <span className="text-[9px] font-black text-zinc-400 dark:text-zinc-500 uppercase tracking-widest whitespace-nowrap mr-1">
                               {msg.timestamp
@@ -640,11 +641,7 @@ export default function Chat({ user, onLogout }: Props) {
                             </span>
                             <div className="flex items-center gap-0.5">
                               {msg.role === 'user' && !isEditing && !isTyping && (
-                                <button
-                                  onClick={() => handleStartEdit(msg)}
-                                  className="p-1 px-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 hover:text-indigo-600 transition-all"
-                                  title="Edit and resend message"
-                                >
+                                <button onClick={() => handleStartEdit(msg)} className="p-1 px-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 hover:text-indigo-600 transition-all">
                                   <Edit2 className="w-3.5 h-3.5" />
                                 </button>
                               )}
@@ -654,10 +651,7 @@ export default function Chat({ user, onLogout }: Props) {
                                   setCopiedId(msg.id);
                                   setTimeout(() => setCopiedId(null), 2000);
                                 }}
-                                className={`p-1 px-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all ${
-                                  copiedId === msg.id ? 'text-emerald-500' : 'text-zinc-400 hover:text-indigo-600'
-                                }`}
-                                title="Copy message"
+                                className={`p-1 px-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all ${copiedId === msg.id ? 'text-emerald-500' : 'text-zinc-400 hover:text-indigo-600'}`}
                               >
                                 {copiedId === msg.id ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
                               </button>
@@ -671,8 +665,8 @@ export default function Chat({ user, onLogout }: Props) {
 
                 {/* Typing indicator */}
                 {isTyping && (
-                  <div className="flex items-start gap-3">
-                    <div className="w-7 h-7 md:w-8 md:h-8 shrink-0 flex items-center justify-center mt-1">
+                  <div className="flex items-start gap-2">
+                    <div className="w-7 h-7 shrink-0 flex items-center justify-center mt-1">
                       <StormLogo className="w-6 h-6 text-indigo-500 animate-spin" />
                     </div>
                     <div className="bg-white/90 dark:bg-zinc-900/90 border border-zinc-200 dark:border-zinc-800 px-4 py-3 rounded-2xl rounded-tl-none shadow-sm flex flex-col gap-2 backdrop-blur-xl">
@@ -700,19 +694,12 @@ export default function Chat({ user, onLogout }: Props) {
                 <div ref={messagesEndRef} />
               </div>
             )}
-
-            {/* Anchor for empty-state scroll too */}
             {(messages.length === 0 && !isTyping) && <div ref={messagesEndRef} />}
           </div>
         </div>
 
         {/* ── INPUT BAR ── */}
-        {/*
-          FIX: shrink-0 keeps the input bar at the bottom and prevents it from
-          being squeezed by the message area. No absolute/fixed positioning needed
-          because the parent is a flex column with overflow on the message area.
-        */}
-        <div className="shrink-0 bg-[--bg-main] border-t border-[--border]/50 px-3 sm:px-4 md:px-6 py-3 md:py-4">
+        <div className="shrink-0 bg-[--bg-main] border-t border-[--border]/50 px-3 sm:px-4 py-3">
           <div className="max-w-3xl mx-auto relative">
 
             {/* Scroll-to-bottom fab */}
@@ -723,17 +710,16 @@ export default function Chat({ user, onLogout }: Props) {
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: 10, scale: 0.8 }}
                   onClick={() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })}
-                  className="absolute -top-14 right-2 p-2.5 bg-indigo-600 text-white rounded-full shadow-xl shadow-indigo-500/30 hover:bg-indigo-700 transition-all z-10 group hover:scale-110 active:scale-90 border border-indigo-500"
+                  className="absolute -top-14 right-2 p-2.5 bg-indigo-600 text-white rounded-full shadow-xl shadow-indigo-500/30 hover:bg-indigo-700 transition-all z-10 hover:scale-110 active:scale-90 border border-indigo-500"
                   aria-label="Scroll to bottom"
                 >
-                  <ArrowDown className="w-4 h-4 md:w-5 md:h-5" />
+                  <ArrowDown className="w-4 h-4" />
                 </motion.button>
               )}
             </AnimatePresence>
 
             {/* Input container */}
             <div className={`relative flex flex-row items-end bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-lg transition-all overflow-hidden ${justFinished ? 'animate-blink' : ''}`}>
-              {/* Textarea */}
               <div className="relative flex-1 min-w-0">
                 <textarea
                   ref={inputRef}
@@ -742,39 +728,39 @@ export default function Chat({ user, onLogout }: Props) {
                   onFocus={() => setInputFocused(true)}
                   onBlur={() => setInputFocused(false)}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey && !isTyping) {
+                    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !isTyping) {
                       e.preventDefault();
                       handleSendMessage();
                     }
+                    // plain Enter → newline (default textarea behaviour, no preventDefault)
                   }}
                   disabled={isTyping}
-                  placeholder={showBlinkingCursor ? '' : 'Write a message...'}
+                  placeholder={showBlinkingCursor ? '' : 'Write a message... (Ctrl+Enter to send)'}
                   rows={1}
-                  className="w-full px-4 md:px-5 py-3.5 md:py-4 bg-transparent focus:outline-none font-medium text-[--text-main] placeholder:text-zinc-400 dark:placeholder:text-zinc-500 text-sm md:text-base leading-relaxed resize-none min-h-[52px] max-h-[180px] overflow-y-auto"
+                  className="w-full px-4 py-3.5 bg-transparent focus:outline-none font-medium text-[--text-main] placeholder:text-zinc-400 dark:placeholder:text-zinc-500 text-sm leading-relaxed resize-none min-h-[52px] max-h-[160px] overflow-y-auto"
                   onInput={(e) => {
                     const target = e.target as HTMLTextAreaElement;
                     target.style.height = 'auto';
-                    target.style.height = `${Math.min(target.scrollHeight, 180)}px`;
+                    target.style.height = `${Math.min(target.scrollHeight, 160)}px`;
                   }}
                 />
-                {/* Blinking cursor placeholder */}
                 {showBlinkingCursor && !inputFocused && (
-                  <div className="absolute left-4 md:left-5 top-1/2 -translate-y-1/2 flex items-center gap-1 pointer-events-none">
-                    <span className="text-sm md:text-base font-medium text-zinc-400 dark:text-zinc-500">Write a message</span>
+                  <div className="absolute left-4 top-1/2 -translate-y-1/2 flex items-center gap-1 pointer-events-none">
+                    <span className="text-sm font-medium text-zinc-400 dark:text-zinc-500">Write a message</span>
                     <BlinkingCursor />
                   </div>
                 )}
               </div>
 
-              {/* Send / Stop button */}
-              <div className="flex items-center px-2.5 md:px-3 pb-2.5 md:pb-3 shrink-0">
+              {/* Send / Stop */}
+              <div className="flex items-center px-2.5 pb-2.5 shrink-0">
                 <motion.button
                   whileHover={{ scale: isTyping || input.trim() ? 1.08 : 1.02 }}
                   whileTap={{ scale: 0.92 }}
                   onClick={isTyping ? handleStopResponse : () => handleSendMessage()}
                   disabled={!input.trim() && !isTyping}
                   aria-label={isTyping ? 'Stop response' : 'Send message'}
-                  className={`relative flex items-center justify-center w-9 h-9 md:w-10 md:h-10 rounded-full transition-all duration-200 border-2 ${
+                  className={`relative flex items-center justify-center w-9 h-9 rounded-full transition-all duration-200 border-2 ${
                     isTyping
                       ? 'bg-white border-indigo-400 dark:bg-zinc-800 dark:border-indigo-500 shadow-lg shadow-indigo-200/50'
                       : 'bg-white border-zinc-300 dark:bg-zinc-800 dark:border-zinc-600 shadow-md hover:border-indigo-400 dark:hover:border-indigo-500'
@@ -794,9 +780,8 @@ export default function Chat({ user, onLogout }: Props) {
               </div>
             </div>
 
-            {/* Disclaimer */}
-            <p className="mt-2.5 text-center text-[10px] font-medium text-[--text-muted]/40">
-              Nexus is AI and can make mistakes. Please double-check responses.
+            <p className="mt-2 text-center text-[10px] font-medium text-[--text-muted]/40">
+              Nexus AI can make mistakes. Press Ctrl+Enter to send · Enter for new line.
             </p>
           </div>
         </div>
