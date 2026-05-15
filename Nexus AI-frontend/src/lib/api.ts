@@ -11,9 +11,32 @@ type ApiError = Error & {
   status?: number;
 };
 
-// Wake up Render server on app load (prevents cold start on first user action)
-export function wakeUpServer() {
-  fetch(`${API_BASE}/chat/status`, { credentials: 'include' }).catch(() => {});
+/**
+ * Wake up the Render server and WAIT for it to be ready.
+ * Returns a Promise so callers can await it before making API calls.
+ * Previously this was fire-and-forget (void), which caused getSessions()
+ * to fire before the server was awake → 401 → logout on refresh.
+ */
+export async function wakeUpServer(): Promise<void> {
+  const MAX_ATTEMPTS = 5;
+  const DELAY_MS = 3000;
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      const res = await fetch(`${API_BASE}/chat/status`, {
+        credentials: 'include',
+        signal: AbortSignal.timeout(8000),
+      });
+      // Any response (including 401) means the server is awake
+      if (res.status !== 503 && res.status !== 502) return;
+    } catch {
+      // Network error or timeout — server still starting
+    }
+    if (attempt < MAX_ATTEMPTS) {
+      await new Promise<void>(resolve => setTimeout(resolve, DELAY_MS));
+    }
+  }
+  // Give up waiting — proceed anyway and let individual calls handle errors
 }
 
 const attemptFetch = async (
@@ -69,11 +92,6 @@ export async function fetchWithAuth(
   }
 
   if (!response.ok) {
-    // Pass through 401 on the status endpoint so callers can handle it
-    if (url.includes('/status') && response.status === 401) {
-      return data;
-    }
-
     const error: ApiError = new Error(
       (data.error as string) ||
         (data.message as string) ||
@@ -180,7 +198,6 @@ export const chatApi = {
   searchSessions: (query: string) =>
     fetchWithAuth(`${API_BASE}/chat/search?q=${encodeURIComponent(query)}`),
 
-  // Returns { shareUrl: string } — requires the share endpoint in server.js
   shareSession: (sessionId: number) =>
     fetchWithAuth(`${API_BASE}/chat/session/${sessionId}/share`, {
       method: 'POST',
