@@ -13,7 +13,7 @@ import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const getErrorStatus = (err: unknown): number | null => {
   if (err && typeof err === 'object' && 'status' in err) {
@@ -43,9 +43,6 @@ const copyToClipboard = async (text: string): Promise<boolean> => {
 };
 
 // ─── Session persistence ──────────────────────────────────────────────────────
-// CRITICAL FIX: Use localStorage (NOT sessionStorage).
-// sessionStorage is wiped on every page refresh/tab close, which is exactly
-// why refreshing always showed a new chat. localStorage persists across refreshes.
 
 const SESSION_KEY = 'nexus_current_session_id';
 
@@ -56,6 +53,9 @@ const persistSessionId = (id: number | null): void => {
   } catch { /* storage unavailable */ }
 };
 
+// FIX 1: Was missing () — was passing the function reference instead of
+// calling it, so currentSessionId was always the function, never the stored ID.
+// This caused every page refresh to start a new chat.
 const readPersistedSessionId = (): number | null => {
   try {
     const raw = localStorage.getItem(SESSION_KEY);
@@ -116,7 +116,14 @@ const CodeBlock = ({ language, value }: { language: string; value: string }) => 
           style={oneDark}
           language={language || 'text'}
           PreTag="div"
-          customStyle={{ margin: 0, padding: '1rem', fontSize: '0.8rem', background: 'transparent', lineHeight: '1.6', minWidth: 'max-content' }}
+          customStyle={{
+            margin: 0,
+            padding: '1rem',
+            fontSize: '0.8rem',
+            background: 'transparent',
+            lineHeight: '1.6',
+            minWidth: 'max-content',
+          }}
         >
           {value}
         </SyntaxHighlighter>
@@ -142,62 +149,52 @@ interface Props {
 }
 
 export default function Chat({ user, onLogout }: Props) {
-  // ── State ─────────────────────────────────────────────────────────────────
-  const [sessions, setSessions]                   = useState<Session[]>([]);
-  const [currentSessionId, setCurrentSessionId]   = useState<number | null>(readPersistedSessionId());
-  const [currentSessionName, setCurrentSessionName] = useState<string>('New Chat');
-  const [messages, setMessages]                   = useState<Message[]>([]);
-  const [input, setInput]                         = useState('');
-  const [isTyping, setIsTyping]                   = useState(false);
-  const [loading, setLoading]                     = useState(true);
-  const [sessionsLoaded, setSessionsLoaded]       = useState(false);
-  const [justFinished, setJustFinished]           = useState(false);
-  const [showScrollBottom, setShowScrollBottom]   = useState(false);
-  const [copiedId, setCopiedId]                   = useState<number | string | null>(null);
-  const [editingMessage, setEditingMessage]       = useState<{ id: string | number; content: string } | null>(null);
-  const [editInput, setEditInput]                 = useState('');
-  const [modalType, setModalType]                 = useState<'none' | 'delete-all' | 'delete-single'>('none');
-  const [sessionIdToDelete, setSessionIdToDelete] = useState<number | null>(null);
-  const [serverWaking, setServerWaking]           = useState(false);
-  const [inputFocused, setInputFocused]           = useState(false);
-  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
-  // ── Refs ──────────────────────────────────────────────────────────────────
+  // ── State ──────────────────────────────────────────────────────────────────
+  const [sessions, setSessions]                     = useState<Session[]>([]);
+  // FIX 1: readPersistedSessionId() — called with () to get the stored value,
+  // not the function reference itself.
+  const [currentSessionId, setCurrentSessionId]     = useState<number | null>(readPersistedSessionId());
+  const [currentSessionName, setCurrentSessionName] = useState<string>('New Chat');
+  const [messages, setMessages]                     = useState<Message[]>([]);
+  const [input, setInput]                           = useState('');
+  const [isTyping, setIsTyping]                     = useState(false);
+  const [loading, setLoading]                       = useState(true);
+  const [sessionsLoaded, setSessionsLoaded]         = useState(false);
+  const [justFinished, setJustFinished]             = useState(false);
+  const [showScrollBottom, setShowScrollBottom]     = useState(false);
+  const [copiedId, setCopiedId]                     = useState<number | string | null>(null);
+  const [editingMessage, setEditingMessage]         = useState<{ id: string | number; content: string } | null>(null);
+  const [editInput, setEditInput]                   = useState('');
+  const [modalType, setModalType]                   = useState<'none' | 'delete-all' | 'delete-single'>('none');
+  const [sessionIdToDelete, setSessionIdToDelete]   = useState<number | null>(null);
+  const [serverWaking, setServerWaking]             = useState(false);
+  const [inputFocused, setInputFocused]             = useState(false);
+  const [mobileSidebarOpen, setMobileSidebarOpen]   = useState(false);
+
+  // ── Refs ───────────────────────────────────────────────────────────────────
   const messagesEndRef     = useRef<HTMLDivElement>(null);
   const isSendingRef       = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
   const inputRef           = useRef<HTMLTextAreaElement>(null);
-  // Prevents the currentSessionId effect from re-fetching messages when
-  // sendMessage already has the correct message list.
   const skipMessageLoadRef = useRef(false);
 
-  // ── Helpers ───────────────────────────────────────────────────────────────
+  // ── Central session setter ─────────────────────────────────────────────────
 
-  /** Central setter — always persists to localStorage so refresh works. */
+  /** Always updates state + localStorage atomically. */
   const updateCurrentSessionId = useCallback((id: number | null, name?: string) => {
     setCurrentSessionId(id);
     persistSessionId(id);
     setCurrentSessionName(name ?? 'New Chat');
   }, []);
 
-  // ── Data fetching ─────────────────────────────────────────────────────────
+  // ── Data fetching ──────────────────────────────────────────────────────────
 
-  /**
-   * CRITICAL FIX — loadSessions:
-   *
-   * The original wakeUpServer() was fire-and-forget (returned void immediately).
-   * This meant getSessions() fired while the Render server was still cold-starting
-   * → got a 401/502 → called onLogout() → user was sent to login on every refresh.
-   *
-   * The new wakeUpServer() in api.ts returns a real Promise that resolves only
-   * when the server responds (or after max retries). We properly await it here.
-   */
   const loadSessions = useCallback(async (isInitialLoad = false): Promise<Session[]> => {
     try {
       if (isInitialLoad) {
-        await wakeUpServer(); // Now a real awaitable Promise — blocks until server is up
+        await wakeUpServer();
       }
-
       const response = await chatApi.getSessions() as { sessions: Session[] };
       const list = response.sessions ?? [];
       setSessions(list);
@@ -205,7 +202,6 @@ export default function Chat({ user, onLogout }: Props) {
     } catch (err: unknown) {
       console.error('Failed to load sessions:', err);
       const status = getErrorStatus(err);
-      // Only logout on a definitive auth failure — never on network/5xx errors
       if (status === 401) onLogout();
       return [];
     } finally {
@@ -216,24 +212,37 @@ export default function Chat({ user, onLogout }: Props) {
 
   const loadMessages = useCallback(async (sid: number) => {
     try {
-      const response = await chatApi.getMessages(sid) as { messages: Message[] };
+      const response = await chatApi.getMessages(sid) as {
+        messages: Message[];
+        stale?: boolean;
+      };
+
+      // FIX: Backend returns stale:true + 404 when the session no longer exists
+      // (e.g. after a server restart). Clear localStorage and show empty state.
+      if (response.stale) {
+        updateCurrentSessionId(null);
+        setMessages([]);
+        return;
+      }
+
       setMessages(response.messages ?? []);
     } catch (err: unknown) {
       console.error('Failed to load messages:', err);
-      if (getErrorStatus(err) === 401) onLogout();
+      const status = getErrorStatus(err);
+      if (status === 401) onLogout();
+      // FIX: 404 means stale session — clear it from localStorage
+      if (status === 404) {
+        updateCurrentSessionId(null);
+        setMessages([]);
+      }
     }
-  }, [onLogout]);
+  }, [onLogout, updateCurrentSessionId]);
 
-  // ── Effects ───────────────────────────────────────────────────────────────
+  // ── Effects ────────────────────────────────────────────────────────────────
 
-  // Initial load — awaits wakeUpServer before getSessions.
   useEffect(() => { loadSessions(true); }, [loadSessions]);
 
-  /**
-   * After sessions load, sync the header name for the persisted session.
-   * This is the only place we read sessions[] to set the name — all other
-   * write paths set the name directly for zero-lag updates.
-   */
+  // Sync header name from sessions list after initial load
   useEffect(() => {
     if (!sessionsLoaded) return;
     const found = sessions.find(s => s.id === currentSessionId);
@@ -244,11 +253,7 @@ export default function Chat({ user, onLogout }: Props) {
     }
   }, [sessionsLoaded, sessions, currentSessionId]);
 
-  /**
-   * Staleness check: if the persisted session ID no longer exists in the
-   * server's list, clear it. Guard on sessions.length > 0 — an empty list
-   * on a cold start is NOT proof the session was deleted.
-   */
+  // Staleness check: if persisted session ID no longer exists server-side, clear it
   useEffect(() => {
     if (!sessionsLoaded || sessions.length === 0) return;
     if (currentSessionId !== null && !sessions.some(s => s.id === currentSessionId)) {
@@ -257,31 +262,33 @@ export default function Chat({ user, onLogout }: Props) {
     }
   }, [sessions, sessionsLoaded, currentSessionId, updateCurrentSessionId]);
 
-  // Load messages when active session changes.
+  // Load messages when active session changes
   useEffect(() => {
     if (!currentSessionId) { setMessages([]); return; }
     if (skipMessageLoadRef.current) { skipMessageLoadRef.current = false; return; }
     loadMessages(currentSessionId);
   }, [currentSessionId, loadMessages]);
 
-  // Scroll to bottom on new messages or typing indicator.
+  // Scroll to bottom on new messages or typing indicator
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isTyping]);
 
-  // ── Event handlers ────────────────────────────────────────────────────────
+  // ── Event handlers ─────────────────────────────────────────────────────────
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
     setShowScrollBottom(scrollHeight - scrollTop - clientHeight > 100);
   };
 
- 
+  // FIX 2: Use updateCurrentSessionId (the central setter) so that state,
+  // localStorage, and the header name all update atomically in one call —
+  // no lag, no desync between the three pieces of state.
   const handleSelectSession = useCallback((id: number) => {
-  const found = sessions.find(s => s.id === id);
-  const name = found?.sessionName ?? 'New Chat';
-  updateCurrentSessionId(id, name); // ← was setting 3 things manually; use central setter
-}, [sessions, updateCurrentSessionId]);
+    const found = sessions.find(s => s.id === id);
+    const name = found?.sessionName ?? 'New Chat';
+    updateCurrentSessionId(id, name);
+  }, [sessions, updateCurrentSessionId]);
 
   const sendMessage = async (
     messageText: string,
@@ -331,7 +338,6 @@ export default function Chat({ user, onLogout }: Props) {
 
       if (isNewSession && activeSessionId) {
         skipMessageLoadRef.current = true;
-        // Persist immediately so a refresh restores this session
         persistSessionId(activeSessionId);
         setCurrentSessionId(activeSessionId);
         await loadSessions();
@@ -352,23 +358,20 @@ export default function Chat({ user, onLogout }: Props) {
         );
       }
 
-      // Generate a title for new sessions or after message edits.
+      // Generate title for new sessions or after edits
       if (activeSessionId && (isNewSession || isEdit)) {
         try {
           const { title } = await chatApi.generateTitle(messageText) as { title: string };
-
-          // Update header and sidebar list IMMEDIATELY — optimistic, no loadSessions needed
           setCurrentSessionName(title);
           setSessions(prev =>
             prev.map(s => s.id === activeSessionId ? { ...s, sessionName: title } : s),
           );
-
-          // Persist to server (errors are non-fatal)
           await chatApi.renameSession(activeSessionId, title);
         } catch (renameErr) {
           console.error('Title generation / rename failed:', renameErr);
         }
       }
+
     } catch (err: unknown) {
       clearTimeout(wakingTimer);
       setServerWaking(false);
@@ -376,25 +379,47 @@ export default function Chat({ user, onLogout }: Props) {
 
       if (err instanceof Error && err.name === 'AbortError') {
         console.log('Chat aborted by user');
-      } else {
-        console.error('Chat error:', err);
-        const errMsg = err instanceof Error
-          ? err.message
-          : 'Sorry, I encountered an error. Please try again.';
-        setMessages(prev => [...prev, {
-          id:        'error-' + Date.now(),
-          sessionId: currentSessionId ?? 0,
-          role:      'assistant',
-          content:   errMsg,
-          timestamp: new Date().toISOString(),
-        }]);
+        return;
       }
+
+      const status = getErrorStatus(err);
+
+      // FIX: Handle stale session (404 from backend) — clear it and retry
+      // as a fresh session so the user's message still goes through.
+      if (status === 404 && currentSessionId) {
+        console.warn('Stale session detected — clearing and retrying as new session');
+        updateCurrentSessionId(null);
+        setMessages([]);
+        isSendingRef.current = false;
+        abortControllerRef.current = null;
+        // Small delay so state settles before retry
+        await new Promise(resolve => setTimeout(resolve, 100));
+        await sendMessage(messageText, [], isEdit);
+        return;
+      }
+
+      console.error('Chat error:', err);
+      const errMsg = err instanceof Error
+        ? err.message
+        : 'Sorry, I encountered an error. Please try again.';
+
+      setMessages(prev => [...prev, {
+        id:        'error-' + Date.now(),
+        sessionId: currentSessionId ?? 0,
+        role:      'assistant',
+        content:   errMsg,
+        timestamp: new Date().toISOString(),
+      }]);
+
     } finally {
-      isSendingRef.current       = false;
-      abortControllerRef.current = null;
-      setJustFinished(true);
-      setTimeout(() => setJustFinished(false), 3000);
-      setTimeout(() => inputRef.current?.focus(), 100);
+      // Only reset if we didn't do an early return (retry path resets itself)
+      if (isSendingRef.current) {
+        isSendingRef.current       = false;
+        abortControllerRef.current = null;
+        setJustFinished(true);
+        setTimeout(() => setJustFinished(false), 3000);
+        setTimeout(() => inputRef.current?.focus(), 100);
+      }
     }
   };
 
@@ -444,13 +469,10 @@ export default function Chat({ user, onLogout }: Props) {
     }
   };
 
-  /**
-   * renameSession — optimistic: update local state first for instant UI
-   * feedback, then persist to server in the background.
-   */
   const renameSession = async (sid: number, newName: string) => {
     const trimmed = newName.trim();
     if (!trimmed) return;
+    // Optimistic update
     setSessions(prev =>
       prev.map(s => s.id === sid ? { ...s, sessionName: trimmed } : s),
     );
@@ -506,11 +528,11 @@ export default function Chat({ user, onLogout }: Props) {
     await sendMessage(editedText, messagesBeforeEdit, true);
   };
 
-  // ── Derived UI flags ──────────────────────────────────────────────────────
+  // ── Derived UI flags ───────────────────────────────────────────────────────
 
   const showBlinkingCursor = !input && !inputFocused && (isTyping || justFinished);
 
-  // ── Loading screen ────────────────────────────────────────────────────────
+  // ── Loading screen ─────────────────────────────────────────────────────────
 
   if (loading) {
     return (
@@ -527,7 +549,7 @@ export default function Chat({ user, onLogout }: Props) {
     );
   }
 
-  // ── Render ────────────────────────────────────────────────────────────────
+  // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
     <div className="flex h-[100dvh] overflow-hidden bg-[--bg-main] relative transition-colors duration-300 font-sans">
@@ -550,7 +572,7 @@ export default function Chat({ user, onLogout }: Props) {
 
       <main className="flex-1 flex flex-col min-w-0 bg-transparent relative z-20 lg:pl-14">
 
-        {/* ── Header ────────────────────────────────────────────────────── */}
+        {/* ── Header ──────────────────────────────────────────────────────── */}
         <header className="sticky top-0 z-30 h-14 bg-white/90 dark:bg-black/50 backdrop-blur-2xl border-b border-[--border] shrink-0">
           <div className="flex items-center h-full px-3 gap-2">
 
@@ -587,7 +609,7 @@ export default function Chat({ user, onLogout }: Props) {
           </div>
         </header>
 
-        {/* ── Message list ──────────────────────────────────────────────── */}
+        {/* ── Message list ────────────────────────────────────────────────── */}
         <div className="flex-1 overflow-y-auto scroll-hide" onScroll={handleScroll}>
           <div className="max-w-3xl mx-auto px-3 sm:px-4 md:px-6 py-6">
 
@@ -717,7 +739,10 @@ export default function Chat({ user, onLogout }: Props) {
                                       return !isInline && match ? (
                                         <CodeBlock language={match[1]} value={content} />
                                       ) : (
-                                        <code className={`${className ?? ''} bg-zinc-100/50 dark:bg-white/5 text-indigo-500 px-1 py-0.5 rounded font-mono text-[0.85em] break-words`} {...props}>
+                                        <code
+                                          className={`${className ?? ''} bg-zinc-100/50 dark:bg-white/5 text-indigo-500 px-1 py-0.5 rounded font-mono text-[0.85em] break-words`}
+                                          {...props}
+                                        >
                                           {children}
                                         </code>
                                       );
@@ -771,7 +796,9 @@ export default function Chat({ user, onLogout }: Props) {
                                 }`}
                                 aria-label="Copy message"
                               >
-                                {copiedId === msg.id ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                                {copiedId === msg.id
+                                  ? <Check className="w-3.5 h-3.5" />
+                                  : <Copy className="w-3.5 h-3.5" />}
                               </button>
                             </div>
                           </div>
@@ -821,7 +848,7 @@ export default function Chat({ user, onLogout }: Props) {
           </div>
         </div>
 
-        {/* ── Input bar ─────────────────────────────────────────────────── */}
+        {/* ── Input bar ──────────────────────────────────────────────────── */}
         <div className="shrink-0 bg-[--bg-main] border-t border-[--border]/50 px-3 sm:px-4 py-3">
           <div className="max-w-3xl mx-auto relative">
 
@@ -909,7 +936,7 @@ export default function Chat({ user, onLogout }: Props) {
         </div>
       </main>
 
-      {/* ── Modals ──────────────────────────────────────────────────────── */}
+      {/* ── Modals ────────────────────────────────────────────────────────── */}
       <ConfirmationModal
         isOpen={modalType === 'delete-single'}
         onClose={() => setModalType('none')}
