@@ -13,9 +13,8 @@ import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
-/** Extract HTTP status from an unknown caught value. */
 const getErrorStatus = (err: unknown): number | null => {
   if (err && typeof err === 'object' && 'status' in err) {
     return (err as { status: number }).status;
@@ -23,7 +22,6 @@ const getErrorStatus = (err: unknown): number | null => {
   return null;
 };
 
-/** Copy text to clipboard with a textarea fallback for non-HTTPS / older browsers. */
 const copyToClipboard = async (text: string): Promise<boolean> => {
   try {
     await navigator.clipboard.writeText(text);
@@ -44,22 +42,23 @@ const copyToClipboard = async (text: string): Promise<boolean> => {
   }
 };
 
-// ─── Session persistence ─────────────────────────────────────────────────────
-// sessionStorage is scoped to the tab and avoids XSS-readable long-lived
-// localStorage tokens.
+// ─── Session persistence ──────────────────────────────────────────────────────
+// CRITICAL FIX: Use localStorage (NOT sessionStorage).
+// sessionStorage is wiped on every page refresh/tab close, which is exactly
+// why refreshing always showed a new chat. localStorage persists across refreshes.
 
 const SESSION_KEY = 'nexus_current_session_id';
 
 const persistSessionId = (id: number | null): void => {
   try {
-    if (id === null) sessionStorage.removeItem(SESSION_KEY);
-    else sessionStorage.setItem(SESSION_KEY, String(id));
-  } catch { /* storage unavailable – degrade gracefully */ }
+    if (id === null) localStorage.removeItem(SESSION_KEY);
+    else localStorage.setItem(SESSION_KEY, String(id));
+  } catch { /* storage unavailable */ }
 };
 
 const readPersistedSessionId = (): number | null => {
   try {
-    const raw = sessionStorage.getItem(SESSION_KEY);
+    const raw = localStorage.getItem(SESSION_KEY);
     if (!raw) return null;
     const parsed = parseInt(raw, 10);
     return isNaN(parsed) ? null : parsed;
@@ -68,9 +67,8 @@ const readPersistedSessionId = (): number | null => {
   }
 };
 
-// ─── Sub-components ──────────────────────────────────────────────────────────
+// ─── Sub-components ───────────────────────────────────────────────────────────
 
-/** Mobile sidebar trigger icon. */
 function NexusLogo({ className }: { className?: string }) {
   return (
     <svg
@@ -86,7 +84,6 @@ function NexusLogo({ className }: { className?: string }) {
   );
 }
 
-/** Syntax-highlighted fenced code block with a copy button. */
 const CodeBlock = ({ language, value }: { language: string; value: string }) => {
   const [copied, setCopied] = useState(false);
 
@@ -110,12 +107,8 @@ const CodeBlock = ({ language, value }: { language: string; value: string }) => 
           className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-100 dark:bg-zinc-800 text-[10px] font-black text-zinc-500 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all hover:scale-105 active:scale-95 shrink-0"
           aria-label={copied ? 'Copied' : 'Copy code'}
         >
-          {copied
-            ? <Check className="w-3 h-3 text-emerald-500" />
-            : <Copy className="w-3 h-3" />}
-          <span className="uppercase tracking-widest hidden sm:inline">
-            {copied ? 'Copied' : 'Copy'}
-          </span>
+          {copied ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
+          <span className="uppercase tracking-widest hidden sm:inline">{copied ? 'Copied' : 'Copy'}</span>
         </button>
       </div>
       <div className="overflow-x-auto w-full bg-[#282c34]">
@@ -123,14 +116,7 @@ const CodeBlock = ({ language, value }: { language: string; value: string }) => 
           style={oneDark}
           language={language || 'text'}
           PreTag="div"
-          customStyle={{
-            margin: 0,
-            padding: '1rem',
-            fontSize: '0.8rem',
-            background: 'transparent',
-            lineHeight: '1.6',
-            minWidth: 'max-content',
-          }}
+          customStyle={{ margin: 0, padding: '1rem', fontSize: '0.8rem', background: 'transparent', lineHeight: '1.6', minWidth: 'max-content' }}
         >
           {value}
         </SyntaxHighlighter>
@@ -139,7 +125,6 @@ const CodeBlock = ({ language, value }: { language: string; value: string }) => 
   );
 };
 
-/** Animated blinking cursor shown in the empty input box while AI is responding. */
 const BlinkingCursor = () => (
   <motion.span
     animate={{ opacity: [1, 0, 1] }}
@@ -157,108 +142,60 @@ interface Props {
 }
 
 export default function Chat({ user, onLogout }: Props) {
-  // ── State ──────────────────────────────────────────────────────────────────
-  const [sessions, setSessions]                     = useState<Session[]>([]);
-  const [currentSessionId, setCurrentSessionId]     = useState<number | null>(readPersistedSessionId);
+  // ── State ─────────────────────────────────────────────────────────────────
+  const [sessions, setSessions]                   = useState<Session[]>([]);
+  const [currentSessionId, setCurrentSessionId]   = useState<number | null>(readPersistedSessionId);
+  const [currentSessionName, setCurrentSessionName] = useState<string>('New Chat');
+  const [messages, setMessages]                   = useState<Message[]>([]);
+  const [input, setInput]                         = useState('');
+  const [isTyping, setIsTyping]                   = useState(false);
+  const [loading, setLoading]                     = useState(true);
+  const [sessionsLoaded, setSessionsLoaded]       = useState(false);
+  const [justFinished, setJustFinished]           = useState(false);
+  const [showScrollBottom, setShowScrollBottom]   = useState(false);
+  const [copiedId, setCopiedId]                   = useState<number | string | null>(null);
+  const [editingMessage, setEditingMessage]       = useState<{ id: string | number; content: string } | null>(null);
+  const [editInput, setEditInput]                 = useState('');
+  const [modalType, setModalType]                 = useState<'none' | 'delete-all' | 'delete-single'>('none');
+  const [sessionIdToDelete, setSessionIdToDelete] = useState<number | null>(null);
+  const [serverWaking, setServerWaking]           = useState(false);
+  const [inputFocused, setInputFocused]           = useState(false);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
-  /**
-   * FIX (Bug 2) — Header name update:
-   * currentSessionName is set directly (optimistically) at every rename/title
-   * site. We keep a sync effect as a fallback for external changes only, but
-   * every write path sets the name immediately so the header never lags.
-   */
-  const [currentSessionName, setCurrentSessionName] = useState<string>(() => {
-    // On mount, try to derive from sessionStorage key — sessions list hasn't
-    // loaded yet, so default to 'New Chat' and let the effect correct it.
-    return 'New Chat';
-  });
+  // ── Refs ──────────────────────────────────────────────────────────────────
+  const messagesEndRef     = useRef<HTMLDivElement>(null);
+  const isSendingRef       = useRef(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const inputRef           = useRef<HTMLTextAreaElement>(null);
+  // Prevents the currentSessionId effect from re-fetching messages when
+  // sendMessage already has the correct message list.
+  const skipMessageLoadRef = useRef(false);
 
-  const [messages, setMessages]                     = useState<Message[]>([]);
-  const [input, setInput]                           = useState('');
-  const [isTyping, setIsTyping]                     = useState(false);
-  const [loading, setLoading]                       = useState(true);
-  const [sessionsLoaded, setSessionsLoaded]         = useState(false);
-  const [justFinished, setJustFinished]             = useState(false);
-  const [showScrollBottom, setShowScrollBottom]     = useState(false);
-  const [copiedId, setCopiedId]                     = useState<number | string | null>(null);
-  const [editingMessage, setEditingMessage]         = useState<{ id: string | number; content: string } | null>(null);
-  const [editInput, setEditInput]                   = useState('');
-  const [modalType, setModalType]                   = useState<'none' | 'delete-all' | 'delete-single'>('none');
-  const [sessionIdToDelete, setSessionIdToDelete]   = useState<number | null>(null);
-  const [serverWaking, setServerWaking]             = useState(false);
-  const [inputFocused, setInputFocused]             = useState(false);
-  const [mobileSidebarOpen, setMobileSidebarOpen]   = useState(false);
+  // ── Helpers ───────────────────────────────────────────────────────────────
 
-  // ── Refs ───────────────────────────────────────────────────────────────────
-  const messagesEndRef      = useRef<HTMLDivElement>(null);
-  const isSendingRef        = useRef(false);
-  const abortControllerRef  = useRef<AbortController | null>(null);
-  const inputRef            = useRef<HTMLTextAreaElement>(null);
-
-  /**
-   * Prevents the currentSessionId effect from re-fetching messages when we
-   * already have the correct message list from a sendMessage flow.
-   */
-  const skipMessageLoadRef  = useRef(false);
-
-  /**
-   * Tracks whether this is the very first loadSessions call so we can gate
-   * the logout-on-401 behaviour correctly.
-   */
-  const initialLoadDoneRef  = useRef(false);
-
-  // ── Helpers ────────────────────────────────────────────────────────────────
-
-  const updateCurrentSessionId = useCallback((id: number | null) => {
+  /** Central setter — always persists to localStorage so refresh works. */
+  const updateCurrentSessionId = useCallback((id: number | null, name?: string) => {
     setCurrentSessionId(id);
     persistSessionId(id);
-    // When clearing the active session, reset the header immediately.
-    if (id === null) setCurrentSessionName('New Chat');
+    setCurrentSessionName(name ?? 'New Chat');
   }, []);
 
-  /**
-   * FIX (Bug 2) — Sync header name from sessions list.
-   * This is now the FALLBACK path only (e.g. after loadSessions returns on
-   * initial load). All active write paths (rename, title generation, session
-   * select) call setCurrentSessionName directly for instant updates.
-   */
-  useEffect(() => {
-    if (!sessionsLoaded) return;
-    const found = sessions.find(s => s.id === currentSessionId);
-    // Only override if we have a real name — prevents 'New Chat' overwriting
-    // an optimistically-set name between API calls.
-    if (found?.sessionName) {
-      setCurrentSessionName(found.sessionName);
-    } else if (!currentSessionId) {
-      setCurrentSessionName('New Chat');
-    }
-  }, [currentSessionId, sessions, sessionsLoaded]);
-
-  // ── Data fetching ──────────────────────────────────────────────────────────
+  // ── Data fetching ─────────────────────────────────────────────────────────
 
   /**
-   * FIX (Bug 1) — Refresh → Login:
+   * CRITICAL FIX — loadSessions:
    *
-   * Root causes in the original code:
-   *   a) wakeUpServer() was fire-and-forget; getSessions() could fire before
-   *      the server was ready → 401 → onLogout().
-   *   b) The 401 retry only waited 2.5 s, which is too short for a cold Render
-   *      instance. We now wait up to 8 s with two retries.
-   *   c) onLogout() was called on ANY error after the retry, including network
-   *      timeouts that have nothing to do with authentication.
+   * The original wakeUpServer() was fire-and-forget (returned void immediately).
+   * This meant getSessions() fired while the Render server was still cold-starting
+   * → got a 401/502 → called onLogout() → user was sent to login on every refresh.
    *
-   * Fixes applied:
-   *   • Properly await wakeUpServer() before the first getSessions() call.
-   *   • Retry 401s twice (3 s + 5 s delays) on the initial load only.
-   *   • Never call onLogout() for non-401 errors — leave the UI intact.
-   *   • setSessionsLoaded(true) is always called in finally.
+   * The new wakeUpServer() in api.ts returns a real Promise that resolves only
+   * when the server responds (or after max retries). We properly await it here.
    */
   const loadSessions = useCallback(async (isInitialLoad = false): Promise<Session[]> => {
     try {
-      if (isInitialLoad && !initialLoadDoneRef.current) {
-        // Block until the server confirms it is up.
-        try { await wakeUpServer(); } catch { /* already awake or unreachable */ }
-        initialLoadDoneRef.current = true;
+      if (isInitialLoad) {
+        await wakeUpServer(); // Now a real awaitable Promise — blocks until server is up
       }
 
       const response = await chatApi.getSessions() as { sessions: Session[] };
@@ -268,28 +205,8 @@ export default function Chat({ user, onLogout }: Props) {
     } catch (err: unknown) {
       console.error('Failed to load sessions:', err);
       const status = getErrorStatus(err);
-
-      if (status === 401 && isInitialLoad) {
-        // Cold-start: auth layer may still be settling. Retry twice.
-        const delays = [3000, 5000];
-        for (const delay of delays) {
-          try {
-            await new Promise<void>(resolve => setTimeout(resolve, delay));
-            const retry = await chatApi.getSessions() as { sessions: Session[] };
-            const list = retry.sessions ?? [];
-            setSessions(list);
-            return list;
-          } catch (retryErr) {
-            if (getErrorStatus(retryErr) !== 401) break; // non-auth error — stop retrying
-          }
-        }
-        // Exhausted retries on a genuine 401 — user must log in again.
-        onLogout();
-      } else if (status === 401 && !isInitialLoad) {
-        // Mid-session 401: session truly expired.
-        onLogout();
-      }
-      // All other errors (network, 5xx, etc.) — leave current UI intact.
+      // Only logout on a definitive auth failure — never on network/5xx errors
+      if (status === 401) onLogout();
       return [];
     } finally {
       setLoading(false);
@@ -307,47 +224,71 @@ export default function Chat({ user, onLogout }: Props) {
     }
   }, [onLogout]);
 
-  // ── Effects ────────────────────────────────────────────────────────────────
+  // ── Effects ───────────────────────────────────────────────────────────────
 
-  // Initial load — isInitialLoad=true so wakeUpServer is properly awaited.
+  // Initial load — awaits wakeUpServer before getSessions.
   useEffect(() => { loadSessions(true); }, [loadSessions]);
 
   /**
-   * Staleness check: if the persisted session no longer exists, clear it.
-   *
-   * Guard `sessions.length === 0`: on a cold-start the server may return an
-   * empty list before data is ready. An empty list is NOT proof the session
-   * was deleted, so we skip the check in that case. Intentional
-   * deletes/clears call updateCurrentSessionId(null) before reloading, so
-   * currentSessionId is already null by the time an intentionally-empty list
-   * arrives.
+   * After sessions load, sync the header name for the persisted session.
+   * This is the only place we read sessions[] to set the name — all other
+   * write paths set the name directly for zero-lag updates.
    */
   useEffect(() => {
-    if (loading || !sessionsLoaded || sessions.length === 0) return;
+    if (!sessionsLoaded) return;
+    const found = sessions.find(s => s.id === currentSessionId);
+    if (found?.sessionName) {
+      setCurrentSessionName(found.sessionName);
+    } else if (!currentSessionId) {
+      setCurrentSessionName('New Chat');
+    }
+  }, [sessionsLoaded, sessions, currentSessionId]);
+
+  /**
+   * Staleness check: if the persisted session ID no longer exists in the
+   * server's list, clear it. Guard on sessions.length > 0 — an empty list
+   * on a cold start is NOT proof the session was deleted.
+   */
+  useEffect(() => {
+    if (!sessionsLoaded || sessions.length === 0) return;
     if (currentSessionId !== null && !sessions.some(s => s.id === currentSessionId)) {
       updateCurrentSessionId(null);
       setMessages([]);
     }
-  }, [sessions, loading, sessionsLoaded, currentSessionId, updateCurrentSessionId]);
+  }, [sessions, sessionsLoaded, currentSessionId, updateCurrentSessionId]);
 
-  // Load messages for the active session (skipped after sendMessage sets them directly).
+  // Load messages when active session changes.
   useEffect(() => {
     if (!currentSessionId) { setMessages([]); return; }
     if (skipMessageLoadRef.current) { skipMessageLoadRef.current = false; return; }
     loadMessages(currentSessionId);
   }, [currentSessionId, loadMessages]);
 
-  // Scroll to bottom on new messages / typing indicator.
+  // Scroll to bottom on new messages or typing indicator.
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isTyping]);
 
-  // ── Event handlers ─────────────────────────────────────────────────────────
+  // ── Event handlers ────────────────────────────────────────────────────────
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
     setShowScrollBottom(scrollHeight - scrollTop - clientHeight > 100);
   };
+
+  /**
+   * CRITICAL FIX — handleSelectSession:
+   * Sets the header name IMMEDIATELY from the local sessions list on click —
+   * no waiting for any effect or API call. This eliminates the header lag.
+   */
+  const handleSelectSession = useCallback((id: number) => {
+    const found = sessions.find(s => s.id === id);
+    const name = found?.sessionName ?? 'New Chat';
+    // Set all three atomically so header, state, and localStorage are in sync
+    setCurrentSessionName(name);
+    setCurrentSessionId(id);
+    persistSessionId(id);
+  }, [sessions]);
 
   const sendMessage = async (
     messageText: string,
@@ -356,9 +297,9 @@ export default function Chat({ user, onLogout }: Props) {
   ) => {
     if (!messageText.trim() || isSendingRef.current) return;
 
-    isSendingRef.current        = true;
-    const controller            = new AbortController();
-    abortControllerRef.current  = controller;
+    isSendingRef.current       = true;
+    const controller           = new AbortController();
+    abortControllerRef.current = controller;
 
     setIsTyping(true);
     setJustFinished(false);
@@ -396,16 +337,15 @@ export default function Chat({ user, onLogout }: Props) {
       const activeSessionId: number = response.sessionId ?? currentSessionId ?? 0;
 
       if (isNewSession && activeSessionId) {
-        // Prevent the currentSessionId effect from re-fetching messages —
-        // we set them ourselves below.
         skipMessageLoadRef.current = true;
-        updateCurrentSessionId(activeSessionId);
+        // Persist immediately so a refresh restores this session
+        persistSessionId(activeSessionId);
+        setCurrentSessionId(activeSessionId);
         await loadSessions();
       }
 
       setIsTyping(false);
 
-      // Guard: don't append the AI reply if the user aborted mid-flight.
       if (!controller.signal.aborted) {
         const aiMsg: Message = {
           id:        response.messageId ?? 'ai-' + Date.now(),
@@ -419,22 +359,18 @@ export default function Chat({ user, onLogout }: Props) {
         );
       }
 
-      // Generate a meaningful title for new sessions or after edits.
+      // Generate a title for new sessions or after message edits.
       if (activeSessionId && (isNewSession || isEdit)) {
         try {
           const { title } = await chatApi.generateTitle(messageText) as { title: string };
 
-          /**
-           * FIX (Bug 2) — Instant header update after title generation:
-           * Set both state slices immediately so the header reflects the new
-           * name without waiting for the next loadSessions() cycle.
-           */
+          // Update header and sidebar list IMMEDIATELY — optimistic, no loadSessions needed
+          setCurrentSessionName(title);
           setSessions(prev =>
             prev.map(s => s.id === activeSessionId ? { ...s, sessionName: title } : s),
           );
-          setCurrentSessionName(title);
 
-          // Persist to the server (non-blocking; errors are non-fatal).
+          // Persist to server (errors are non-fatal)
           await chatApi.renameSession(activeSessionId, title);
         } catch (renameErr) {
           console.error('Title generation / rename failed:', renameErr);
@@ -446,7 +382,6 @@ export default function Chat({ user, onLogout }: Props) {
       setIsTyping(false);
 
       if (err instanceof Error && err.name === 'AbortError') {
-        // User intentionally stopped — no error message needed.
         console.log('Chat aborted by user');
       } else {
         console.error('Chat error:', err);
@@ -462,8 +397,8 @@ export default function Chat({ user, onLogout }: Props) {
         }]);
       }
     } finally {
-      isSendingRef.current        = false;
-      abortControllerRef.current  = null;
+      isSendingRef.current       = false;
+      abortControllerRef.current = null;
       setJustFinished(true);
       setTimeout(() => setJustFinished(false), 3000);
       setTimeout(() => inputRef.current?.focus(), 100);
@@ -517,19 +452,17 @@ export default function Chat({ user, onLogout }: Props) {
   };
 
   /**
-   * FIX (Bug 2) — Instant header name after manual rename:
-   * Optimistic update via setSessions + setCurrentSessionName makes both
-   * the sidebar and header reflect the new name instantly, before the server
-   * round-trip completes.
+   * renameSession — optimistic: update local state first for instant UI
+   * feedback, then persist to server in the background.
    */
   const renameSession = async (sid: number, newName: string) => {
     const trimmed = newName.trim();
     if (!trimmed) return;
+    setSessions(prev =>
+      prev.map(s => s.id === sid ? { ...s, sessionName: trimmed } : s),
+    );
+    if (sid === currentSessionId) setCurrentSessionName(trimmed);
     try {
-      setSessions(prev =>
-        prev.map(s => s.id === sid ? { ...s, sessionName: trimmed } : s),
-      );
-      if (sid === currentSessionId) setCurrentSessionName(trimmed);
       await chatApi.renameSession(sid, trimmed);
     } catch (err: unknown) {
       console.error('Failed to rename session:', err);
@@ -559,17 +492,6 @@ export default function Chat({ user, onLogout }: Props) {
     }
   };
 
-  /**
-   * Handle session selection from sidebar — update header name immediately
-   * so there's no flicker between clicks.
-   */
-  const handleSelectSession = useCallback((id: number) => {
-    const found = sessions.find(s => s.id === id);
-    setCurrentSessionName(found?.sessionName || 'New Chat');
-    updateCurrentSessionId(id);
-  }, [sessions, updateCurrentSessionId]);
-
-  /** Strip internal file-attachment annotations from displayed content. */
   const cleanMessageContent = (content: string): string =>
     content.replace(/\n?\n?\[Attached Files:.*?\]/g, '').trim();
 
@@ -591,12 +513,11 @@ export default function Chat({ user, onLogout }: Props) {
     await sendMessage(editedText, messagesBeforeEdit, true);
   };
 
-  // ── Derived UI flags ───────────────────────────────────────────────────────
+  // ── Derived UI flags ──────────────────────────────────────────────────────
 
-  /** Show an animated blinking cursor when the input is empty and the AI is responding. */
   const showBlinkingCursor = !input && !inputFocused && (isTyping || justFinished);
 
-  // ── Loading screen ─────────────────────────────────────────────────────────
+  // ── Loading screen ────────────────────────────────────────────────────────
 
   if (loading) {
     return (
@@ -613,7 +534,7 @@ export default function Chat({ user, onLogout }: Props) {
     );
   }
 
-  // ── Render ─────────────────────────────────────────────────────────────────
+  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div className="flex h-[100dvh] overflow-hidden bg-[--bg-main] relative transition-colors duration-300 font-sans">
@@ -636,11 +557,10 @@ export default function Chat({ user, onLogout }: Props) {
 
       <main className="flex-1 flex flex-col min-w-0 bg-transparent relative z-20 lg:pl-14">
 
-        {/* ── Header ──────────────────────────────────────────────────────── */}
+        {/* ── Header ────────────────────────────────────────────────────── */}
         <header className="sticky top-0 z-30 h-14 bg-white/90 dark:bg-black/50 backdrop-blur-2xl border-b border-[--border] shrink-0">
           <div className="flex items-center h-full px-3 gap-2">
 
-            {/* Mobile sidebar open button */}
             <div className="flex items-center gap-1 shrink-0">
               <button
                 onClick={() => setMobileSidebarOpen(true)}
@@ -651,7 +571,6 @@ export default function Chat({ user, onLogout }: Props) {
               </button>
             </div>
 
-            {/* Centred title + session name */}
             <div className="flex-1 flex flex-col items-center justify-center min-w-0">
               <div className="flex items-center gap-1.5">
                 <StormLogo className="w-4 h-4 text-indigo-600 dark:text-indigo-500 shrink-0" />
@@ -660,17 +579,11 @@ export default function Chat({ user, onLogout }: Props) {
                 </span>
                 <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
               </div>
-              {/*
-                currentSessionName is always set directly on every write path
-                (rename, title generation, session select, clear) so this
-                never lags behind the sidebar.
-              */}
               <span className="text-[10px] font-semibold text-[--text-muted] truncate leading-none max-w-[180px] sm:max-w-xs mt-0.5">
                 {currentSessionName}
               </span>
             </div>
 
-            {/* Mobile avatar → opens sidebar */}
             <div className="shrink-0 lg:hidden">
               <UserAvatar
                 name={user.username}
@@ -681,12 +594,11 @@ export default function Chat({ user, onLogout }: Props) {
           </div>
         </header>
 
-        {/* ── Message list ────────────────────────────────────────────────── */}
+        {/* ── Message list ──────────────────────────────────────────────── */}
         <div className="flex-1 overflow-y-auto scroll-hide" onScroll={handleScroll}>
           <div className="max-w-3xl mx-auto px-3 sm:px-4 md:px-6 py-6">
 
             {messages.length === 0 && !isTyping ? (
-              /* Empty state / suggestion chips */
               <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-2 max-w-xl mx-auto">
                 <motion.div
                   initial={{ scale: 0.8, opacity: 0 }}
@@ -716,7 +628,6 @@ export default function Chat({ user, onLogout }: Props) {
                 </div>
               </div>
             ) : (
-              /* Message bubbles */
               <div className="space-y-5 pb-6 pt-2">
                 {messages.map((msg, index) => {
                   const isEditing  = editingMessage?.id === msg.id;
@@ -729,20 +640,16 @@ export default function Chat({ user, onLogout }: Props) {
                     >
                       <div className={`flex gap-2 w-full ${msg.role === 'user' ? 'flex-row-reverse justify-start' : 'flex-row'}`}>
 
-                        {/* Avatar */}
                         <div className="w-7 h-7 shrink-0 flex items-center justify-center mt-1">
                           {msg.role === 'user' ? (
                             <div className="w-full h-full rounded-full border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 flex items-center justify-center shadow-sm overflow-hidden">
                               <UserAvatar name={user?.username || 'User'} className="w-full h-full text-[10px]" />
                             </div>
                           ) : (
-                            <StormLogo
-                              className={`w-6 h-6 text-indigo-500 dark:text-indigo-400 ${shouldSpin ? 'animate-spin' : ''}`}
-                            />
+                            <StormLogo className={`w-6 h-6 text-indigo-500 dark:text-indigo-400 ${shouldSpin ? 'animate-spin' : ''}`} />
                           )}
                         </div>
 
-                        {/* Bubble */}
                         <div className={`flex flex-col gap-1 min-w-0 overflow-hidden ${
                           msg.role === 'user'
                             ? 'max-w-[88%] sm:max-w-[78%] items-end'
@@ -755,16 +662,12 @@ export default function Chat({ user, onLogout }: Props) {
                           }`}>
                             <div className="text-sm leading-relaxed markdown-body max-w-none">
                               {isEditing ? (
-                                /* Inline edit form */
                                 <div className="flex flex-col gap-3 min-w-[200px] p-1">
                                   <textarea
                                     value={editInput}
                                     onChange={e => setEditInput(e.target.value)}
                                     onKeyDown={e => {
-                                      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-                                        e.preventDefault();
-                                        handleSaveEdit();
-                                      }
+                                      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); handleSaveEdit(); }
                                       if (e.key === 'Escape') handleCancelEdit();
                                     }}
                                     className={`w-full border rounded-xl p-3 text-sm focus:outline-none focus:ring-2 focus:ring-white/20 transition-all resize-none font-medium min-h-[80px] ${
@@ -779,9 +682,7 @@ export default function Chat({ user, onLogout }: Props) {
                                     <button
                                       onClick={handleCancelEdit}
                                       className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all rounded-lg ${
-                                        msg.role === 'user'
-                                          ? 'text-white/60 hover:text-white'
-                                          : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100'
+                                        msg.role === 'user' ? 'text-white/60 hover:text-white' : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100'
                                       }`}
                                     >
                                       Cancel
@@ -800,7 +701,6 @@ export default function Chat({ user, onLogout }: Props) {
                                   </div>
                                 </div>
                               ) : (
-                                /* Markdown renderer */
                                 <ReactMarkdown
                                   remarkPlugins={[remarkGfm]}
                                   components={{
@@ -809,34 +709,22 @@ export default function Chat({ user, onLogout }: Props) {
                                         <div className="my-4 overflow-hidden rounded-xl border border-indigo-200/40 dark:border-indigo-500/20 shadow-lg bg-gradient-to-br from-indigo-50/80 to-violet-50/60 dark:from-indigo-950/50 dark:to-violet-950/40 backdrop-blur-xl">
                                           <div className="flex items-center gap-2 px-4 py-2 border-b border-indigo-200/30 dark:border-indigo-500/15 bg-indigo-100/40 dark:bg-indigo-900/20">
                                             <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 dark:bg-indigo-500" />
-                                            <span className="text-[10px] font-black uppercase tracking-widest text-indigo-400 dark:text-indigo-500">
-                                              Output
-                                            </span>
+                                            <span className="text-[10px] font-black uppercase tracking-widest text-indigo-400 dark:text-indigo-500">Output</span>
                                           </div>
-                                          <pre
-                                            className="p-4 overflow-x-auto text-[0.8rem] leading-relaxed font-mono text-indigo-700 dark:text-indigo-300 whitespace-pre"
-                                            {...props}
-                                          >
+                                          <pre className="p-4 overflow-x-auto text-[0.8rem] leading-relaxed font-mono text-indigo-700 dark:text-indigo-300 whitespace-pre" {...props}>
                                             {children}
                                           </pre>
                                         </div>
                                       );
                                     },
-                                    code({
-                                      className,
-                                      children,
-                                      ...props
-                                    }: React.ComponentPropsWithoutRef<'code'>) {
+                                    code({ className, children, ...props }: React.ComponentPropsWithoutRef<'code'>) {
                                       const match   = /language-(\w+)/.exec(className || '');
                                       const content = String(children).replace(/\n$/, '');
                                       const isInline = !className;
                                       return !isInline && match ? (
                                         <CodeBlock language={match[1]} value={content} />
                                       ) : (
-                                        <code
-                                          className={`${className ?? ''} bg-zinc-100/50 dark:bg-white/5 text-indigo-500 px-1 py-0.5 rounded font-mono text-[0.85em] break-words`}
-                                          {...props}
-                                        >
+                                        <code className={`${className ?? ''} bg-zinc-100/50 dark:bg-white/5 text-indigo-500 px-1 py-0.5 rounded font-mono text-[0.85em] break-words`} {...props}>
                                           {children}
                                         </code>
                                       );
@@ -844,9 +732,7 @@ export default function Chat({ user, onLogout }: Props) {
                                     table({ children, ...props }: React.ComponentPropsWithoutRef<'table'>) {
                                       return (
                                         <div className="overflow-x-auto my-3 rounded-lg border border-zinc-200 dark:border-zinc-700">
-                                          <table className="min-w-full text-sm" {...props}>
-                                            {children}
-                                          </table>
+                                          <table className="min-w-full text-sm" {...props}>{children}</table>
                                         </div>
                                       );
                                     },
@@ -858,7 +744,6 @@ export default function Chat({ user, onLogout }: Props) {
                             </div>
                           </div>
 
-                          {/* Timestamp + action buttons */}
                           <div className="flex items-center gap-1 mt-0.5 px-1 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity">
                             {msg.role === 'assistant' && (
                               <span className="text-[9px] font-black text-indigo-500/50 uppercase tracking-[0.2em] mr-auto pl-1">
@@ -889,15 +774,11 @@ export default function Chat({ user, onLogout }: Props) {
                                   }
                                 }}
                                 className={`p-1 px-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all ${
-                                  copiedId === msg.id
-                                    ? 'text-emerald-500'
-                                    : 'text-zinc-400 hover:text-indigo-600'
+                                  copiedId === msg.id ? 'text-emerald-500' : 'text-zinc-400 hover:text-indigo-600'
                                 }`}
                                 aria-label="Copy message"
                               >
-                                {copiedId === msg.id
-                                  ? <Check className="w-3.5 h-3.5" />
-                                  : <Copy className="w-3.5 h-3.5" />}
+                                {copiedId === msg.id ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
                               </button>
                             </div>
                           </div>
@@ -907,7 +788,6 @@ export default function Chat({ user, onLogout }: Props) {
                   );
                 })}
 
-                {/* Typing / server-waking indicator */}
                 {isTyping && (
                   <div className="flex items-start gap-2">
                     <div className="w-7 h-7 shrink-0 flex items-center justify-center mt-1">
@@ -944,16 +824,14 @@ export default function Chat({ user, onLogout }: Props) {
               </div>
             )}
 
-            {/* Scroll anchor for the empty state */}
             {messages.length === 0 && !isTyping && <div ref={messagesEndRef} />}
           </div>
         </div>
 
-        {/* ── Input bar ───────────────────────────────────────────────────── */}
+        {/* ── Input bar ─────────────────────────────────────────────────── */}
         <div className="shrink-0 bg-[--bg-main] border-t border-[--border]/50 px-3 sm:px-4 py-3">
           <div className="max-w-3xl mx-auto relative">
 
-            {/* Scroll-to-bottom button */}
             <AnimatePresence>
               {showScrollBottom && (
                 <motion.button
@@ -970,8 +848,6 @@ export default function Chat({ user, onLogout }: Props) {
             </AnimatePresence>
 
             <div className={`relative flex flex-row items-end bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-lg transition-all overflow-hidden ${justFinished ? 'animate-blink' : ''}`}>
-
-              {/* Text input */}
               <div className="relative flex-1 min-w-0">
                 <textarea
                   ref={inputRef}
@@ -999,14 +875,11 @@ export default function Chat({ user, onLogout }: Props) {
                 {showBlinkingCursor && (
                   <div className="absolute left-4 top-0 bottom-0 flex items-center gap-1.5 pointer-events-none">
                     <BlinkingCursor />
-                    <span className="text-sm font-medium text-zinc-400 dark:text-zinc-500">
-                      Write a message…
-                    </span>
+                    <span className="text-sm font-medium text-zinc-400 dark:text-zinc-500">Write a message…</span>
                   </div>
                 )}
               </div>
 
-              {/* Send / stop button */}
               <div className="flex items-center px-2.5 pb-2.5 shrink-0">
                 <motion.button
                   whileHover={{ scale: isTyping || input.trim() ? 1.08 : 1.02 }}
@@ -1023,19 +896,13 @@ export default function Chat({ user, onLogout }: Props) {
                   {isTyping ? (
                     <span className="relative flex items-center justify-center w-full h-full">
                       <svg className="absolute inset-0 w-full h-full animate-spin" viewBox="0 0 40 40" aria-hidden="true">
-                        <circle
-                          cx="20" cy="20" r="16"
-                          fill="none" stroke="#6366f1" strokeWidth="3"
-                          strokeDasharray="55 45" strokeLinecap="round"
-                        />
+                        <circle cx="20" cy="20" r="16" fill="none" stroke="#6366f1" strokeWidth="3" strokeDasharray="55 45" strokeLinecap="round" />
                       </svg>
                       <span className="w-3 h-3 rounded-sm bg-zinc-800 dark:bg-zinc-200 block relative z-10" />
                     </span>
                   ) : (
                     <ArrowUp className={`w-4 h-4 transition-all ${
-                      input.trim()
-                        ? 'text-zinc-800 dark:text-zinc-100 scale-110'
-                        : 'text-zinc-400 dark:text-zinc-500 scale-90'
+                      input.trim() ? 'text-zinc-800 dark:text-zinc-100 scale-110' : 'text-zinc-400 dark:text-zinc-500 scale-90'
                     }`} />
                   )}
                 </motion.button>
@@ -1049,7 +916,7 @@ export default function Chat({ user, onLogout }: Props) {
         </div>
       </main>
 
-      {/* ── Modals ────────────────────────────────────────────────────────── */}
+      {/* ── Modals ──────────────────────────────────────────────────────── */}
       <ConfirmationModal
         isOpen={modalType === 'delete-single'}
         onClose={() => setModalType('none')}
