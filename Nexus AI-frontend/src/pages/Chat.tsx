@@ -144,7 +144,7 @@ interface Props {
 export default function Chat({ user, onLogout }: Props) {
   // ── State ─────────────────────────────────────────────────────────────────
   const [sessions, setSessions]                   = useState<Session[]>([]);
-  const [currentSessionId, setCurrentSessionId]   = useState<number | null>(readPersistedSessionId);
+  const [currentSessionId, setCurrentSessionId]   = useState<number | null>(readPersistedSessionId());
   const [currentSessionName, setCurrentSessionName] = useState<string>('New Chat');
   const [messages, setMessages]                   = useState<Message[]>([]);
   const [input, setInput]                         = useState('');
@@ -276,19 +276,12 @@ export default function Chat({ user, onLogout }: Props) {
     setShowScrollBottom(scrollHeight - scrollTop - clientHeight > 100);
   };
 
-  /**
-   * CRITICAL FIX — handleSelectSession:
-   * Sets the header name IMMEDIATELY from the local sessions list on click —
-   * no waiting for any effect or API call. This eliminates the header lag.
-   */
+ 
   const handleSelectSession = useCallback((id: number) => {
-    const found = sessions.find(s => s.id === id);
-    const name = found?.sessionName ?? 'New Chat';
-    // Set all three atomically so header, state, and localStorage are in sync
-    setCurrentSessionName(name);
-    setCurrentSessionId(id);
-    persistSessionId(id);
-  }, [sessions]);
+  const found = sessions.find(s => s.id === id);
+  const name = found?.sessionName ?? 'New Chat';
+  updateCurrentSessionId(id, name); // ← was setting 3 things manually; use central setter
+}, [sessions, updateCurrentSessionId]);
 
   const sendMessage = async (
     messageText: string,
