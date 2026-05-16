@@ -22,53 +22,63 @@ public class ChatHistoryService {
     private final ChatSessionRepository chatSessionRepository;
     private final ChatMessageRepository chatMessageRepository;
 
+    // ─── Session existence check ──────────────────────────────────────────────
+    // FIX: Added so ChatController can validate a session ID belongs to
+    // the current user before using it — prevents the 500 "Session not found"
+    // error on Android Chrome when the server restarts and old IDs are stale.
+    public boolean sessionExistsForUser(Long sessionId, User user) {
+        return chatSessionRepository.existsByIdAndUserId(sessionId, user.getId());
+    }
+
+    // ─── Create session ───────────────────────────────────────────────────────
     @Transactional
     public ChatSession createNewSession(User user, String sessionName) {
         ChatSession session = new ChatSession();
         session.setUserId(user.getId());
-        session.setSessionName(sessionName);
+        session.setSessionName(sessionName != null ? sessionName : "New Chat");
         session.setCreatedAt(LocalDateTime.now());
         session.setUpdatedAt(LocalDateTime.now());
         return chatSessionRepository.save(session);
     }
 
+    // ─── Rename session ───────────────────────────────────────────────────────
     @Transactional
     public ChatSession renameSession(Long sessionId, String newName) {
         ChatSession session = chatSessionRepository.findById(sessionId)
-                .orElseThrow(() -> new AIServiceException("Session not found with id: " + sessionId));
-
+                .orElseThrow(() -> new AIServiceException(
+                        "Session not found with id: " + sessionId));
         session.setSessionName(newName);
         session.setUpdatedAt(LocalDateTime.now());
-
         return chatSessionRepository.save(session);
     }
 
+    // ─── Save message ─────────────────────────────────────────────────────────
     @Transactional
     public void saveMessage(Long sessionId, String role, String content) {
         ChatSession session = chatSessionRepository.findById(sessionId)
-                .orElseThrow(() -> new AIServiceException("Session not found: " + sessionId));
-
+                .orElseThrow(() -> new AIServiceException(
+                        "Session not found: " + sessionId));
         ChatMessage message = new ChatMessage();
         message.setSessionId(sessionId);
         message.setRole(role);
         message.setContent(content);
         message.setTimestamp(LocalDateTime.now());
-
         chatMessageRepository.save(message);
-
         session.setUpdatedAt(LocalDateTime.now());
         chatSessionRepository.save(session);
     }
 
+    // ─── Get messages ─────────────────────────────────────────────────────────
     public List<ChatMessage> getSessionMessages(Long sessionId) {
         return chatMessageRepository.findBySessionIdOrderByTimestampAsc(sessionId);
     }
 
+    // ─── Get user sessions ────────────────────────────────────────────────────
     public List<ChatSession> getUserSessions(User user) {
-        // FIXED: Pass Long userId instead of User object
         return chatSessionRepository.findByUserIdOrderByUpdatedAtDesc(user.getId());
     }
 
+    // ─── Delete session ───────────────────────────────────────────────────────
     @Transactional
     public void deleteSession(Long sessionId) {
         if (!chatSessionRepository.existsById(sessionId)) {
@@ -80,9 +90,11 @@ public class ChatHistoryService {
         log.info("Deleted session: {}", sessionId);
     }
 
+    // ─── Clear all user sessions ──────────────────────────────────────────────
     @Transactional
     public void clearUserSessions(User user) {
-        List<ChatSession> sessions = chatSessionRepository.findByUserIdOrderByUpdatedAtDesc(user.getId());
+        List<ChatSession> sessions = chatSessionRepository
+                .findByUserIdOrderByUpdatedAtDesc(user.getId());
         for (ChatSession session : sessions) {
             chatMessageRepository.deleteBySessionId(session.getId());
         }
