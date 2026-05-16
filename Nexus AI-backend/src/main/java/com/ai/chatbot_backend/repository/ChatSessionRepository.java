@@ -15,6 +15,8 @@ public interface ChatSessionRepository extends JpaRepository<ChatSession, Long> 
 
     List<ChatSession> findByUserIdOrderByUpdatedAtDesc(Long userId);
 
+    boolean existsByIdAndUserId(Long id, Long userId);
+
     @Modifying
     @Transactional
     @Query("DELETE FROM ChatSession s WHERE s.userId = :userId")
