@@ -53,9 +53,9 @@ const persistSessionId = (id: number | null): void => {
   } catch { /* storage unavailable */ }
 };
 
-// FIX 1: Was missing () — was passing the function reference instead of
-// calling it, so currentSessionId was always the function, never the stored ID.
-// This caused every page refresh to start a new chat.
+// FIX 1: Called with () so it returns the stored value, not the function reference.
+// Without () React stored the function itself as state — causing every refresh
+// to start a new chat and redirect to login on Android Chrome.
 const readPersistedSessionId = (): number | null => {
   try {
     const raw = localStorage.getItem(SESSION_KEY);
@@ -78,8 +78,10 @@ function NexusLogo({ className }: { className?: string }) {
       xmlns="http://www.w3.org/2000/svg"
       aria-hidden="true"
     >
-      <rect x="2" y="2" width="32" height="32" rx="8" ry="8" stroke="currentColor" strokeWidth="2.2" fill="none" />
-      <line x1="10" y1="2" x2="10" y2="34" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+      <rect x="2" y="2" width="32" height="32" rx="8" ry="8"
+        stroke="currentColor" strokeWidth="2.2" fill="none" />
+      <line x1="10" y1="2" x2="10" y2="34"
+        stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
     </svg>
   );
 }
@@ -107,8 +109,12 @@ const CodeBlock = ({ language, value }: { language: string; value: string }) => 
           className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-100 dark:bg-zinc-800 text-[10px] font-black text-zinc-500 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all hover:scale-105 active:scale-95 shrink-0"
           aria-label={copied ? 'Copied' : 'Copy code'}
         >
-          {copied ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
-          <span className="uppercase tracking-widest hidden sm:inline">{copied ? 'Copied' : 'Copy'}</span>
+          {copied
+            ? <Check className="w-3 h-3 text-emerald-500" />
+            : <Copy className="w-3 h-3" />}
+          <span className="uppercase tracking-widest hidden sm:inline">
+            {copied ? 'Copied' : 'Copy'}
+          </span>
         </button>
       </div>
       <div className="overflow-x-auto w-full bg-[#282c34]">
@@ -152,8 +158,7 @@ export default function Chat({ user, onLogout }: Props) {
 
   // ── State ──────────────────────────────────────────────────────────────────
   const [sessions, setSessions]                     = useState<Session[]>([]);
-  // FIX 1: readPersistedSessionId() — called with () to get the stored value,
-  // not the function reference itself.
+  // FIX 1: readPersistedSessionId() — called with () to get the stored value
   const [currentSessionId, setCurrentSessionId]     = useState<number | null>(readPersistedSessionId());
   const [currentSessionName, setCurrentSessionName] = useState<string>('New Chat');
   const [messages, setMessages]                     = useState<Message[]>([]);
@@ -181,7 +186,6 @@ export default function Chat({ user, onLogout }: Props) {
 
   // ── Central session setter ─────────────────────────────────────────────────
 
-  /** Always updates state + localStorage atomically. */
   const updateCurrentSessionId = useCallback((id: number | null, name?: string) => {
     setCurrentSessionId(id);
     persistSessionId(id);
@@ -216,21 +220,19 @@ export default function Chat({ user, onLogout }: Props) {
         messages: Message[];
         stale?: boolean;
       };
-
-      // FIX: Backend returns stale:true + 404 when the session no longer exists
-      // (e.g. after a server restart). Clear localStorage and show empty state.
+      // FIX: Backend returns stale:true + 404 when session no longer exists.
+      // Clear localStorage and show empty state instead of redirecting to login.
       if (response.stale) {
         updateCurrentSessionId(null);
         setMessages([]);
         return;
       }
-
       setMessages(response.messages ?? []);
     } catch (err: unknown) {
       console.error('Failed to load messages:', err);
       const status = getErrorStatus(err);
       if (status === 401) onLogout();
-      // FIX: 404 means stale session — clear it from localStorage
+      // FIX: 404 = stale session — clear it from localStorage
       if (status === 404) {
         updateCurrentSessionId(null);
         setMessages([]);
@@ -253,7 +255,7 @@ export default function Chat({ user, onLogout }: Props) {
     }
   }, [sessionsLoaded, sessions, currentSessionId]);
 
-  // Staleness check: if persisted session ID no longer exists server-side, clear it
+  // Staleness check: if persisted session ID no longer exists, clear it
   useEffect(() => {
     if (!sessionsLoaded || sessions.length === 0) return;
     if (currentSessionId !== null && !sessions.some(s => s.id === currentSessionId)) {
@@ -281,9 +283,8 @@ export default function Chat({ user, onLogout }: Props) {
     setShowScrollBottom(scrollHeight - scrollTop - clientHeight > 100);
   };
 
-  // FIX 2: Use updateCurrentSessionId (the central setter) so that state,
-  // localStorage, and the header name all update atomically in one call —
-  // no lag, no desync between the three pieces of state.
+  // FIX 2: Use updateCurrentSessionId so state, localStorage, and header name
+  // all update atomically — fixes the header lag on Android Chrome
   const handleSelectSession = useCallback((id: number) => {
     const found = sessions.find(s => s.id === id);
     const name = found?.sessionName ?? 'New Chat';
@@ -379,20 +380,21 @@ export default function Chat({ user, onLogout }: Props) {
 
       if (err instanceof Error && err.name === 'AbortError') {
         console.log('Chat aborted by user');
+        isSendingRef.current = false;
+        abortControllerRef.current = null;
         return;
       }
 
       const status = getErrorStatus(err);
 
-      // FIX: Handle stale session (404 from backend) — clear it and retry
-      // as a fresh session so the user's message still goes through.
+      // FIX: 404 = stale session — clear it and retry as a new session
+      // so the message still goes through without the user seeing an error.
       if (status === 404 && currentSessionId) {
-        console.warn('Stale session detected — clearing and retrying as new session');
+        console.warn('Stale session — clearing and retrying as new session');
         updateCurrentSessionId(null);
         setMessages([]);
         isSendingRef.current = false;
         abortControllerRef.current = null;
-        // Small delay so state settles before retry
         await new Promise(resolve => setTimeout(resolve, 100));
         await sendMessage(messageText, [], isEdit);
         return;
@@ -412,7 +414,6 @@ export default function Chat({ user, onLogout }: Props) {
       }]);
 
     } finally {
-      // Only reset if we didn't do an early return (retry path resets itself)
       if (isSendingRef.current) {
         isSendingRef.current       = false;
         abortControllerRef.current = null;
@@ -472,7 +473,6 @@ export default function Chat({ user, onLogout }: Props) {
   const renameSession = async (sid: number, newName: string) => {
     const trimmed = newName.trim();
     if (!trimmed) return;
-    // Optimistic update
     setSessions(prev =>
       prev.map(s => s.id === sid ? { ...s, sessionName: trimmed } : s),
     );
@@ -553,7 +553,6 @@ export default function Chat({ user, onLogout }: Props) {
 
   return (
     <div className="flex h-[100dvh] overflow-hidden bg-[--bg-main] relative transition-colors duration-300 font-sans">
-      {/* Ambient glow */}
       <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-indigo-500/5 rounded-full blur-[140px] pointer-events-none" />
 
       <Sidebar
@@ -575,7 +574,6 @@ export default function Chat({ user, onLogout }: Props) {
         {/* ── Header ──────────────────────────────────────────────────────── */}
         <header className="sticky top-0 z-30 h-14 bg-white/90 dark:bg-black/50 backdrop-blur-2xl border-b border-[--border] shrink-0">
           <div className="flex items-center h-full px-3 gap-2">
-
             <div className="flex items-center gap-1 shrink-0">
               <button
                 onClick={() => setMobileSidebarOpen(true)}
@@ -585,7 +583,6 @@ export default function Chat({ user, onLogout }: Props) {
                 <NexusLogo className="w-6 h-6" />
               </button>
             </div>
-
             <div className="flex-1 flex flex-col items-center justify-center min-w-0">
               <div className="flex items-center gap-1.5">
                 <StormLogo className="w-4 h-4 text-indigo-600 dark:text-indigo-500 shrink-0" />
@@ -598,7 +595,6 @@ export default function Chat({ user, onLogout }: Props) {
                 {currentSessionName}
               </span>
             </div>
-
             <div className="shrink-0 lg:hidden">
               <UserAvatar
                 name={user.username}
@@ -654,7 +650,6 @@ export default function Chat({ user, onLogout }: Props) {
                       className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} group`}
                     >
                       <div className={`flex gap-2 w-full ${msg.role === 'user' ? 'flex-row-reverse justify-start' : 'flex-row'}`}>
-
                         <div className="w-7 h-7 shrink-0 flex items-center justify-center mt-1">
                           {msg.role === 'user' ? (
                             <div className="w-full h-full rounded-full border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 flex items-center justify-center shadow-sm overflow-hidden">
@@ -682,7 +677,9 @@ export default function Chat({ user, onLogout }: Props) {
                                     value={editInput}
                                     onChange={e => setEditInput(e.target.value)}
                                     onKeyDown={e => {
-                                      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); handleSaveEdit(); }
+                                      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                                        e.preventDefault(); handleSaveEdit();
+                                      }
                                       if (e.key === 'Escape') handleCancelEdit();
                                     }}
                                     className={`w-full border rounded-xl p-3 text-sm focus:outline-none focus:ring-2 focus:ring-white/20 transition-all resize-none font-medium min-h-[80px] ${
@@ -697,7 +694,9 @@ export default function Chat({ user, onLogout }: Props) {
                                     <button
                                       onClick={handleCancelEdit}
                                       className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all rounded-lg ${
-                                        msg.role === 'user' ? 'text-white/60 hover:text-white' : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100'
+                                        msg.role === 'user'
+                                          ? 'text-white/60 hover:text-white'
+                                          : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100'
                                       }`}
                                     >
                                       Cancel
@@ -895,7 +894,9 @@ export default function Chat({ user, onLogout }: Props) {
                 {showBlinkingCursor && (
                   <div className="absolute left-4 top-0 bottom-0 flex items-center gap-1.5 pointer-events-none">
                     <BlinkingCursor />
-                    <span className="text-sm font-medium text-zinc-400 dark:text-zinc-500">Write a message…</span>
+                    <span className="text-sm font-medium text-zinc-400 dark:text-zinc-500">
+                      Write a message…
+                    </span>
                   </div>
                 )}
               </div>
@@ -922,7 +923,9 @@ export default function Chat({ user, onLogout }: Props) {
                     </span>
                   ) : (
                     <ArrowUp className={`w-4 h-4 transition-all ${
-                      input.trim() ? 'text-zinc-800 dark:text-zinc-100 scale-110' : 'text-zinc-400 dark:text-zinc-500 scale-90'
+                      input.trim()
+                        ? 'text-zinc-800 dark:text-zinc-100 scale-110'
+                        : 'text-zinc-400 dark:text-zinc-500 scale-90'
                     }`} />
                   )}
                 </motion.button>
