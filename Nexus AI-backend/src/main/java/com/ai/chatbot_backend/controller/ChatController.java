@@ -58,8 +58,7 @@ public class ChatController {
         return dto;
     }
 
-    /** Returns true if the error message indicates a missing/stale session. */
-    private boolean isSessionNotFound(String message) {
+    private boolean isSessionNotFoundError(String message) {
         if (message == null) return false;
         String lower = message.toLowerCase();
         return lower.contains("session not found")
@@ -82,7 +81,8 @@ public class ChatController {
     // ─── Send Message ─────────────────────────────────────────────────────────
 
     @PostMapping("/send")
-    public ResponseEntity<?> sendMessage(@Valid @RequestBody ChatRequest request, HttpSession session) {
+    public ResponseEntity<?> sendMessage(
+            @Valid @RequestBody ChatRequest request, HttpSession session) {
         try {
             User currentUser = getCurrentUser(session);
             boolean isAuthenticated = (currentUser != null);
@@ -92,25 +92,28 @@ public class ChatController {
 
             if (isAuthenticated) {
                 if (sessionId == null) {
-                    // Brand-new conversation — create a session
-                    ChatSession newSession = chatHistoryService.createNewSession(currentUser, "New Chat");
+                    ChatSession newSession = chatHistoryService
+                            .createNewSession(currentUser, "New Chat");
                     sessionId = newSession.getId();
                     log.info("Created new session: {}", sessionId);
                 } else {
-                    // FIX: Validate the session exists and belongs to this user.
-                    // If it doesn't (e.g. server restarted and wiped the DB),
-                    // silently create a fresh session instead of throwing a 500.
-                    boolean sessionExists = chatHistoryService.sessionExistsForUser(sessionId, currentUser);
-                    if (!sessionExists) {
-                        log.warn("Stale session ID {} for user {} — auto-creating new session",
+                    // FIX: Validate session exists before using it.
+                    // Auto-create new one if stale — prevents 500 on Android Chrome
+                    // after server restart wipes sessions.
+                    boolean exists = chatHistoryService
+                            .sessionExistsForUser(sessionId, currentUser);
+                    if (!exists) {
+                        log.warn("Stale session {} for user {} — creating new session",
                                 sessionId, currentUser.getId());
-                        ChatSession newSession = chatHistoryService.createNewSession(currentUser, "New Chat");
+                        ChatSession newSession = chatHistoryService
+                                .createNewSession(currentUser, "New Chat");
                         sessionId = newSession.getId();
                     }
                 }
 
                 // Step 1: Fetch history BEFORE saving the new message
-                List<ChatMessage> previousMessages = chatHistoryService.getSessionMessages(sessionId);
+                List<ChatMessage> previousMessages =
+                        chatHistoryService.getSessionMessages(sessionId);
                 int startIndex = Math.max(0, previousMessages.size() - 10);
                 for (int i = startIndex; i < previousMessages.size(); i++) {
                     ChatMessage msg = previousMessages.get(i);
@@ -122,16 +125,19 @@ public class ChatController {
 
                 // Step 2: Save user message AFTER building history
                 chatHistoryService.saveMessage(sessionId, "user", request.getMessage());
-                redisEventService.sendUserEvent("MESSAGE_SENT", currentUser.getId() + ":" + sessionId);
+                redisEventService.sendUserEvent(
+                        "MESSAGE_SENT", currentUser.getId() + ":" + sessionId);
             }
 
-            // Step 3: Call Groq with clean history + current message
-            String aiResponse = groqService.generateResponse(request.getMessage(), conversationHistory);
+            // Step 3: Call Groq with history + current message
+            String aiResponse = groqService.generateResponse(
+                    request.getMessage(), conversationHistory);
 
             if (isAuthenticated && sessionId != null) {
                 // Step 4: Save AI response
                 chatHistoryService.saveMessage(sessionId, "assistant", aiResponse);
-                redisEventService.sendUserEvent("AI_RESPONSE_SENT", currentUser.getId() + ":" + sessionId);
+                redisEventService.sendUserEvent(
+                        "AI_RESPONSE_SENT", currentUser.getId() + ":" + sessionId);
             }
 
             ChatResponse chatResponse = new ChatResponse();
@@ -142,15 +148,11 @@ public class ChatController {
 
         } catch (Exception e) {
             log.error("Chat error: {}", e.getMessage(), e);
-
-            // FIX: Return 404 for missing sessions instead of a generic 500,
-            // so the frontend can distinguish and clear its stale localStorage entry.
-            if (isSessionNotFound(e.getMessage())) {
+            if (isSessionNotFoundError(e.getMessage())) {
                 ChatResponse errorResponse = new ChatResponse();
                 errorResponse.setError("Session not found: " + request.getSessionId());
                 return ResponseEntity.status(HttpStatus.NOT_FOUND).body(errorResponse);
             }
-
             ChatResponse errorResponse = new ChatResponse();
             errorResponse.setError(e.getMessage() != null
                     ? e.getMessage()
@@ -159,7 +161,7 @@ public class ChatController {
         }
     }
 
-    // ─── Sessions ─────────────────────────────────────────────────────────────
+    // ─── Get Sessions ─────────────────────────────────────────────────────────
 
     @GetMapping("/sessions")
     public ResponseEntity<Map<String, Object>> getUserSessions(HttpSession session) {
@@ -177,7 +179,8 @@ public class ChatController {
                     .map(this::convertToSessionDTO)
                     .collect(Collectors.toList());
 
-            log.info("Loaded {} sessions for user: {}", sessionDTOs.size(), currentUser.getUsername());
+            log.info("Loaded {} sessions for user: {}",
+                    sessionDTOs.size(), currentUser.getUsername());
 
             response.put("sessions", sessionDTOs);
             response.put("authenticated", true);
@@ -191,7 +194,7 @@ public class ChatController {
         }
     }
 
-    // ─── History ──────────────────────────────────────────────────────────────
+    // ─── Get History ──────────────────────────────────────────────────────────
 
     @GetMapping("/history/{sessionId}")
     public ResponseEntity<Map<String, Object>> getSessionHistory(
@@ -206,22 +209,27 @@ public class ChatController {
             }
 
             // FIX: Check session exists before fetching messages.
-            // Returns 404 + stale:true so the frontend can clear its localStorage entry.
-            boolean sessionExists = chatHistoryService.sessionExistsForUser(sessionId, currentUser);
-            if (!sessionExists) {
-                log.warn("History requested for stale session {} by user {}", sessionId, currentUser.getId());
+            // Returns 404 + stale:true so Chat.tsx clears stale localStorage
+            // instead of showing an error or redirecting to login on Android Chrome.
+            boolean exists = chatHistoryService
+                    .sessionExistsForUser(sessionId, currentUser);
+            if (!exists) {
+                log.warn("History requested for stale session {} by user {}",
+                        sessionId, currentUser.getId());
                 response.put("messages", List.of());
                 response.put("sessionId", sessionId);
                 response.put("stale", true);
                 return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
             }
 
-            List<ChatMessage> messages = chatHistoryService.getSessionMessages(sessionId);
+            List<ChatMessage> messages =
+                    chatHistoryService.getSessionMessages(sessionId);
             List<ChatMessage> messageDTOs = messages.stream()
                     .map(this::convertToMessageDTO)
                     .collect(Collectors.toList());
 
-            log.info("Loaded {} messages for session: {}", messageDTOs.size(), sessionId);
+            log.info("Loaded {} messages for session: {}",
+                    messageDTOs.size(), sessionId);
 
             response.put("messages", messageDTOs);
             response.put("sessionId", sessionId);
@@ -248,9 +256,10 @@ public class ChatController {
                 return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(response);
             }
 
-            ChatSession newSession = chatHistoryService.createNewSession(currentUser, "New Chat");
-            redisEventService.sendUserEvent("SESSION_CREATED",
-                    currentUser.getId() + ":" + newSession.getId());
+            ChatSession newSession = chatHistoryService
+                    .createNewSession(currentUser, "New Chat");
+            redisEventService.sendUserEvent(
+                    "SESSION_CREATED", currentUser.getId() + ":" + newSession.getId());
 
             response.put("id", newSession.getId());
             response.put("sessionName", newSession.getSessionName());
@@ -292,13 +301,15 @@ public class ChatController {
             }
 
             // FIX: Validate session exists before renaming
-            boolean sessionExists = chatHistoryService.sessionExistsForUser(sessionId, currentUser);
-            if (!sessionExists) {
+            boolean exists = chatHistoryService
+                    .sessionExistsForUser(sessionId, currentUser);
+            if (!exists) {
                 response.put("error", "Session not found");
                 return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
             }
 
-            ChatSession updatedSession = chatHistoryService.renameSession(sessionId, name.trim());
+            ChatSession updatedSession = chatHistoryService
+                    .renameSession(sessionId, name.trim());
 
             response.put("success", true);
             response.put("sessionId", updatedSession.getId());
@@ -337,10 +348,11 @@ public class ChatController {
                     : firstMessage;
 
             String prompt = String.format(
-                    "Generate a very short, concise title (maximum 5-7 words) for a conversation " +
-                    "that starts with: \"%s\". " +
+                    "Generate a very short, concise title (maximum 5-7 words) for a " +
+                    "conversation that starts with: \"%s\". " +
                     "The title should capture the main topic or intent. " +
-                    "Return ONLY the title, no quotes, no explanation, no punctuation at the end.",
+                    "Return ONLY the title, no quotes, no explanation, " +
+                    "no punctuation at the end.",
                     truncated
             );
 
@@ -358,13 +370,11 @@ public class ChatController {
 
         } catch (Exception e) {
             log.error("Error generating title: {}", e.getMessage(), e);
-
-            // FIX: Null-safe fallback title
+            // FIX: Null-safe fallback — original NPE'd if firstMessage was null
             String raw = request.getOrDefault("firstMessage", "New Chat");
             String fallbackTitle = raw.length() > 30
                     ? raw.substring(0, 30) + "..."
                     : raw;
-
             response.put("title", fallbackTitle);
             response.put("success", false);
             response.put("error", e.getMessage());
@@ -385,17 +395,19 @@ public class ChatController {
                 return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(response);
             }
 
-            // FIX: If session is already gone (stale), treat as success — nothing to delete
-            boolean sessionExists = chatHistoryService.sessionExistsForUser(sessionId, currentUser);
-            if (!sessionExists) {
-                log.warn("Delete requested for non-existent session {} — treating as success", sessionId);
+            // FIX: If session already gone treat as success — nothing to delete
+            boolean exists = chatHistoryService
+                    .sessionExistsForUser(sessionId, currentUser);
+            if (!exists) {
+                log.warn("Delete for non-existent session {} — treating as success",
+                        sessionId);
                 response.put("message", "Session already deleted");
                 return ResponseEntity.ok(response);
             }
 
             chatHistoryService.deleteSession(sessionId);
-            redisEventService.sendUserEvent("SESSION_DELETED",
-                    currentUser.getId() + ":" + sessionId);
+            redisEventService.sendUserEvent(
+                    "SESSION_DELETED", currentUser.getId() + ":" + sessionId);
 
             response.put("message", "Session deleted successfully");
             return ResponseEntity.ok(response);
@@ -420,8 +432,8 @@ public class ChatController {
             }
 
             chatHistoryService.clearUserSessions(currentUser);
-            redisEventService.sendUserEvent("ALL_SESSIONS_CLEARED",
-                    String.valueOf(currentUser.getId()));
+            redisEventService.sendUserEvent(
+                    "ALL_SESSIONS_CLEARED", String.valueOf(currentUser.getId()));
 
             response.put("message", "All sessions cleared successfully");
             return ResponseEntity.ok(response);
@@ -456,8 +468,8 @@ public class ChatController {
             String lowerQuery = query.trim().toLowerCase();
 
             List<ChatSession> filtered = sessions.stream()
-                    .filter(s -> s.getSessionName() != null &&
-                            s.getSessionName().toLowerCase().contains(lowerQuery))
+                    .filter(s -> s.getSessionName() != null
+                            && s.getSessionName().toLowerCase().contains(lowerQuery))
                     .map(this::convertToSessionDTO)
                     .collect(Collectors.toList());
 
