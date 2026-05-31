@@ -7,6 +7,7 @@ Nexus AI is a full-stack AI chatbot web application built using **React (Fronten
 ## 🚀 Live Links
 
 🌐 Live Demo: https://nexus-smart-ai.vercel.app   
+(Note: initial load may take 5 - 10 seconds to load)
 
 💻 GitHub: https://github.com/azeezazeez/Nexus-AI-Chatbot
 
