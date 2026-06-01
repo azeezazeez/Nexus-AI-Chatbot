@@ -11,8 +11,11 @@ RUN mvn package -DskipTests
 FROM eclipse-temurin:17-jre-alpine
 WORKDIR /app
 
-# ✅ Install Tesseract with English language data (Alpine correct packages)
+# Install Tesseract and English language data
 RUN apk add --no-cache tesseract-ocr tesseract-ocr-data-eng
+
+# 🔥 CRITICAL: Set environment variable so Tesseract finds its language files
+ENV TESSDATA_PREFIX=/usr/share/tessdata
 
 COPY --from=build /app/target/*.jar app.jar
 EXPOSE 8080
