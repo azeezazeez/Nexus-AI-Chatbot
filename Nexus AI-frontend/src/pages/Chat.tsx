@@ -3,15 +3,14 @@ import React from 'react';
 import { User, Session, Message } from '../types';
 import Sidebar from '../components/Sidebar';
 import { chatApi, authApi, wakeUpServer } from '../lib/api';
-import type { ProcessedFile } from '../lib/api';
 import { motion, AnimatePresence } from 'motion/react';
 import StormLogo from '../components/StormLogo';
 import UserAvatar from '../components/UserAvatar';
 import ConfirmationModal from '../components/ConfirmationModal';
 import {
-  ArrowDown, ArrowUp,
+  ArrowDown,
   Copy, Check, Edit2, Sun, Moon, Menu,
-  Paperclip, X, FileText, Camera, Image as ImageIcon, Mic,
+  Paperclip, X, FileText, Camera, Mic,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import type { Components } from 'react-markdown';
@@ -26,13 +25,11 @@ interface Props {
 
 const CodeBlock = ({ language, value }: { language: string; value: string }) => {
   const [copied, setCopied] = useState(false);
-
   const handleCopy = () => {
     navigator.clipboard.writeText(value);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
-
   return (
     <div className="group/code relative my-6 overflow-hidden rounded-xl border border-white/20 dark:border-white/10 shadow-2xl backdrop-blur-xl bg-white/5 dark:bg-black/20 transition-all">
       <div className="flex items-center justify-between px-4 py-2.5 bg-white/10 dark:bg-black/20 border-b border-white/10">
@@ -68,7 +65,6 @@ const CodeBlock = ({ language, value }: { language: string; value: string }) => 
   );
 };
 
-// Blinking cursor component
 const BlinkingCursor = () => (
   <motion.span
     animate={{ opacity: [1, 0, 1] }}
@@ -78,17 +74,11 @@ const BlinkingCursor = () => (
   />
 );
 
-// ── localStorage helpers ──────────────────────────────────────────────────────
 const SESSION_KEY = 'scout_current_session_id';
-
 const persistSessionId = (id: number | null) => {
-  if (id === null) {
-    localStorage.removeItem(SESSION_KEY);
-  } else {
-    localStorage.setItem(SESSION_KEY, String(id));
-  }
+  if (id === null) localStorage.removeItem(SESSION_KEY);
+  else localStorage.setItem(SESSION_KEY, String(id));
 };
-
 const readPersistedSessionId = (): number | null => {
   try {
     const raw = localStorage.getItem(SESSION_KEY);
@@ -100,7 +90,6 @@ const readPersistedSessionId = (): number | null => {
   }
 };
 
-// ── Theme helper ──────────────────────────────────────────────────────────────
 const getInitialTheme = (): boolean => {
   if (typeof window === 'undefined') return false;
   const stored = localStorage.getItem('theme');
@@ -108,47 +97,12 @@ const getInitialTheme = (): boolean => {
   return window.matchMedia('(prefers-color-scheme: dark)').matches;
 };
 
-// ── File helpers ──────────────────────────────────────────────────────────────
+// Helper to format file size
 const formatFileSize = (bytes: number): string => {
   if (bytes < 1024) return `${bytes}B`;
   if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)}KB`;
   return `${(bytes / 1048576).toFixed(1)}MB`;
 };
-
-const processFile = (file: File): Promise<ProcessedFile> =>
-  new Promise((resolve, reject) => {
-    const id = `file-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error(`Failed to read ${file.name}`));
-
-    if (file.type.startsWith('image/')) {
-      reader.onload = (e) => {
-        const dataUrl = e.target?.result as string;
-        resolve({
-          id,
-          name: file.name,
-          type: 'image',
-          content: dataUrl.split(',')[1],
-          mimeType: file.type,
-          size: file.size,
-          preview: dataUrl,
-        });
-      };
-      reader.readAsDataURL(file);
-    } else {
-      reader.onload = (e) => {
-        resolve({
-          id,
-          name: file.name,
-          type: 'text',
-          content: e.target?.result as string,
-          mimeType: file.type || 'text/plain',
-          size: file.size,
-        });
-      };
-      reader.readAsText(file);
-    }
-  });
 
 export default function Chat({ user, onLogout }: Props) {
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -168,29 +122,23 @@ export default function Chat({ user, onLogout }: Props) {
   const [inputFocused, setInputFocused] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  // ── File upload state ─────────────────────────────────────────────────────
-  const [uploadedFiles, setUploadedFiles] = useState<ProcessedFile[]>([]);
+  // ── File upload state ─────────────────────────────────────────────
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [filePreviews, setFilePreviews] = useState<{ id: string; file: File; preview?: string }[]>([]);
   const [isProcessingFiles, setIsProcessingFiles] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // ── Attachment menu state ────────────────────────────────────────────────
-  const [showAttachMenu, setShowAttachMenu] = useState(false);
   const cameraInputRef = useRef<HTMLInputElement>(null);
-  const photoInputRef = useRef<HTMLInputElement>(null);
+
+  // ── Attachment menu state ────────────────────────────────────────
+  const [showAttachMenu, setShowAttachMenu] = useState(false);
   const attachMenuRef = useRef<HTMLDivElement>(null);
 
-  // ── FIX: Message attachments — maps temp message id → files so images
-  //         are displayed inside the user's chat bubble after sending ─────────
-  const [messageAttachments, setMessageAttachments] = useState<Record<string, ProcessedFile[]>>({});
-
-  // ── Speech-to-text (Web Speech API — fastest, zero latency) ──────────────
+  // ── Speech-to-text (Web Speech API) ──────────────────────────────
   const [isListening, setIsListening] = useState(false);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const recognitionRef = useRef<any>(null);
-  // Tracks the committed (final) transcript text so interim results overlay cleanly
   const speechBaseRef = useRef('');
 
-  // ── Theme state ───────────────────────────────────────────────────────────
+  // ── Theme ────────────────────────────────────────────────────────
   const [isDark, setIsDark] = useState<boolean>(() => {
     const dark = getInitialTheme();
     if (typeof document !== 'undefined') {
@@ -214,13 +162,7 @@ export default function Chat({ user, onLogout }: Props) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const skipMessageLoadRef = useRef(false);
 
-  // ── Wrapped session setter ────────────────────────────────────────────────
-  const updateCurrentSessionId = useCallback((id: number | null) => {
-    setCurrentSessionId(id);
-    persistSessionId(id);
-  }, []);
-
-  // ── Auto-resize textarea when `input` changes (handles speech updates) ────
+  // ── Auto-resize textarea ─────────────────────────────────────────
   useEffect(() => {
     if (inputRef.current) {
       inputRef.current.style.height = 'auto';
@@ -228,37 +170,44 @@ export default function Chat({ user, onLogout }: Props) {
     }
   }, [input]);
 
-  // ── Close attach menu when clicking outside ──────────────────────────────
+  // ── Close attach menu when clicking outside ─────────────────────
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (attachMenuRef.current && !attachMenuRef.current.contains(e.target as Node)) {
         setShowAttachMenu(false);
       }
     };
-    if (showAttachMenu) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
+    if (showAttachMenu) document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showAttachMenu]);
 
-  // ── Speech recognition handlers ───────────────────────────────────────────
+  // ── Clean up file previews when component unmounts ───────────────
+  useEffect(() => {
+    return () => {
+      filePreviews.forEach(fp => {
+        if (fp.preview) URL.revokeObjectURL(fp.preview);
+      });
+    };
+  }, [filePreviews]);
+
+  // ── Speech recognition (fixed) ───────────────────────────────────
   const startListening = useCallback(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SR) return; // silently no-op in unsupported browsers
+    if (!SR) {
+      alert('Your browser does not support speech recognition. Please use Chrome, Edge, or Safari.');
+      return;
+    }
 
-    // Seed the committed base with whatever the user already typed
-    speechBaseRef.current = inputRef.current?.value ?? '';
+    if (recognitionRef.current) recognitionRef.current.stop();
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const recognition = new SR() as any;
-    recognition.continuous = true;       // keep going until user stops
-    recognition.interimResults = true;   // show words as they are spoken
+    speechBaseRef.current = inputRef.current?.value || '';
+
+    const recognition = new SR();
+    recognition.continuous = true;
+    recognition.interimResults = true;
     recognition.lang = 'en-US';
 
     recognition.onstart = () => setIsListening(true);
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     recognition.onresult = (event: any) => {
       let finalSegment = '';
       let interimSegment = '';
@@ -271,18 +220,15 @@ export default function Chat({ user, onLogout }: Props) {
         }
       }
 
-      // Commit final words to the base
       if (finalSegment) {
         speechBaseRef.current = speechBaseRef.current
           ? `${speechBaseRef.current} ${finalSegment}`.trim()
           : finalSegment.trim();
       }
 
-      // Render: committed base + live interim
       const display = interimSegment
         ? `${speechBaseRef.current} ${interimSegment}`.trim()
         : speechBaseRef.current;
-
       setInput(display);
     };
 
@@ -291,9 +237,15 @@ export default function Chat({ user, onLogout }: Props) {
       recognitionRef.current = null;
     };
 
-    recognition.onerror = () => {
+    recognition.onerror = (event: any) => {
+      console.error('Speech recognition error:', event.error);
       setIsListening(false);
       recognitionRef.current = null;
+      if (event.error === 'not-allowed') {
+        alert('Microphone access was denied. Please allow microphone access and try again.');
+      } else if (event.error === 'network') {
+        alert('Network error occurred. Please check your connection.');
+      }
     };
 
     recognitionRef.current = recognition;
@@ -303,7 +255,6 @@ export default function Chat({ user, onLogout }: Props) {
 
   const stopListening = useCallback(() => {
     recognitionRef.current?.stop();
-    // onend will flip isListening; set it here too for instant UI feedback
     setIsListening(false);
   }, []);
 
@@ -312,7 +263,7 @@ export default function Chat({ user, onLogout }: Props) {
     else startListening();
   }, [isListening, startListening, stopListening]);
 
-  // ── Data Loading ──────────────────────────────────────────────────────────
+  // ── Data loading ─────────────────────────────────────────────────
   const loadSessions = useCallback(async () => {
     try {
       wakeUpServer();
@@ -343,11 +294,12 @@ export default function Chat({ user, onLogout }: Props) {
     if (currentSessionId !== null) {
       const stillExists = sessions.some(s => s.id === currentSessionId);
       if (!stillExists) {
-        updateCurrentSessionId(null);
+        setCurrentSessionId(null);
+        persistSessionId(null);
         setMessages([]);
       }
     }
-  }, [sessions, loading]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sessions, loading]);
 
   useEffect(() => {
     if (currentSessionId) {
@@ -365,43 +317,50 @@ export default function Chat({ user, onLogout }: Props) {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isTyping]);
 
-  // ── Scroll ────────────────────────────────────────────────────────────────
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
     setShowScrollBottom(scrollHeight - scrollTop - clientHeight > 100);
   };
 
-  // ── File handlers ─────────────────────────────────────────────────────────
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
-    if (!files.length) return;
+  // ── File handlers (using native File objects and FormData) ───────
+  const handleFileSelection = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
     setIsProcessingFiles(true);
-    try {
-      const processed = await Promise.all(files.map(processFile));
-      setUploadedFiles(prev => [...prev, ...processed]);
-    } catch (err) {
-      console.error('File processing error:', err);
-    } finally {
-      setIsProcessingFiles(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-      if (cameraInputRef.current) cameraInputRef.current.value = '';
-      if (photoInputRef.current) photoInputRef.current.value = '';
-    }
+    const newFiles = Array.from(files);
+    const newPreviews = await Promise.all(
+      newFiles.map(async (file) => {
+        let preview: string | undefined;
+        if (file.type.startsWith('image/')) {
+          preview = URL.createObjectURL(file);
+        }
+        return { id: `${file.name}-${Date.now()}-${Math.random()}`, file, preview };
+      })
+    );
+    setFilePreviews(prev => [...prev, ...newPreviews]);
+    setSelectedFiles(prev => [...prev, ...newFiles]);
+    setIsProcessingFiles(false);
   };
 
-  const removeFile = (id: string) =>
-    setUploadedFiles(prev => prev.filter(f => f.id !== id));
+  const removeFile = (id: string) => {
+    const removed = filePreviews.find(fp => fp.id === id);
+    if (removed?.preview) URL.revokeObjectURL(removed.preview);
+    setFilePreviews(prev => prev.filter(fp => fp.id !== id));
+    setSelectedFiles(prev => prev.filter((_, idx) => {
+      // find index of removed file
+      const removedFile = removed?.file;
+      return removedFile ? prev[idx] !== removedFile : true;
+    }));
+  };
 
-  // ── Core send ─────────────────────────────────────────────────────────────
+  // ── Core send with multipart FormData ────────────────────────────
   const sendMessage = async (
     messageText: string,
     messagesSnapshot?: Message[],
-    filesToSend?: ProcessedFile[]
+    filesToSend?: File[]
   ) => {
-    if (!messageText.trim() && (!filesToSend || !filesToSend.length)) return;
+    if ((!messageText.trim() && (!filesToSend || filesToSend.length === 0))) return;
     if (isSendingRef.current) return;
 
-    // Stop any active speech recognition before sending
     if (isListening) stopListening();
 
     isSendingRef.current = true;
@@ -412,22 +371,14 @@ export default function Chat({ user, onLogout }: Props) {
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
-    // Use a stable temp id so we can map attachments to it
     const tempId = `temp-${Date.now()}`;
-
     const tempUserMsg: Message = {
       id: tempId,
       sessionId: currentSessionId || 0,
       role: 'user',
-      content: messageText,
+      content: messageText.trim() || (filesToSend?.some(f => f.type.startsWith('image/')) ? 'What is in this image?' : 'Please analyse the attached file.'),
       timestamp: new Date().toISOString(),
     };
-
-    // FIX 2 & 3: Store file previews keyed by temp message id so images
-    // appear inside the user's chat bubble after sending
-    if (filesToSend && filesToSend.length > 0) {
-      setMessageAttachments(prev => ({ ...prev, [tempId]: filesToSend }));
-    }
 
     if (messagesSnapshot) {
       setMessages([...messagesSnapshot, tempUserMsg]);
@@ -436,6 +387,8 @@ export default function Chat({ user, onLogout }: Props) {
     }
 
     setInput('');
+    setSelectedFiles([]);
+    setFilePreviews([]);
 
     const isNewSession = !currentSessionId;
 
@@ -443,20 +396,14 @@ export default function Chat({ user, onLogout }: Props) {
       if (isSendingRef.current) setServerWaking(true);
     }, 4000);
 
-    // FIX 1: Spring's @NotBlank rejects an empty string — provide a
-    // sensible fallback when the user sends files without typing any text
-    const apiText = messageText.trim() ||
-      (filesToSend?.some(f => f.type === 'image')
-        ? 'What is in this image?'
-        : 'Please analyse the attached file.');
-
     try {
-      const response = await chatApi.sendMessage(
-        apiText,             // ← always non-empty for the backend
+      // Use the chatApi with FormData
+      const response = await chatApi.sendMessageWithFiles(
+        messageText.trim() || (filesToSend?.some(f => f.type.startsWith('image/')) ? 'What is in this image?' : 'Please analyse the attached file.'),
         currentSessionId,
         controller.signal,
         'default',
-        filesToSend,
+        filesToSend || []
       ) as any;
 
       clearTimeout(wakingTimer);
@@ -466,7 +413,8 @@ export default function Chat({ user, onLogout }: Props) {
 
       if (isNewSession && activeSessionId) {
         skipMessageLoadRef.current = true;
-        updateCurrentSessionId(activeSessionId);
+        setCurrentSessionId(activeSessionId);
+        persistSessionId(activeSessionId);
         await loadSessions();
       }
 
@@ -487,10 +435,10 @@ export default function Chat({ user, onLogout }: Props) {
 
       if (isNewSession && activeSessionId) {
         try {
-          const { title } = await chatApi.generateTitle(apiText) as any;
+          const { title } = await chatApi.generateTitle(messageText.trim() || 'File analysis') as any;
           await chatApi.renameSession(activeSessionId, title);
           await loadSessions();
-        } catch (renameErr: unknown) {
+        } catch (renameErr) {
           console.error('Rename failed:', renameErr);
         }
       }
@@ -523,10 +471,9 @@ export default function Chat({ user, onLogout }: Props) {
 
   const handleSendMessage = async (e?: React.FormEvent, directMessage?: string) => {
     if (e) { e.preventDefault(); e.stopPropagation(); }
-    const text = directMessage || input.trim();
-    if (!text && !uploadedFiles.length) return;
-    const filesToSend = [...uploadedFiles];
-    setUploadedFiles([]);
+    const text = directMessage !== undefined ? directMessage : input;
+    if (!text.trim() && selectedFiles.length === 0) return;
+    const filesToSend = [...selectedFiles];
     await sendMessage(text, undefined, filesToSend);
   };
 
@@ -541,12 +488,13 @@ export default function Chat({ user, onLogout }: Props) {
   };
 
   const createNewSession = () => {
-    updateCurrentSessionId(null);
+    setCurrentSessionId(null);
+    persistSessionId(null);
     setMessages([]);
     setInput('');
     setEditingMessage(null);
-    setUploadedFiles([]);
-    setMessageAttachments({});  // clear attachment previews
+    setSelectedFiles([]);
+    setFilePreviews([]);
   };
 
   const deleteSession = (sid: number) => {
@@ -559,11 +507,12 @@ export default function Chat({ user, onLogout }: Props) {
     try {
       await chatApi.deleteSession(sessionIdToDelete);
       if (currentSessionId === sessionIdToDelete) {
-        updateCurrentSessionId(null);
+        setCurrentSessionId(null);
+        persistSessionId(null);
         setMessages([]);
       }
       await loadSessions();
-    } catch (err: unknown) {
+    } catch (err) unknown) {
       console.error('Failed to delete session:', err);
       if (err && typeof err === 'object' && 'status' in err && (err as { status: number }).status === 401) onLogout();
     } finally {
@@ -586,9 +535,9 @@ export default function Chat({ user, onLogout }: Props) {
   const confirmClearAll = async () => {
     try {
       await chatApi.clearSessions();
-      updateCurrentSessionId(null);
+      setCurrentSessionId(null);
+      persistSessionId(null);
       setMessages([]);
-      setMessageAttachments({});
       await loadSessions();
     } catch (err: unknown) {
       console.error('Failed to clear sessions:', err);
@@ -599,9 +548,10 @@ export default function Chat({ user, onLogout }: Props) {
   };
 
   const handleLogout = async () => {
-    try { await authApi.logout(); } catch (err: unknown) { console.error('Logout failed:', err); }
+    try { await authApi.logout(); } catch (err) { console.error('Logout failed:', err); }
     finally {
-      updateCurrentSessionId(null);
+      setCurrentSessionId(null);
+      persistSessionId(null);
       onLogout();
     }
   };
@@ -609,7 +559,6 @@ export default function Chat({ user, onLogout }: Props) {
   const cleanMessageContent = (content: string): string =>
     content.replace(/\n?\n?\[Attached Files:.*?\]/g, '').trim();
 
-  // ── Edit handlers ─────────────────────────────────────────────────────────
   const handleStartEdit = (msg: Message) => {
     setEditingMessage({ id: msg.id, content: cleanMessageContent(msg.content) });
     setEditInput(cleanMessageContent(msg.content));
@@ -630,10 +579,8 @@ export default function Chat({ user, onLogout }: Props) {
     await sendMessage(editedText, messagesBeforeEdit);
   };
 
-  // ── Derived values ────────────────────────────────────────────────────────
   const showBlinkingCursor = !input && (isTyping || justFinished);
 
-  // ── Loading Screen ────────────────────────────────────────────────────────
   if (loading) {
     return (
       <div className="flex items-center justify-center h-screen font-sans text-zinc-400 bg-white dark:bg-zinc-950 transition-colors duration-300">
@@ -651,16 +598,13 @@ export default function Chat({ user, onLogout }: Props) {
 
   return (
     <div className="flex h-screen h-[100dvh] overflow-hidden bg-white dark:bg-zinc-950 relative transition-colors duration-300 font-sans">
-
-      {/* Ambient background glow */}
       <div className="absolute top-0 right-0 w-[800px] h-[800px] bg-indigo-500/5 rounded-full blur-[160px] pointer-events-none" />
 
-      {/* ── SIDEBAR ── */}
       <Sidebar
         user={user}
         sessions={sessions}
         currentSessionId={currentSessionId}
-        onSelectSession={(id) => { updateCurrentSessionId(id); }}
+        onSelectSession={(id) => { setCurrentSessionId(id); persistSessionId(id); }}
         onNewSession={createNewSession}
         onDeleteSession={deleteSession}
         onRenameSession={renameSession}
@@ -670,155 +614,81 @@ export default function Chat({ user, onLogout }: Props) {
         onMobileClose={() => setMobileOpen(false)}
       />
 
-      {/* ── MAIN CONTENT AREA ── */}
       <main className="flex-1 flex flex-col min-w-0 bg-transparent relative z-20 lg:pl-14">
-
-        {/* ── HEADER ── */}
+        {/* Header (unchanged) */}
         <header className="sticky top-0 z-30 h-14 md:h-16 bg-white/90 dark:bg-zinc-950/80 backdrop-blur-2xl border-b border-zinc-200 dark:border-zinc-800 shrink-0 transition-colors duration-300">
           <div className="flex items-center justify-between h-full px-3 md:px-5">
-
             <div className="w-9 md:w-10 shrink-0 flex items-center justify-center">
               <button
                 onClick={() => setMobileOpen(true)}
-                className="lg:hidden w-9 h-9 flex items-center justify-center rounded-xl
-                           text-zinc-600 dark:text-zinc-400
-                           hover:bg-zinc-100 dark:hover:bg-zinc-800
-                           transition-all duration-200"
-                aria-label="Open sidebar"
+                className="lg:hidden w-9 h-9 flex items-center justify-center rounded-xl text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all"
               >
                 <Menu className="w-5 h-5" />
               </button>
             </div>
-
-            {/* Centre — Logo + App name + session title */}
             <div className="flex flex-col items-center gap-0.5 max-w-[60vw] sm:max-w-xs md:max-w-sm">
               <div className="flex items-center gap-1.5">
                 <StormLogo className="w-4 h-4 md:w-5 md:h-5 text-indigo-600 dark:text-indigo-500 shrink-0" />
-                <span className="text-[10px] md:text-xs font-black text-zinc-900 dark:text-zinc-100 uppercase tracking-widest leading-none transition-colors">
-                  Nexus AI
-                </span>
+                <span className="text-[10px] md:text-xs font-black text-zinc-900 dark:text-zinc-100 uppercase tracking-widest">Nexus AI</span>
                 <div className="hidden sm:flex items-center gap-1 ml-1">
                   <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                 </div>
               </div>
-              <span className="text-[10px] font-semibold text-zinc-500 dark:text-zinc-400 truncate leading-none max-w-full transition-colors">
+              <span className="text-[10px] font-semibold text-zinc-500 dark:text-zinc-400 truncate">
                 {sessions.find(s => s.id === currentSessionId)?.sessionName || 'New Chat'}
               </span>
             </div>
-
-            {/* Right — Theme toggle button */}
             <motion.button
               whileHover={{ scale: 1.1 }}
               whileTap={{ scale: 0.9 }}
               onClick={toggleTheme}
-              aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-              className="w-9 h-9 md:w-10 md:h-10 shrink-0 flex items-center justify-center rounded-full
-                         bg-zinc-100 dark:bg-zinc-800
-                         border border-zinc-200 dark:border-zinc-700
-                         text-zinc-500 dark:text-zinc-400
-                         hover:text-indigo-600 dark:hover:text-indigo-400
-                         hover:border-indigo-300 dark:hover:border-indigo-600
-                         shadow-sm transition-all duration-200"
+              className="w-9 h-9 md:w-10 md:h-10 shrink-0 flex items-center justify-center rounded-full bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-500 dark:text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all"
             >
               <AnimatePresence mode="wait" initial={false}>
                 {isDark ? (
-                  <motion.span
-                    key="sun"
-                    initial={{ rotate: -90, opacity: 0, scale: 0.5 }}
-                    animate={{ rotate: 0, opacity: 1, scale: 1 }}
-                    exit={{ rotate: 90, opacity: 0, scale: 0.5 }}
-                    transition={{ duration: 0.2 }}
-                    className="flex items-center justify-center"
-                  >
-                    <Sun className="w-4 h-4 md:w-4.5 md:h-4.5" />
-                  </motion.span>
+                  <motion.span key="sun" initial={{ rotate: -90, opacity: 0 }} animate={{ rotate: 0, opacity: 1 }} exit={{ rotate: 90, opacity: 0 }}><Sun className="w-4 h-4" /></motion.span>
                 ) : (
-                  <motion.span
-                    key="moon"
-                    initial={{ rotate: 90, opacity: 0, scale: 0.5 }}
-                    animate={{ rotate: 0, opacity: 1, scale: 1 }}
-                    exit={{ rotate: -90, opacity: 0, scale: 0.5 }}
-                    transition={{ duration: 0.2 }}
-                    className="flex items-center justify-center"
-                  >
-                    <Moon className="w-4 h-4 md:w-4.5 md:h-4.5" />
-                  </motion.span>
+                  <motion.span key="moon" initial={{ rotate: 90, opacity: 0 }} animate={{ rotate: 0, opacity: 1 }} exit={{ rotate: -90, opacity: 0 }}><Moon className="w-4 h-4" /></motion.span>
                 )}
               </AnimatePresence>
             </motion.button>
-
           </div>
         </header>
 
-        {/* ── MESSAGES SCROLL AREA ── */}
-        <div
-          className="flex-1 overflow-y-auto scroll-hide"
-          onScroll={handleScroll}
-        >
+        {/* Messages area (unchanged structurally, but we remove attachment display because files aren't stored in messages) */}
+        <div className="flex-1 overflow-y-auto scroll-hide" onScroll={handleScroll}>
           <div className="max-w-3xl mx-auto px-3 sm:px-4 md:px-6 py-6 md:py-10">
             {messages.length === 0 && !isTyping ? (
-              /* ── Empty state / welcome screen ── */
               <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-2 max-w-2xl mx-auto">
-                <motion.div
-                  initial={{ scale: 0.8, opacity: 0 }}
-                  animate={{ scale: 1, opacity: 1 }}
-                  className="flex items-center justify-center mb-8 text-indigo-600"
-                >
-                  <StormLogo className="w-12 h-12 md:w-14 md:h-14" />
-                </motion.div>
-                <h2 className="text-2xl md:text-3xl font-bold text-zinc-900 dark:text-zinc-100 mb-6 tracking-tight transition-colors">
-                  How can I help you today?
-                </h2>
+                <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="mb-8"><StormLogo className="w-12 h-12 md:w-14 md:h-14 text-indigo-600" /></motion.div>
+                <h2 className="text-2xl md:text-3xl font-bold text-zinc-900 dark:text-zinc-100 mb-6">How can I help you today?</h2>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 w-full">
-                  {[
-                    'Plan a 3-day trip to Tokyo',
-                    'How to build a SaaS with React?',
-                    'Write a professional covering letter',
-                    'Explain the theory of relativity',
-                  ].map((s, i) => (
-                    <button
-                      key={i}
-                      onClick={() => handleSendMessage(undefined, s)}
-                      className="group p-3.5 md:p-4 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-xl text-sm font-medium text-zinc-500 dark:text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:border-indigo-400 dark:hover:border-indigo-600/50 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 transition-all text-left shadow-sm"
-                    >
+                  {['Plan a 3-day trip to Tokyo', 'How to build a SaaS with React?', 'Write a professional covering letter', 'Explain the theory of relativity'].map((s, i) => (
+                    <button key={i} onClick={() => handleSendMessage(undefined, s)} className="group p-3.5 md:p-4 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-xl text-sm font-medium text-zinc-500 dark:text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:border-indigo-400 transition-all text-left shadow-sm">
                       <span className="block truncate">{s}</span>
                     </button>
                   ))}
                 </div>
               </div>
             ) : (
-              /* ── Message list ── */
               <div className="space-y-6 md:space-y-8 pb-6 pt-2">
                 {messages.map((msg, index) => {
                   const isEditing = editingMessage?.id === msg.id;
                   const shouldSpin = isTyping && msg.role === 'assistant' && index === messages.length - 1;
-                  // FIX: retrieve any image attachments for this message
-                  const attachedImages = (messageAttachments[msg.id] ?? []).filter(
-                    f => f.type === 'image' && f.preview,
-                  );
-
                   return (
-                    <div
-                      key={msg.id || `msg-${index}`}
-                      className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} group`}
-                    >
+                    <div key={msg.id || `msg-${index}`} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} group`}>
                       <div className={`flex gap-2.5 md:gap-3 w-full ${msg.role === 'user' ? 'flex-row-reverse justify-start' : 'flex-row'}`}>
-                        {/* Avatar */}
                         <div className="w-7 h-7 md:w-8 md:h-8 shrink-0 flex items-center justify-center mt-1">
                           {msg.role === 'user' ? (
                             <div className="w-full h-full rounded-full border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 flex items-center justify-center shadow-sm overflow-hidden">
                               <UserAvatar name={user?.username || 'User'} className="w-full h-full text-[10px]" />
                             </div>
                           ) : (
-                            <StormLogo
-                              className={`w-6 h-6 text-indigo-500 dark:text-indigo-400 ${shouldSpin ? 'animate-spin' : ''}`}
-                            />
+                            <StormLogo className={`w-6 h-6 text-indigo-500 dark:text-indigo-400 ${shouldSpin ? 'animate-spin' : ''}`} />
                           )}
                         </div>
-
-                        {/* Bubble + actions */}
                         <div className={`flex flex-col gap-1 min-w-0 ${msg.role === 'user' ? 'max-w-[85%] md:max-w-[75%] items-end' : 'max-w-[90%] md:max-w-[80%] items-start'}`}>
-                          <div className={`px-4 py-3 rounded-2xl shadow-sm border transition-all duration-300 backdrop-blur-xl ${
+                          <div className={`px-4 py-3 rounded-2xl shadow-sm border backdrop-blur-xl ${
                             msg.role === 'assistant'
                               ? 'bg-white/80 dark:bg-zinc-900/60 border-zinc-200/60 dark:border-zinc-700/50 text-zinc-900 dark:text-zinc-100 rounded-tl-none'
                               : 'bg-zinc-100/80 dark:bg-zinc-800/60 border-zinc-200/40 dark:border-zinc-700/40 text-zinc-900 dark:text-zinc-100 rounded-tr-none'
@@ -830,127 +700,60 @@ export default function Chat({ user, onLogout }: Props) {
                                     value={editInput}
                                     onChange={(e) => setEditInput(e.target.value)}
                                     onKeyDown={(e) => {
-                                      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-                                        e.preventDefault();
-                                        handleSaveEdit();
-                                      }
+                                      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); handleSaveEdit(); }
                                       if (e.key === 'Escape') handleCancelEdit();
                                     }}
-                                    className={`w-full border rounded-xl p-3 text-sm focus:outline-none focus:ring-2 focus:ring-white/20 transition-all resize-none font-medium min-h-[100px] ${
-                                      msg.role === 'user'
-                                        ? 'bg-zinc-50 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-700 text-zinc-900 dark:text-zinc-100'
-                                        : 'bg-zinc-50 dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700 text-zinc-900 dark:text-zinc-100'
-                                    }`}
+                                    className="w-full border rounded-xl p-3 text-sm focus:outline-none focus:ring-2 focus:ring-white/20 resize-none min-h-[100px] bg-zinc-50 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-700"
                                     autoFocus
                                   />
-                                  <div className="flex justify-end items-center gap-2">
+                                  <div className="flex justify-end gap-2">
                                     <span className="text-[9px] text-zinc-400 mr-auto">⌘↵ to send · Esc to cancel</span>
-                                    <button
-                                      onClick={handleCancelEdit}
-                                      className="px-3 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all rounded-lg text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
-                                    >
-                                      Cancel
-                                    </button>
-                                    <button
-                                      onClick={handleSaveEdit}
-                                      disabled={!editInput.trim() || isTyping}
-                                      className="px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all shadow-lg disabled:opacity-40 disabled:cursor-not-allowed bg-indigo-600 text-white hover:bg-indigo-700 shadow-indigo-500/20"
-                                    >
-                                      Send
-                                    </button>
+                                    <button onClick={handleCancelEdit} className="px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg text-zinc-500 hover:text-zinc-900">Cancel</button>
+                                    <button onClick={handleSaveEdit} disabled={!editInput.trim() || isTyping} className="px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest shadow-lg disabled:opacity-40 bg-indigo-600 text-white hover:bg-indigo-700">Send</button>
                                   </div>
                                 </div>
                               ) : (
-                                <>
-                                  {/* FIX: Show image attachments inside the user bubble */}
-                                  {attachedImages.length > 0 && (
-                                    <div className={`flex flex-wrap gap-2 ${cleanMessageContent(msg.content) ? 'mb-2' : ''}`}>
-                                      {attachedImages.map(f => (
-                                        <img
-                                          key={f.id}
-                                          src={f.preview}
-                                          alt={f.name}
-                                          className="max-w-[220px] max-h-[180px] w-auto h-auto rounded-xl object-cover shadow-sm border border-zinc-200/40 dark:border-zinc-700/40"
-                                        />
-                                      ))}
-                                    </div>
-                                  )}
-                                  {cleanMessageContent(msg.content) && (
-                                    <ReactMarkdown
-                                      remarkPlugins={[remarkGfm]}
-                                      components={{
-                                        pre({ children, ...props }: any) {
-                                          return (
-                                            <div className="my-6 overflow-hidden rounded-xl border border-indigo-200/40 dark:border-indigo-500/20 shadow-lg bg-gradient-to-br from-indigo-50/80 to-violet-50/60 dark:from-indigo-950/50 dark:to-violet-950/40 backdrop-blur-xl">
-                                              <div className="flex items-center gap-2 px-4 py-2 border-b border-indigo-200/30 dark:border-indigo-500/15 bg-indigo-100/40 dark:bg-indigo-900/20">
-                                                <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 dark:bg-indigo-500" />
-                                                <span className="text-[10px] font-black uppercase tracking-widest text-indigo-400 dark:text-indigo-500">Architecture</span>
-                                              </div>
-                                              <pre
-                                                className="p-5 overflow-x-auto text-[0.82rem] leading-relaxed font-mono text-indigo-700 dark:text-indigo-300 whitespace-pre"
-                                                {...props}
-                                              >
-                                                {children}
-                                              </pre>
-                                            </div>
-                                          );
-                                        },
-                                        code({ className, children, ...props }: any) {
-                                          const match = /language-(\w+)/.exec(className || '');
-                                          const content = String(children).replace(/\n$/, '');
-                                          const isInline = props.inline || !className;
-                                          return !isInline && match ? (
-                                            <CodeBlock language={match[1]} value={content} />
-                                          ) : (
-                                            <code
-                                              className={`${className || ''} bg-zinc-100 dark:bg-zinc-800 text-indigo-600 dark:text-indigo-400 px-1 py-0.5 rounded font-mono text-[0.85em]`}
-                                              {...props}
-                                            >
-                                              {children}
-                                            </code>
-                                          );
-                                        }
-                                      } as Components}
-                                    >
-                                      {cleanMessageContent(msg.content)}
-                                    </ReactMarkdown>
-                                  )}
-                                </>
+                                <ReactMarkdown
+                                  remarkPlugins={[remarkGfm]}
+                                  components={{
+                                    pre({ children, ...props }: any) {
+                                      return (
+                                        <div className="my-6 overflow-hidden rounded-xl border border-indigo-200/40 dark:border-indigo-500/20 shadow-lg bg-gradient-to-br from-indigo-50/80 to-violet-50/60 dark:from-indigo-950/50 dark:to-violet-950/40 backdrop-blur-xl">
+                                          <div className="flex items-center gap-2 px-4 py-2 border-b border-indigo-200/30 dark:border-indigo-500/15 bg-indigo-100/40 dark:bg-indigo-900/20">
+                                            <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 dark:bg-indigo-500" />
+                                            <span className="text-[10px] font-black uppercase tracking-widest text-indigo-400 dark:text-indigo-500">Architecture</span>
+                                          </div>
+                                          <pre className="p-5 overflow-x-auto text-[0.82rem] leading-relaxed font-mono text-indigo-700 dark:text-indigo-300 whitespace-pre" {...props}>{children}</pre>
+                                        </div>
+                                      );
+                                    },
+                                    code({ className, children, ...props }: any) {
+                                      const match = /language-(\w+)/.exec(className || '');
+                                      const content = String(children).replace(/\n$/, '');
+                                      const isInline = props.inline || !className;
+                                      return !isInline && match ? (
+                                        <CodeBlock language={match[1]} value={content} />
+                                      ) : (
+                                        <code className={`${className || ''} bg-zinc-100 dark:bg-zinc-800 text-indigo-600 dark:text-indigo-400 px-1 py-0.5 rounded font-mono text-[0.85em]`} {...props}>{children}</code>
+                                      );
+                                    }
+                                  } as Components}
+                                >
+                                  {cleanMessageContent(msg.content)}
+                                </ReactMarkdown>
                               )}
                             </div>
                           </div>
-
-                          {/* Actions row */}
                           <div className="flex items-center gap-1 mt-1 px-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                            {msg.role === 'assistant' && (
-                              <span className="text-[10px] font-black text-indigo-500/50 uppercase tracking-[0.2em] mr-auto pl-1">Nexus AI</span>
-                            )}
+                            {msg.role === 'assistant' && <span className="text-[10px] font-black text-indigo-500/50 uppercase tracking-[0.2em] mr-auto pl-1">Nexus AI</span>}
                             <span className="text-[9px] font-black text-zinc-400 dark:text-zinc-500 uppercase tracking-widest whitespace-nowrap mr-1">
-                              {msg.timestamp
-                                ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                                : 'Now'}
+                              {msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Now'}
                             </span>
                             <div className="flex items-center gap-0.5">
                               {msg.role === 'user' && !isEditing && !isTyping && (
-                                <button
-                                  onClick={() => handleStartEdit(msg)}
-                                  className="p-1 px-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 hover:text-indigo-600 transition-all"
-                                  title="Edit and resend message"
-                                >
-                                  <Edit2 className="w-3.5 h-3.5" />
-                                </button>
+                                <button onClick={() => handleStartEdit(msg)} className="p-1 px-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 hover:text-indigo-600"><Edit2 className="w-3.5 h-3.5" /></button>
                               )}
-                              <button
-                                onClick={() => {
-                                  navigator.clipboard.writeText(cleanMessageContent(msg.content));
-                                  setCopiedId(msg.id);
-                                  setTimeout(() => setCopiedId(null), 2000);
-                                }}
-                                className={`p-1 px-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all ${
-                                  copiedId === msg.id ? 'text-emerald-500' : 'text-zinc-400 hover:text-indigo-600'
-                                }`}
-                                title="Copy message"
-                              >
+                              <button onClick={() => { navigator.clipboard.writeText(cleanMessageContent(msg.content)); setCopiedId(msg.id); setTimeout(() => setCopiedId(null), 2000); }} className={`p-1 px-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all ${copiedId === msg.id ? 'text-emerald-500' : 'text-zinc-400 hover:text-indigo-600'}`}>
                                 {copiedId === msg.id ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
                               </button>
                             </div>
@@ -960,223 +763,111 @@ export default function Chat({ user, onLogout }: Props) {
                     </div>
                   );
                 })}
-
-                {/* Typing indicator */}
                 {isTyping && (
                   <div className="flex items-start gap-3">
-                    <div className="w-7 h-7 md:w-8 md:h-8 shrink-0 flex items-center justify-center mt-1">
-                      <StormLogo className="w-6 h-6 text-indigo-500 animate-spin" />
-                    </div>
+                    <div className="w-7 h-7 md:w-8 md:h-8 shrink-0 flex items-center justify-center mt-1"><StormLogo className="w-6 h-6 text-indigo-500 animate-spin" /></div>
                     <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 px-4 py-3 rounded-2xl rounded-tl-none shadow-sm flex flex-col gap-2 backdrop-blur-xl">
                       <div className="flex items-center gap-2">
                         <motion.div animate={{ scale: [1, 1.2, 1], opacity: [0.3, 1, 0.3] }} transition={{ repeat: Infinity, duration: 1 }} className="w-1.5 h-1.5 bg-indigo-600 rounded-full" />
                         <motion.div animate={{ scale: [1, 1.2, 1], opacity: [0.3, 1, 0.3] }} transition={{ repeat: Infinity, duration: 1, delay: 0.2 }} className="w-1.5 h-1.5 bg-indigo-600 rounded-full" />
                         <motion.div animate={{ scale: [1, 1.2, 1], opacity: [0.3, 1, 0.3] }} transition={{ repeat: Infinity, duration: 1, delay: 0.4 }} className="w-1.5 h-1.5 bg-indigo-600 rounded-full" />
                       </div>
-                      <AnimatePresence>
-                        {serverWaking && (
-                          <motion.p
-                            initial={{ opacity: 0, height: 0 }}
-                            animate={{ opacity: 1, height: 'auto' }}
-                            exit={{ opacity: 0, height: 0 }}
-                            className="text-[10px] font-medium text-zinc-400 dark:text-zinc-500"
-                          >
-                            Server is waking up, please wait...
-                          </motion.p>
-                        )}
-                      </AnimatePresence>
+                      <AnimatePresence>{serverWaking && <motion.p initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="text-[10px] font-medium text-zinc-400">Server is waking up, please wait...</motion.p>}</AnimatePresence>
                     </div>
                   </div>
                 )}
-
                 <div ref={messagesEndRef} />
               </div>
             )}
-
-            {/* Anchor for empty-state scroll too */}
             {(messages.length === 0 && !isTyping) && <div ref={messagesEndRef} />}
           </div>
         </div>
 
-        {/* ── INPUT BAR ── */}
-        <div className="shrink-0 bg-white dark:bg-zinc-950 border-t border-zinc-200/50 dark:border-zinc-800/50 px-3 sm:px-4 md:px-6 py-3 md:py-4 transition-colors duration-300">
+        {/* Input Bar with fixed file previews and no "Photos" option */}
+        <div className="shrink-0 bg-white dark:bg-zinc-950 border-t border-zinc-200/50 dark:border-zinc-800/50 px-3 sm:px-4 md:px-6 py-3 md:py-4">
           <div className="max-w-3xl mx-auto relative">
-
-            {/* Scroll-to-bottom fab */}
             <AnimatePresence>
               {showScrollBottom && (
                 <motion.button
-                  initial={{ opacity: 0, y: 10, scale: 0.8 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: 10, scale: 0.8 }}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 10 }}
                   onClick={() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })}
-                  className="absolute -top-14 right-2 p-2.5 bg-indigo-600 text-white rounded-full shadow-xl shadow-indigo-500/30 hover:bg-indigo-700 transition-all z-10 group hover:scale-110 active:scale-90 border border-indigo-500"
-                  aria-label="Scroll to bottom"
+                  className="absolute -top-14 right-2 p-2.5 bg-indigo-600 text-white rounded-full shadow-xl shadow-indigo-500/30 hover:bg-indigo-700 transition-all z-10 group hover:scale-110"
                 >
                   <ArrowDown className="w-4 h-4 md:w-5 md:h-5" />
                 </motion.button>
               )}
             </AnimatePresence>
 
-            {/* ── Hidden file inputs ── */}
-            <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" onChange={handleFileChange} className="hidden" />
-            <input ref={photoInputRef} type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple onChange={handleFileChange} className="hidden" />
-            <input ref={fileInputRef} type="file" multiple accept="image/png,image/jpeg,image/gif,image/webp,.txt,.md,.json,.csv,.ts,.tsx,.js,.jsx,.py,.html,.css" onChange={handleFileChange} className="hidden" />
+            {/* Hidden inputs for Camera and Files */}
+            <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" onChange={(e) => handleFileSelection(e.target.files)} className="hidden" />
+            <input ref={fileInputRef} type="file" multiple accept="image/png,image/jpeg,image/gif,image/webp,.txt,.md,.json,.csv,.ts,.tsx,.js,.jsx,.py,.html,.css" onChange={(e) => handleFileSelection(e.target.files)} className="hidden" />
 
-            {/* ── Main input container ── */}
             <div className={`relative flex flex-col bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-2xl shadow-lg transition-all ${justFinished ? 'animate-blink' : ''}`}>
-
-              {/* ── FIX: Improved file preview strip — images shown at 64 × 64 ── */}
+              {/* File preview strip */}
               <AnimatePresence>
-                {uploadedFiles.length > 0 && (
-                  <motion.div
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: 'auto' }}
-                    exit={{ opacity: 0, height: 0 }}
-                    className="flex flex-wrap gap-3 px-3 pt-3 pb-2.5 border-b border-zinc-100 dark:border-zinc-800/70"
-                  >
-                    {uploadedFiles.map(file => (
-                      file.type === 'image' && file.preview ? (
-                        /* ── Image file: large square thumbnail ── */
-                        <div key={file.id} className="relative flex flex-col items-center gap-1 shrink-0">
-                          <div className="w-16 h-16 rounded-xl overflow-hidden bg-zinc-200 dark:bg-zinc-700 shadow-sm border border-zinc-200/60 dark:border-zinc-600/60">
-                            <img
-                              src={file.preview}
-                              alt={file.name}
-                              className="w-full h-full object-cover"
-                            />
+                {filePreviews.length > 0 && (
+                  <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="flex flex-wrap gap-3 px-3 pt-3 pb-2.5 border-b border-zinc-100 dark:border-zinc-800/70">
+                    {filePreviews.map(fp => (
+                      <div key={fp.id} className="relative flex flex-col items-center gap-1 shrink-0">
+                        {fp.preview ? (
+                          <div className="w-16 h-16 rounded-xl overflow-hidden bg-zinc-200 dark:bg-zinc-700 shadow-sm border border-zinc-200/60">
+                            <img src={fp.preview} alt={fp.file.name} className="w-full h-full object-cover" />
                           </div>
-                          <span className="text-[9px] font-medium text-zinc-400 dark:text-zinc-500 truncate max-w-[64px] leading-none">
-                            {file.name}
-                          </span>
-                          <button
-                            onClick={() => removeFile(file.id)}
-                            className="absolute -top-1.5 -right-1.5 w-4.5 h-4.5 w-[18px] h-[18px] rounded-full flex items-center justify-center
-                                       bg-zinc-600 dark:bg-zinc-500 text-white shadow-md
-                                       hover:bg-red-500 dark:hover:bg-red-500 transition-colors"
-                            aria-label={`Remove ${file.name}`}
-                          >
-                            <X className="w-2.5 h-2.5" />
-                          </button>
-                        </div>
-                      ) : (
-                        /* ── Non-image file: pill with icon ── */
-                        <div key={file.id} className="relative flex items-center gap-1.5 bg-zinc-100 dark:bg-zinc-800 rounded-xl px-2.5 py-1.5 max-w-[160px] shrink-0">
-                          <FileText className="w-4 h-4 text-indigo-500 shrink-0" />
-                          <div className="flex flex-col min-w-0">
-                            <span className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400 truncate max-w-[85px]">
-                              {file.name}
-                            </span>
-                            <span className="text-[9px] font-medium text-zinc-400">
-                              {formatFileSize(file.size)}
-                            </span>
+                        ) : (
+                          <div className="w-16 h-16 rounded-xl flex items-center justify-center bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700">
+                            <FileText className="w-6 h-6 text-indigo-500" />
                           </div>
-                          <button
-                            onClick={() => removeFile(file.id)}
-                            className="absolute -top-1.5 -right-1.5 w-[18px] h-[18px] rounded-full flex items-center justify-center
-                                       bg-zinc-500 dark:bg-zinc-600 text-white shadow-sm
-                                       hover:bg-red-500 dark:hover:bg-red-500 transition-colors"
-                            aria-label={`Remove ${file.name}`}
-                          >
-                            <X className="w-2.5 h-2.5" />
-                          </button>
-                        </div>
-                      )
+                        )}
+                        <span className="text-[9px] font-medium text-zinc-400 truncate max-w-[64px]">{fp.file.name}</span>
+                        <button onClick={() => removeFile(fp.id)} className="absolute -top-1.5 -right-1.5 w-[18px] h-[18px] rounded-full flex items-center justify-center bg-zinc-600 dark:bg-zinc-500 text-white shadow-md hover:bg-red-500">
+                          <X className="w-2.5 h-2.5" />
+                        </button>
+                      </div>
                     ))}
                   </motion.div>
                 )}
               </AnimatePresence>
 
-              {/* ── Textarea row: [paperclip] [textarea] [mic] [send] ── */}
               <div className="flex flex-row items-end">
-
-                {/* ── LEFT: Paperclip + expandable attach menu ── */}
-                <div
-                  ref={attachMenuRef}
-                  className="relative flex items-center pl-2 pb-2.5 md:pb-3 shrink-0"
-                >
-                  {/* Attach options menu */}
+                {/* Attachment menu - only Camera and Files (removed Photos) */}
+                <div ref={attachMenuRef} className="relative flex items-center pl-2 pb-2.5 md:pb-3 shrink-0">
                   <AnimatePresence>
                     {showAttachMenu && (
-                      <motion.div
-                        initial={{ opacity: 0, y: 6, scale: 0.95 }}
-                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                        exit={{ opacity: 0, y: 6, scale: 0.95 }}
-                        transition={{ duration: 0.15, ease: 'easeOut' }}
-                        className="absolute bottom-full left-0 mb-2 z-50
-                                   bg-white dark:bg-zinc-800
-                                   border border-zinc-200 dark:border-zinc-700
-                                   rounded-2xl shadow-xl dark:shadow-zinc-900/60
-                                   min-w-[148px] overflow-hidden"
-                      >
-                        <button
-                          type="button"
-                          onClick={() => { cameraInputRef.current?.click(); setShowAttachMenu(false); }}
-                          className="flex items-center gap-3 w-full px-4 py-3 text-[13px] font-semibold text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-700/60 transition-colors"
-                        >
-                          <span className="flex items-center justify-center w-7 h-7 rounded-xl bg-indigo-100 dark:bg-indigo-950/60">
-                            <Camera className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                          </span>
+                      <motion.div initial={{ opacity: 0, y: 6, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 6, scale: 0.95 }} className="absolute bottom-full left-0 mb-2 z-50 bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-2xl shadow-xl min-w-[148px] overflow-hidden">
+                        <button type="button" onClick={() => { cameraInputRef.current?.click(); setShowAttachMenu(false); }} className="flex items-center gap-3 w-full px-4 py-3 text-[13px] font-semibold text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-700/60">
+                          <span className="flex items-center justify-center w-7 h-7 rounded-xl bg-indigo-100 dark:bg-indigo-950/60"><Camera className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" /></span>
                           Camera
                         </button>
                         <div className="h-px bg-zinc-100 dark:bg-zinc-700/50" />
-                        <button
-                          type="button"
-                          onClick={() => { photoInputRef.current?.click(); setShowAttachMenu(false); }}
-                          className="flex items-center gap-3 w-full px-4 py-3 text-[13px] font-semibold text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-700/60 transition-colors"
-                        >
-                          <span className="flex items-center justify-center w-7 h-7 rounded-xl bg-emerald-100 dark:bg-emerald-950/60">
-                            <ImageIcon className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                          </span>
-                          Photos
-                        </button>
-                        <div className="h-px bg-zinc-100 dark:bg-zinc-700/50" />
-                        <button
-                          type="button"
-                          onClick={() => { fileInputRef.current?.click(); setShowAttachMenu(false); }}
-                          className="flex items-center gap-3 w-full px-4 py-3 text-[13px] font-semibold text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-700/60 transition-colors"
-                        >
-                          <span className="flex items-center justify-center w-7 h-7 rounded-xl bg-violet-100 dark:bg-violet-950/60">
-                            <FileText className="w-3.5 h-3.5 text-violet-600 dark:text-violet-400" />
-                          </span>
+                        <button type="button" onClick={() => { fileInputRef.current?.click(); setShowAttachMenu(false); }} className="flex items-center gap-3 w-full px-4 py-3 text-[13px] font-semibold text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-700/60">
+                          <span className="flex items-center justify-center w-7 h-7 rounded-xl bg-violet-100 dark:bg-violet-950/60"><FileText className="w-3.5 h-3.5 text-violet-600 dark:text-violet-400" /></span>
                           Files
                         </button>
                       </motion.div>
                     )}
                   </AnimatePresence>
-
-                  {/* Paperclip toggle button */}
                   <motion.button
                     type="button"
                     whileTap={{ scale: 0.88 }}
                     onClick={() => setShowAttachMenu(prev => !prev)}
                     disabled={isProcessingFiles}
-                    title="Attach — camera, photos or files"
-                    aria-label="Open attach menu"
-                    className={`flex items-center justify-center w-9 h-9 rounded-full transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed ${
-                      showAttachMenu
-                        ? 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400'
-                        : 'text-zinc-400 dark:text-zinc-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-zinc-100 dark:hover:bg-zinc-800'
+                    className={`flex items-center justify-center w-9 h-9 rounded-full transition-all duration-200 disabled:opacity-40 ${
+                      showAttachMenu ? 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600' : 'text-zinc-400 dark:text-zinc-500 hover:text-indigo-600 hover:bg-zinc-100 dark:hover:bg-zinc-800'
                     }`}
                   >
-                    <motion.span
-                      animate={{ rotate: showAttachMenu ? 45 : 0 }}
-                      transition={{ duration: 0.2, ease: 'easeInOut' }}
-                      className="flex items-center justify-center"
-                    >
-                      <Paperclip className={`w-4 h-4 ${isProcessingFiles ? 'animate-spin' : ''}`} />
-                    </motion.span>
+                    <Paperclip className={`w-4 h-4 ${isProcessingFiles ? 'animate-spin' : ''}`} />
                   </motion.button>
                 </div>
 
-                {/* ── CENTRE: Textarea ── */}
+                {/* Textarea */}
                 <div className="relative flex-1 min-w-0">
                   <textarea
                     ref={inputRef}
                     value={input}
                     onChange={(e) => {
                       setInput(e.target.value);
-                      // Keep speech base in sync if user edits while mic is on
                       if (isListening) speechBaseRef.current = e.target.value;
                     }}
                     onFocus={() => setInputFocused(true)}
@@ -1189,107 +880,63 @@ export default function Chat({ user, onLogout }: Props) {
                     }}
                     placeholder={showBlinkingCursor ? '' : isListening ? 'Listening…' : 'Write a message...'}
                     rows={1}
-                    className="w-full px-3 md:px-4 py-3.5 md:py-4 bg-transparent focus:outline-none font-medium text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-500 text-sm md:text-base leading-relaxed resize-none min-h-[52px] max-h-[180px] overflow-y-auto transition-colors"
+                    className="w-full px-3 md:px-4 py-3.5 md:py-4 bg-transparent focus:outline-none font-medium text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-500 text-sm md:text-base leading-relaxed resize-none min-h-[52px] max-h-[180px] overflow-y-auto"
                     onInput={(e) => {
                       const target = e.target as HTMLTextAreaElement;
                       target.style.height = 'auto';
                       target.style.height = `${Math.min(target.scrollHeight, 180)}px`;
                     }}
                   />
-                  {/* Blinking cursor placeholder */}
                   {showBlinkingCursor && !inputFocused && !isListening && (
                     <div className="absolute left-3 md:left-4 top-1/2 -translate-y-1/2 flex items-center gap-1 pointer-events-none">
                       <BlinkingCursor />
-                      <span className="text-sm md:text-base font-medium text-zinc-400 dark:text-zinc-500">Write a message</span>
+                      <span className="text-sm md:text-base font-medium text-zinc-400">Write a message</span>
                     </div>
                   )}
                 </div>
 
-                {/* ── RIGHT: Mic + Send/Stop ── */}
+                {/* Mic + Send/Stop */}
                 <div className="flex items-center gap-1 px-2 pb-2.5 md:pb-3 shrink-0">
-
-                  {/* ── Mic button (Web Speech API — fastest approach, zero latency) ── */}
                   <motion.button
                     type="button"
                     whileTap={{ scale: 0.88 }}
                     onClick={toggleListening}
-                    title={isListening ? 'Stop voice input' : 'Start voice input'}
-                    aria-label={isListening ? 'Stop voice input' : 'Start voice input'}
                     className={`relative flex items-center justify-center w-9 h-9 rounded-full transition-all duration-200 ${
-                      isListening
-                        ? 'bg-red-50 dark:bg-red-950/40 text-red-500 dark:text-red-400 ring-2 ring-red-300 dark:ring-red-700'
-                        : 'text-zinc-400 dark:text-zinc-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-zinc-100 dark:hover:bg-zinc-800'
+                      isListening ? 'bg-red-50 dark:bg-red-950/40 text-red-500 dark:text-red-400 ring-2 ring-red-300 dark:ring-red-700' : 'text-zinc-400 dark:text-zinc-500 hover:text-indigo-600 hover:bg-zinc-100 dark:hover:bg-zinc-800'
                     }`}
                   >
-                    {isListening ? (
-                      <>
-                        {/* Pulsing ring behind mic icon while listening */}
-                        <motion.span
-                          animate={{ scale: [1, 1.6, 1], opacity: [0.4, 0, 0.4] }}
-                          transition={{ repeat: Infinity, duration: 1.4, ease: 'easeOut' }}
-                          className="absolute inset-0 rounded-full bg-red-400/30 dark:bg-red-500/20"
-                        />
-                        <Mic className="w-4 h-4 relative z-10" />
-                      </>
-                    ) : (
-                      <Mic className="w-4 h-4" />
-                    )}
+                    {isListening && <motion.span animate={{ scale: [1, 1.6, 1], opacity: [0.4, 0, 0.4] }} transition={{ repeat: Infinity, duration: 1.4 }} className="absolute inset-0 rounded-full bg-red-400/30" />}
+                    <Mic className="w-4 h-4 relative z-10" />
                   </motion.button>
 
-                  {/* ── Send / Stop button ── */}
                   <motion.button
-                    whileHover={{ scale: isTyping || input.trim() || uploadedFiles.length ? 1.08 : 1.02 }}
+                    whileHover={{ scale: isTyping || input.trim() || filePreviews.length ? 1.08 : 1.02 }}
                     whileTap={{ scale: 0.92 }}
                     onClick={isTyping ? handleStopResponse : () => handleSendMessage()}
-                    disabled={!input.trim() && !uploadedFiles.length && !isTyping}
-                    aria-label={isTyping ? 'Stop response' : 'Send message'}
+                    disabled={!input.trim() && filePreviews.length === 0 && !isTyping}
                     className={`relative flex items-center justify-center w-9 h-9 md:w-10 md:h-10 rounded-full transition-all duration-200 border-2 ${
-                      isTyping
-                        ? 'bg-white dark:bg-zinc-800 border-indigo-400 dark:border-indigo-500 shadow-lg shadow-indigo-200/50'
-                        : 'bg-white dark:bg-zinc-800 border-zinc-300 dark:border-zinc-600 shadow-md hover:border-indigo-400 dark:hover:border-indigo-500'
+                      isTyping ? 'bg-white dark:bg-zinc-800 border-indigo-400 dark:border-indigo-500 shadow-lg' : 'bg-white dark:bg-zinc-800 border-zinc-300 dark:border-zinc-600 shadow-md hover:border-indigo-400'
                     }`}
                   >
                     {isTyping ? (
                       <span className="relative flex items-center justify-center w-full h-full">
-                        <svg className="absolute inset-0 w-full h-full animate-spin" viewBox="0 0 40 40">
-                          <circle cx="20" cy="20" r="16" fill="none" stroke="#6366f1" strokeWidth="3" strokeDasharray="55 45" strokeLinecap="round" opacity="1" />
-                        </svg>
+                        <svg className="absolute inset-0 w-full h-full animate-spin" viewBox="0 0 40 40"><circle cx="20" cy="20" r="16" fill="none" stroke="#6366f1" strokeWidth="3" strokeDasharray="55 45" strokeLinecap="round" /></svg>
                         <span className="w-3 h-3 rounded-sm bg-zinc-800 dark:bg-zinc-200 block relative z-10" />
                       </span>
                     ) : (
-                      <ArrowUp className={`w-4 h-4 transition-all ${input.trim() || uploadedFiles.length ? 'text-zinc-800 dark:text-zinc-100 scale-110' : 'text-zinc-400 dark:text-zinc-500 scale-90'}`} />
+                      <ArrowUp className={`w-4 h-4 transition-all ${input.trim() || filePreviews.length ? 'text-zinc-800 dark:text-zinc-100 scale-110' : 'text-zinc-400 dark:text-zinc-500 scale-90'}`} />
                     )}
                   </motion.button>
                 </div>
-
               </div>
             </div>
-
-            {/* Disclaimer */}
-            <p className="mt-2.5 text-center text-[10px] font-medium text-zinc-500/40 dark:text-zinc-400/40 transition-colors">
-              Nexus is AI and can make mistakes. Please double-check responses.
-            </p>
+            <p className="mt-2.5 text-center text-[10px] font-medium text-zinc-500/40 dark:text-zinc-400/40">Nexus AI can analyse images and files you attach.</p>
           </div>
         </div>
       </main>
 
-      {/* ── MODALS ── */}
-      <ConfirmationModal
-        isOpen={modalType === 'delete-single'}
-        onClose={() => setModalType('none')}
-        onConfirm={confirmDeleteSession}
-        title="Delete Chat"
-        message="Are you sure you want to delete this chat? This action cannot be undone."
-        confirmText="Delete"
-      />
-      <ConfirmationModal
-        isOpen={modalType === 'delete-all'}
-        onClose={() => setModalType('none')}
-        onConfirm={confirmClearAll}
-        title="Clear All Chats"
-        message="Are you sure you want to delete all chats? This action is permanent."
-        confirmText="Clear All"
-      />
+      <ConfirmationModal isOpen={modalType === 'delete-single'} onClose={() => setModalType('none')} onConfirm={confirmDeleteSession} title="Delete Chat" message="This action cannot be undone." confirmText="Delete" />
+      <ConfirmationModal isOpen={modalType === 'delete-all'} onClose={() => setModalType('none')} onConfirm={confirmClearAll} title="Clear All Chats" message="All chats will be permanently deleted." confirmText="Clear All" />
     </div>
   );
 }
