@@ -7,11 +7,13 @@ import { motion, AnimatePresence } from 'motion/react';
 import StormLogo from '../components/StormLogo';
 import UserAvatar from '../components/UserAvatar';
 import ConfirmationModal from '../components/ConfirmationModal';
+
 import {
-  ArrowDown,
+  ArrowDown, ArrowUp,
   Copy, Check, Edit2, Sun, Moon, Menu,
   Paperclip, X, FileText, Camera, Mic,
 } from 'lucide-react';
+
 import ReactMarkdown from 'react-markdown';
 import type { Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
