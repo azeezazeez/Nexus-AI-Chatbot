@@ -43,16 +43,41 @@ export async function wakeUpServer(): Promise<void> {
   }
 }
 
+/**
+ * Converts HeadersInit to a plain object for safe manipulation.
+ */
+function normalizeHeaders(init?: HeadersInit): Record<string, string> {
+  const result: Record<string, string> = {};
+  if (!init) return result;
+  if (init instanceof Headers) {
+    init.forEach((value, key) => { result[key] = value; });
+  } else if (Array.isArray(init)) {
+    for (const [key, value] of init) {
+      result[key] = value;
+    }
+  } else {
+    Object.assign(result, init);
+  }
+  return result;
+}
+
 const attemptFetch = async (
   url: string,
   options: RequestInit,
-  headers: HeadersInit,
+  headers: Record<string, string>,
   retries: number
 ): Promise<Response> => {
   try {
-    return await fetch(url, { ...options, credentials: 'include', headers });
+    // Merge options with our forced credentials and headers
+    const fetchOptions: RequestInit = {
+      ...options,
+      credentials: 'include',
+      headers,
+    };
+    return await fetch(url, fetchOptions);
   } catch (err) {
-    if (retries > 0) {
+    // Only retry on network errors (e.g., ECONNREFUSED, timeout)
+    if (retries > 0 && !(err instanceof Response) && !(err as any)?.response) {
       await new Promise(res => setTimeout(res, 3000));
       return attemptFetch(url, options, headers, retries - 1);
     }
@@ -67,23 +92,31 @@ export async function fetchWithAuth(
   const token = localStorage.getItem('auth_token');
   const isFormData = options.body instanceof FormData;
 
-  const headers: HeadersInit = {
-    ...(options.headers || {}),
-  };
+  // Start with headers from options (converted to plain object)
+  let headers = normalizeHeaders(options.headers);
 
+  // Add Authorization if token exists
   if (token) {
-    (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
+    headers['Authorization'] = `Bearer ${token}`;
   }
 
+  // Set Content-Type only for JSON requests (not for FormData)
   if (!isFormData && !headers['Content-Type']) {
     headers['Content-Type'] = 'application/json';
+  }
+
+  // Remove any user‑set Content-Type for FormData to let browser add boundary
+  if (isFormData && headers['Content-Type']) {
+    delete headers['Content-Type'];
   }
 
   let response: Response;
   try {
     response = await attemptFetch(url, options, headers, 3);
-  } catch {
-    throw new Error('Server is starting up, please wait a moment and try again.');
+  } catch (err) {
+    throw new Error(
+      'Server is starting up, please wait a moment and try again.'
+    );
   }
 
   let data: Record<string, unknown> = {};
@@ -106,6 +139,7 @@ export async function fetchWithAuth(
     error.status = response.status;
     throw error;
   }
+
   return data;
 }
 
@@ -192,9 +226,9 @@ export const chatApi = {
     formData.append('message', message);
     if (sessionId !== null) formData.append('sessionId', String(sessionId));
     formData.append('model', model);
-    files.forEach(file => {
+    for (const file of files) {
       formData.append('files', file);
-    });
+    }
 
     return fetchWithAuth(`${API_BASE}/chat/send`, {
       method: 'POST',
