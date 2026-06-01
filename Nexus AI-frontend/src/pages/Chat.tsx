@@ -3,6 +3,7 @@ import React from 'react';
 import { User, Session, Message } from '../types';
 import Sidebar from '../components/Sidebar';
 import { chatApi, authApi, wakeUpServer } from '../lib/api';
+import type { ProcessedFile } from '../lib/api';
 import { motion, AnimatePresence } from 'motion/react';
 import StormLogo from '../components/StormLogo';
 import UserAvatar from '../components/UserAvatar';
@@ -10,6 +11,7 @@ import ConfirmationModal from '../components/ConfirmationModal';
 import {
   ArrowDown, ArrowUp,
   Copy, Check, Edit2, Sun, Moon, Menu,
+  Paperclip, X, FileText,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import type { Components } from 'react-markdown';
@@ -106,6 +108,49 @@ const getInitialTheme = (): boolean => {
   return window.matchMedia('(prefers-color-scheme: dark)').matches;
 };
 
+// ── File helpers ──────────────────────────────────────────────────────────────
+const formatFileSize = (bytes: number): string => {
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)}KB`;
+  return `${(bytes / 1048576).toFixed(1)}MB`;
+};
+
+const processFile = (file: File): Promise<ProcessedFile> =>
+  new Promise((resolve, reject) => {
+    const id = `file-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error(`Failed to read ${file.name}`));
+
+    if (file.type.startsWith('image/')) {
+      reader.onload = (e) => {
+        const dataUrl = e.target?.result as string;
+        resolve({
+          id,
+          name: file.name,
+          type: 'image',
+          content: dataUrl.split(',')[1], // pure base64, no data URL prefix
+          mimeType: file.type,
+          size: file.size,
+          preview: dataUrl,             // full data URL kept for thumbnail
+        });
+      };
+      reader.readAsDataURL(file);
+    } else {
+      // All non-image files (txt, md, json, csv, etc.) → read as text
+      reader.onload = (e) => {
+        resolve({
+          id,
+          name: file.name,
+          type: 'text',
+          content: e.target?.result as string,
+          mimeType: file.type || 'text/plain',
+          size: file.size,
+        });
+      };
+      reader.readAsText(file);
+    }
+  });
+
 export default function Chat({ user, onLogout }: Props) {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<number | null>(readPersistedSessionId);
@@ -122,9 +167,12 @@ export default function Chat({ user, onLogout }: Props) {
   const [sessionIdToDelete, setSessionIdToDelete] = useState<number | null>(null);
   const [serverWaking, setServerWaking] = useState(false);
   const [inputFocused, setInputFocused] = useState(false);
-
-  // ── FIX 1: Mobile sidebar state ───────────────────────────────────────────
   const [mobileOpen, setMobileOpen] = useState(false);
+
+  // ── File upload state ─────────────────────────────────────────────────────
+  const [uploadedFiles, setUploadedFiles] = useState<ProcessedFile[]>([]);
+  const [isProcessingFiles, setIsProcessingFiles] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // ── Theme state ───────────────────────────────────────────────────────────
   const [isDark, setIsDark] = useState<boolean>(() => {
@@ -215,9 +263,32 @@ export default function Chat({ user, onLogout }: Props) {
     setShowScrollBottom(scrollHeight - scrollTop - clientHeight > 100);
   };
 
+  // ── File handlers ─────────────────────────────────────────────────────────
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    setIsProcessingFiles(true);
+    try {
+      const processed = await Promise.all(files.map(processFile));
+      setUploadedFiles(prev => [...prev, ...processed]);
+    } catch (err) {
+      console.error('File processing error:', err);
+    } finally {
+      setIsProcessingFiles(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const removeFile = (id: string) =>
+    setUploadedFiles(prev => prev.filter(f => f.id !== id));
+
   // ── Core send ─────────────────────────────────────────────────────────────
-  const sendMessage = async (messageText: string, messagesSnapshot?: Message[]) => {
-    if (!messageText.trim()) return;
+  const sendMessage = async (
+    messageText: string,
+    messagesSnapshot?: Message[],
+    filesToSend?: ProcessedFile[]
+  ) => {
+    if (!messageText.trim() && (!filesToSend || !filesToSend.length)) return;
     if (isSendingRef.current) return;
 
     isSendingRef.current = true;
@@ -255,7 +326,8 @@ export default function Chat({ user, onLogout }: Props) {
         messageText,
         currentSessionId,
         controller.signal,
-        'default'
+        'default',
+        filesToSend,        // ← pass files to API
       ) as any;
 
       clearTimeout(wakingTimer);
@@ -313,6 +385,7 @@ export default function Chat({ user, onLogout }: Props) {
     } finally {
       isSendingRef.current = false;
       abortControllerRef.current = null;
+      setIsTyping(false);            // ← safety net: always reset typing state
       setJustFinished(true);
       setTimeout(() => setJustFinished(false), 3000);
       setTimeout(() => inputRef.current?.focus(), 100);
@@ -322,7 +395,11 @@ export default function Chat({ user, onLogout }: Props) {
   const handleSendMessage = async (e?: React.FormEvent, directMessage?: string) => {
     if (e) { e.preventDefault(); e.stopPropagation(); }
     const text = directMessage || input.trim();
-    await sendMessage(text);
+    if (!text && !uploadedFiles.length) return;
+    // Snapshot files and clear immediately — don't wait for the async call
+    const filesToSend = [...uploadedFiles];
+    setUploadedFiles([]);
+    await sendMessage(text, undefined, filesToSend);
   };
 
   const handleStopResponse = () => {
@@ -340,6 +417,7 @@ export default function Chat({ user, onLogout }: Props) {
     setMessages([]);
     setInput('');
     setEditingMessage(null);
+    setUploadedFiles([]);
   };
 
   const deleteSession = (sid: number) => {
@@ -442,14 +520,12 @@ export default function Chat({ user, onLogout }: Props) {
   }
 
   return (
-    // FIX: bg-[--bg-main] → explicit light/dark classes so Tailwind dark: works
     <div className="flex h-screen h-[100dvh] overflow-hidden bg-white dark:bg-zinc-950 relative transition-colors duration-300 font-sans">
 
       {/* Ambient background glow */}
       <div className="absolute top-0 right-0 w-[800px] h-[800px] bg-indigo-500/5 rounded-full blur-[160px] pointer-events-none" />
 
       {/* ── SIDEBAR ── */}
-      {/* FIX 2: Pass mobileOpen + onMobileClose so drawer works on mobile */}
       <Sidebar
         user={user}
         sessions={sessions}
@@ -465,17 +541,13 @@ export default function Chat({ user, onLogout }: Props) {
       />
 
       {/* ── MAIN CONTENT AREA ── */}
-      {/* FIX 3: pl-14 → lg:pl-14 — no left-padding on mobile (no icon rail) */}
       <main className="flex-1 flex flex-col min-w-0 bg-transparent relative z-20 lg:pl-14">
 
         {/* ── HEADER ── */}
-        {/* FIX: border-[--border] → explicit dark: class */}
         <header className="sticky top-0 z-30 h-14 md:h-16 bg-white/90 dark:bg-zinc-950/80 backdrop-blur-2xl border-b border-zinc-200 dark:border-zinc-800 shrink-0 transition-colors duration-300">
           <div className="flex items-center justify-between h-full px-3 md:px-5">
 
-            {/* FIX 4: Left side — hamburger on mobile, spacer on desktop */}
             <div className="w-9 md:w-10 shrink-0 flex items-center justify-center">
-              {/* Hamburger — only visible on mobile (hidden on lg+) */}
               <button
                 onClick={() => setMobileOpen(true)}
                 className="lg:hidden w-9 h-9 flex items-center justify-center rounded-xl
@@ -564,7 +636,6 @@ export default function Chat({ user, onLogout }: Props) {
                 >
                   <StormLogo className="w-12 h-12 md:w-14 md:h-14" />
                 </motion.div>
-                {/* FIX: text-[--text-main] → explicit Tailwind classes */}
                 <h2 className="text-2xl md:text-3xl font-bold text-zinc-900 dark:text-zinc-100 mb-6 tracking-tight transition-colors">
                   How can I help you today?
                 </h2>
@@ -578,7 +649,6 @@ export default function Chat({ user, onLogout }: Props) {
                     <button
                       key={i}
                       onClick={() => handleSendMessage(undefined, s)}
-                      /* FIX: text-[--text-muted] → explicit Tailwind classes */
                       className="group p-3.5 md:p-4 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-xl text-sm font-medium text-zinc-500 dark:text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:border-indigo-400 dark:hover:border-indigo-600/50 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 transition-all text-left shadow-sm"
                     >
                       <span className="block truncate">{s}</span>
@@ -613,7 +683,6 @@ export default function Chat({ user, onLogout }: Props) {
 
                         {/* Bubble + actions */}
                         <div className={`flex flex-col gap-1 min-w-0 ${msg.role === 'user' ? 'max-w-[85%] md:max-w-[75%] items-end' : 'max-w-[90%] md:max-w-[80%] items-start'}`}>
-                          {/* FIX: text-[--text-main] → text-zinc-900 dark:text-zinc-100 */}
                           <div className={`px-4 py-3 rounded-2xl shadow-sm border transition-all duration-300 backdrop-blur-xl ${
                             msg.role === 'assistant'
                               ? 'bg-white/80 dark:bg-zinc-900/60 border-zinc-200/60 dark:border-zinc-700/50 text-zinc-900 dark:text-zinc-100 rounded-tl-none'
@@ -778,7 +847,6 @@ export default function Chat({ user, onLogout }: Props) {
         </div>
 
         {/* ── INPUT BAR ── */}
-        {/* FIX: bg-[--bg-main] border-[--border] → explicit Tailwind classes */}
         <div className="shrink-0 bg-white dark:bg-zinc-950 border-t border-zinc-200/50 dark:border-zinc-800/50 px-3 sm:px-4 md:px-6 py-3 md:py-4 transition-colors duration-300">
           <div className="max-w-3xl mx-auto relative">
 
@@ -798,71 +866,156 @@ export default function Chat({ user, onLogout }: Props) {
               )}
             </AnimatePresence>
 
-            {/* Input container */}
-            <div className={`relative flex flex-row items-end bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-2xl shadow-lg transition-all overflow-hidden ${justFinished ? 'animate-blink' : ''}`}>
-              {/* Textarea */}
-              <div className="relative flex-1 min-w-0">
-                <textarea
-                  ref={inputRef}
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onFocus={() => setInputFocused(true)}
-                  onBlur={() => setInputFocused(false)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey && !isTyping) {
-                      e.preventDefault();
-                      handleSendMessage();
-                    }
-                  }}
-                  disabled={isTyping}
-                  placeholder={showBlinkingCursor ? '' : 'Write a message...'}
-                  rows={1}
-                  className="w-full px-4 md:px-5 py-3.5 md:py-4 bg-transparent focus:outline-none font-medium text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-500 text-sm md:text-base leading-relaxed resize-none min-h-[52px] max-h-[180px] overflow-y-auto transition-colors"
-                  onInput={(e) => {
-                    const target = e.target as HTMLTextAreaElement;
-                    target.style.height = 'auto';
-                    target.style.height = `${Math.min(target.scrollHeight, 180)}px`;
-                  }}
-                />
-                {/* Blinking cursor placeholder */}
-                {showBlinkingCursor && !inputFocused && (
-                  <div className="absolute left-4 md:left-5 top-1/2 -translate-y-1/2 flex items-center gap-1 pointer-events-none">
-                    <BlinkingCursor />
-                    <span className="text-sm md:text-base font-medium text-zinc-400 dark:text-zinc-500">Write a message</span>
-                  </div>
-                )}
-              </div>
+            {/* Hidden file input */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept="image/png,image/jpeg,image/gif,image/webp,.txt,.md,.json,.csv,.ts,.tsx,.js,.jsx,.py,.html,.css"
+              onChange={handleFileChange}
+              className="hidden"
+            />
 
-              {/* Send / Stop button */}
-              <div className="flex items-center px-2.5 md:px-3 pb-2.5 md:pb-3 shrink-0">
-                <motion.button
-                  whileHover={{ scale: isTyping || input.trim() ? 1.08 : 1.02 }}
-                  whileTap={{ scale: 0.92 }}
-                  onClick={isTyping ? handleStopResponse : () => handleSendMessage()}
-                  disabled={!input.trim() && !isTyping}
-                  aria-label={isTyping ? 'Stop response' : 'Send message'}
-                  className={`relative flex items-center justify-center w-9 h-9 md:w-10 md:h-10 rounded-full transition-all duration-200 border-2 ${
-                    isTyping
-                      ? 'bg-white dark:bg-zinc-800 border-indigo-400 dark:border-indigo-500 shadow-lg shadow-indigo-200/50'
-                      : 'bg-white dark:bg-zinc-800 border-zinc-300 dark:border-zinc-600 shadow-md hover:border-indigo-400 dark:hover:border-indigo-500'
-                  }`}
-                >
-                  {isTyping ? (
-                    <span className="relative flex items-center justify-center w-full h-full">
-                      <svg className="absolute inset-0 w-full h-full animate-spin" viewBox="0 0 40 40">
-                        <circle cx="20" cy="20" r="16" fill="none" stroke="#6366f1" strokeWidth="3" strokeDasharray="55 45" strokeLinecap="round" opacity="1" />
-                      </svg>
-                      <span className="w-3 h-3 rounded-sm bg-zinc-800 dark:bg-zinc-200 block relative z-10" />
-                    </span>
-                  ) : (
-                    <ArrowUp className={`w-4 h-4 transition-all ${input.trim() ? 'text-zinc-800 dark:text-zinc-100 scale-110' : 'text-zinc-400 dark:text-zinc-500 scale-90'}`} />
+            {/* Input container */}
+            <div className={`relative flex flex-col bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-2xl shadow-lg transition-all overflow-hidden ${justFinished ? 'animate-blink' : ''}`}>
+
+              {/* ── File preview strip (shown inside the box when files are attached) ── */}
+              <AnimatePresence>
+                {uploadedFiles.length > 0 && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    exit={{ opacity: 0, height: 0 }}
+                    className="flex flex-wrap gap-2 px-3 pt-2.5 pb-2 border-b border-zinc-100 dark:border-zinc-800/70"
+                  >
+                    {uploadedFiles.map(file => (
+                      <div
+                        key={file.id}
+                        className="relative flex items-center gap-1.5 bg-zinc-100 dark:bg-zinc-800 rounded-xl px-2.5 py-1.5 max-w-[180px]"
+                      >
+                        {file.type === 'image' && file.preview ? (
+                          <>
+                            <img
+                              src={file.preview}
+                              alt={file.name}
+                              className="w-7 h-7 rounded-lg object-cover shrink-0"
+                            />
+                            <span className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400 truncate max-w-[100px]">
+                              {file.name}
+                            </span>
+                          </>
+                        ) : (
+                          <>
+                            <FileText className="w-4 h-4 text-indigo-500 shrink-0" />
+                            <div className="flex flex-col min-w-0">
+                              <span className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400 truncate max-w-[90px]">
+                                {file.name}
+                              </span>
+                              <span className="text-[9px] font-medium text-zinc-400">
+                                {formatFileSize(file.size)}
+                              </span>
+                            </div>
+                          </>
+                        )}
+                        {/* Remove button */}
+                        <button
+                          onClick={() => removeFile(file.id)}
+                          className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full flex items-center justify-center
+                                     bg-zinc-500 dark:bg-zinc-600 text-white shadow-sm
+                                     hover:bg-red-500 dark:hover:bg-red-500 transition-colors"
+                          aria-label={`Remove ${file.name}`}
+                        >
+                          <X className="w-2.5 h-2.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* ── Textarea row ── */}
+              <div className="flex flex-row items-end">
+                {/* Textarea */}
+                <div className="relative flex-1 min-w-0">
+                  <textarea
+                    ref={inputRef}
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    onFocus={() => setInputFocused(true)}
+                    onBlur={() => setInputFocused(false)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey && !isTyping) {
+                        e.preventDefault();
+                        handleSendMessage();
+                      }
+                    }}
+                    disabled={isTyping}
+                    placeholder={showBlinkingCursor ? '' : 'Write a message...'}
+                    rows={1}
+                    className="w-full px-4 md:px-5 py-3.5 md:py-4 bg-transparent focus:outline-none font-medium text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-500 text-sm md:text-base leading-relaxed resize-none min-h-[52px] max-h-[180px] overflow-y-auto transition-colors"
+                    onInput={(e) => {
+                      const target = e.target as HTMLTextAreaElement;
+                      target.style.height = 'auto';
+                      target.style.height = `${Math.min(target.scrollHeight, 180)}px`;
+                    }}
+                  />
+                  {/* ── FIXED: BlinkingCursor now BEFORE text (cursor at start) ── */}
+                  {showBlinkingCursor && !inputFocused && (
+                    <div className="absolute left-4 md:left-5 top-1/2 -translate-y-1/2 flex items-center gap-1 pointer-events-none">
+                      <BlinkingCursor />
+                      <span className="text-sm md:text-base font-medium text-zinc-400 dark:text-zinc-500">Write a message</span>
+                    </div>
                   )}
-                </motion.button>
+                </div>
+
+                {/* Action buttons: attach + send/stop */}
+                <div className="flex items-center px-2 pb-2.5 md:pb-3 gap-1 shrink-0">
+
+                  {/* Paperclip / attach button */}
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isTyping || isProcessingFiles}
+                    title="Attach images or text files"
+                    aria-label="Attach files"
+                    className="flex items-center justify-center w-9 h-9 rounded-full
+                               text-zinc-400 dark:text-zinc-500
+                               hover:text-indigo-600 dark:hover:text-indigo-400
+                               hover:bg-zinc-100 dark:hover:bg-zinc-800
+                               transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <Paperclip className={`w-4 h-4 ${isProcessingFiles ? 'animate-spin' : ''}`} />
+                  </button>
+
+                  {/* Send / Stop button */}
+                  <motion.button
+                    whileHover={{ scale: isTyping || input.trim() || uploadedFiles.length ? 1.08 : 1.02 }}
+                    whileTap={{ scale: 0.92 }}
+                    onClick={isTyping ? handleStopResponse : () => handleSendMessage()}
+                    disabled={!input.trim() && !uploadedFiles.length && !isTyping}
+                    aria-label={isTyping ? 'Stop response' : 'Send message'}
+                    className={`relative flex items-center justify-center w-9 h-9 md:w-10 md:h-10 rounded-full transition-all duration-200 border-2 ${
+                      isTyping
+                        ? 'bg-white dark:bg-zinc-800 border-indigo-400 dark:border-indigo-500 shadow-lg shadow-indigo-200/50'
+                        : 'bg-white dark:bg-zinc-800 border-zinc-300 dark:border-zinc-600 shadow-md hover:border-indigo-400 dark:hover:border-indigo-500'
+                    }`}
+                  >
+                    {isTyping ? (
+                      <span className="relative flex items-center justify-center w-full h-full">
+                        <svg className="absolute inset-0 w-full h-full animate-spin" viewBox="0 0 40 40">
+                          <circle cx="20" cy="20" r="16" fill="none" stroke="#6366f1" strokeWidth="3" strokeDasharray="55 45" strokeLinecap="round" opacity="1" />
+                        </svg>
+                        <span className="w-3 h-3 rounded-sm bg-zinc-800 dark:bg-zinc-200 block relative z-10" />
+                      </span>
+                    ) : (
+                      <ArrowUp className={`w-4 h-4 transition-all ${input.trim() || uploadedFiles.length ? 'text-zinc-800 dark:text-zinc-100 scale-110' : 'text-zinc-400 dark:text-zinc-500 scale-90'}`} />
+                    )}
+                  </motion.button>
+                </div>
               </div>
             </div>
 
             {/* Disclaimer */}
-            {/* FIX: text-[--text-muted]/40 → explicit Tailwind classes */}
             <p className="mt-2.5 text-center text-[10px] font-medium text-zinc-500/40 dark:text-zinc-400/40 transition-colors">
               Nexus is AI and can make mistakes. Please double-check responses.
             </p>
