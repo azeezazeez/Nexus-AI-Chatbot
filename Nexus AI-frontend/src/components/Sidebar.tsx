@@ -654,7 +654,7 @@ export default function Sidebar({
             <div className="w-5 border-t border-zinc-100 dark:border-zinc-800 my-3" />
             <IconTooltip label="New Chat">
               <button
-                onClick={() => { onNewSession(); expandDesktop(); }}
+                onClick={() => { onNewSession();}}
                 className="w-9 h-9 rounded-xl flex items-center justify-center text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all"
               >
                 <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
