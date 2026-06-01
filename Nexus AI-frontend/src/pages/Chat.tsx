@@ -9,7 +9,7 @@ import UserAvatar from '../components/UserAvatar';
 import ConfirmationModal from '../components/ConfirmationModal';
 import {
   ArrowDown, ArrowUp,
-  Copy, Check, Edit2, Sun, Moon,
+  Copy, Check, Edit2, Sun, Moon, Menu,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import type { Components } from 'react-markdown';
@@ -123,10 +123,12 @@ export default function Chat({ user, onLogout }: Props) {
   const [serverWaking, setServerWaking] = useState(false);
   const [inputFocused, setInputFocused] = useState(false);
 
+  // ── FIX 1: Mobile sidebar state ───────────────────────────────────────────
+  const [mobileOpen, setMobileOpen] = useState(false);
+
   // ── Theme state ───────────────────────────────────────────────────────────
   const [isDark, setIsDark] = useState<boolean>(() => {
     const dark = getInitialTheme();
-    // Apply immediately on init
     if (typeof document !== 'undefined') {
       document.documentElement.classList.toggle('dark', dark);
     }
@@ -242,7 +244,6 @@ export default function Chat({ user, onLogout }: Props) {
 
     setInput('');
 
-    // Capture isNewSession from the current value before any async work
     const isNewSession = !currentSessionId;
 
     const wakingTimer = setTimeout(() => {
@@ -283,10 +284,6 @@ export default function Chat({ user, onLogout }: Props) {
         return [...prev, aiMsg];
       });
 
-      // ── FIX: Only rename/generate title for brand-new sessions ──
-      // Using `isNewSession` (captured before async work) prevents this from
-      // re-triggering on the 2nd, 3rd, etc. messages in the same session,
-      // which was the root cause of the "creates new chat" bug.
       if (isNewSession && activeSessionId) {
         try {
           const { title } = await chatApi.generateTitle(messageText) as any;
@@ -431,7 +428,7 @@ export default function Chat({ user, onLogout }: Props) {
   // ── Loading Screen ────────────────────────────────────────────────────────
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-screen font-sans text-zinc-400 bg-[--bg-main]">
+      <div className="flex items-center justify-center h-screen font-sans text-zinc-400 bg-white dark:bg-zinc-950 transition-colors duration-300">
         <motion.div
           animate={{ scale: [1, 1.1, 1], opacity: [0.3, 0.6, 0.3] }}
           transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
@@ -445,12 +442,14 @@ export default function Chat({ user, onLogout }: Props) {
   }
 
   return (
-    <div className="flex h-screen h-[100dvh] overflow-hidden bg-[--bg-main] relative transition-colors duration-300 font-sans">
+    // FIX: bg-[--bg-main] → explicit light/dark classes so Tailwind dark: works
+    <div className="flex h-screen h-[100dvh] overflow-hidden bg-white dark:bg-zinc-950 relative transition-colors duration-300 font-sans">
 
       {/* Ambient background glow */}
       <div className="absolute top-0 right-0 w-[800px] h-[800px] bg-indigo-500/5 rounded-full blur-[160px] pointer-events-none" />
 
       {/* ── SIDEBAR ── */}
+      {/* FIX 2: Pass mobileOpen + onMobileClose so drawer works on mobile */}
       <Sidebar
         user={user}
         sessions={sessions}
@@ -461,30 +460,46 @@ export default function Chat({ user, onLogout }: Props) {
         onRenameSession={renameSession}
         onClearAll={() => setModalType('delete-all')}
         onLogout={handleLogout}
+        mobileOpen={mobileOpen}
+        onMobileClose={() => setMobileOpen(false)}
       />
 
       {/* ── MAIN CONTENT AREA ── */}
-      <main className="flex-1 flex flex-col min-w-0 bg-transparent relative z-20 pl-14">
+      {/* FIX 3: pl-14 → lg:pl-14 — no left-padding on mobile (no icon rail) */}
+      <main className="flex-1 flex flex-col min-w-0 bg-transparent relative z-20 lg:pl-14">
 
         {/* ── HEADER ── */}
-        <header className="sticky top-0 z-30 h-14 md:h-16 bg-white/80 dark:bg-black/40 backdrop-blur-2xl border-b border-[--border] shrink-0">
+        {/* FIX: border-[--border] → explicit dark: class */}
+        <header className="sticky top-0 z-30 h-14 md:h-16 bg-white/90 dark:bg-zinc-950/80 backdrop-blur-2xl border-b border-zinc-200 dark:border-zinc-800 shrink-0 transition-colors duration-300">
           <div className="flex items-center justify-between h-full px-3 md:px-5">
 
-            {/* Left spacer — mirrors the theme button width so the centre stays centred */}
-            <div className="w-9 md:w-10 shrink-0" />
+            {/* FIX 4: Left side — hamburger on mobile, spacer on desktop */}
+            <div className="w-9 md:w-10 shrink-0 flex items-center justify-center">
+              {/* Hamburger — only visible on mobile (hidden on lg+) */}
+              <button
+                onClick={() => setMobileOpen(true)}
+                className="lg:hidden w-9 h-9 flex items-center justify-center rounded-xl
+                           text-zinc-600 dark:text-zinc-400
+                           hover:bg-zinc-100 dark:hover:bg-zinc-800
+                           transition-all duration-200"
+                aria-label="Open sidebar"
+              >
+                <Menu className="w-5 h-5" />
+              </button>
+            </div>
 
             {/* Centre — Logo + App name + session title */}
             <div className="flex flex-col items-center gap-0.5 max-w-[60vw] sm:max-w-xs md:max-w-sm">
               <div className="flex items-center gap-1.5">
                 <StormLogo className="w-4 h-4 md:w-5 md:h-5 text-indigo-600 dark:text-indigo-500 shrink-0" />
-                <span className="text-[10px] md:text-xs font-black text-[--text-main] uppercase tracking-widest leading-none">
+                <span className="text-[10px] md:text-xs font-black text-zinc-900 dark:text-zinc-100 uppercase tracking-widest leading-none transition-colors">
                   Nexus AI
                 </span>
                 <div className="hidden sm:flex items-center gap-1 ml-1">
                   <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                 </div>
               </div>
-              <span className="text-[10px] font-semibold text-[--text-muted] truncate leading-none max-w-full">
+              <span className="text-[10px] font-semibold text-zinc-500 dark:text-zinc-400 truncate leading-none max-w-full transition-colors">
                 {sessions.find(s => s.id === currentSessionId)?.sessionName || 'New Chat'}
               </span>
             </div>
@@ -549,7 +564,8 @@ export default function Chat({ user, onLogout }: Props) {
                 >
                   <StormLogo className="w-12 h-12 md:w-14 md:h-14" />
                 </motion.div>
-                <h2 className="text-2xl md:text-3xl font-bold text-[--text-main] mb-6 tracking-tight">
+                {/* FIX: text-[--text-main] → explicit Tailwind classes */}
+                <h2 className="text-2xl md:text-3xl font-bold text-zinc-900 dark:text-zinc-100 mb-6 tracking-tight transition-colors">
                   How can I help you today?
                 </h2>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 w-full">
@@ -562,7 +578,8 @@ export default function Chat({ user, onLogout }: Props) {
                     <button
                       key={i}
                       onClick={() => handleSendMessage(undefined, s)}
-                      className="group p-3.5 md:p-4 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm font-medium text-[--text-muted] hover:text-indigo-600 hover:border-indigo-600/30 transition-all text-left shadow-sm"
+                      /* FIX: text-[--text-muted] → explicit Tailwind classes */
+                      className="group p-3.5 md:p-4 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-xl text-sm font-medium text-zinc-500 dark:text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:border-indigo-400 dark:hover:border-indigo-600/50 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 transition-all text-left shadow-sm"
                     >
                       <span className="block truncate">{s}</span>
                     </button>
@@ -596,10 +613,11 @@ export default function Chat({ user, onLogout }: Props) {
 
                         {/* Bubble + actions */}
                         <div className={`flex flex-col gap-1 min-w-0 ${msg.role === 'user' ? 'max-w-[85%] md:max-w-[75%] items-end' : 'max-w-[90%] md:max-w-[80%] items-start'}`}>
+                          {/* FIX: text-[--text-main] → text-zinc-900 dark:text-zinc-100 */}
                           <div className={`px-4 py-3 rounded-2xl shadow-sm border transition-all duration-300 backdrop-blur-xl ${
                             msg.role === 'assistant'
-                              ? 'bg-white/80 dark:bg-zinc-900/40 border-zinc-200/40 dark:border-zinc-800/40 text-[--text-main] rounded-tl-none'
-                              : 'bg-white/50 dark:bg-white/5 border-zinc-200/30 dark:border-white/10 text-[--text-main] rounded-tr-none'
+                              ? 'bg-white/80 dark:bg-zinc-900/60 border-zinc-200/60 dark:border-zinc-700/50 text-zinc-900 dark:text-zinc-100 rounded-tl-none'
+                              : 'bg-zinc-100/80 dark:bg-zinc-800/60 border-zinc-200/40 dark:border-zinc-700/40 text-zinc-900 dark:text-zinc-100 rounded-tr-none'
                           }`}>
                             <div className="text-sm md:text-base leading-relaxed markdown-body max-w-none">
                               {isEditing ? (
@@ -616,7 +634,7 @@ export default function Chat({ user, onLogout }: Props) {
                                     }}
                                     className={`w-full border rounded-xl p-3 text-sm focus:outline-none focus:ring-2 focus:ring-white/20 transition-all resize-none font-medium min-h-[100px] ${
                                       msg.role === 'user'
-                                        ? 'bg-black/20 border-white/10 text-white placeholder:text-white/30'
+                                        ? 'bg-zinc-50 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-700 text-zinc-900 dark:text-zinc-100'
                                         : 'bg-zinc-50 dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700 text-zinc-900 dark:text-zinc-100'
                                     }`}
                                     autoFocus
@@ -625,20 +643,14 @@ export default function Chat({ user, onLogout }: Props) {
                                     <span className="text-[9px] text-zinc-400 mr-auto">⌘↵ to send · Esc to cancel</span>
                                     <button
                                       onClick={handleCancelEdit}
-                                      className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all rounded-lg ${
-                                        msg.role === 'user' ? 'text-white/60 hover:text-white' : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100'
-                                      }`}
+                                      className="px-3 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all rounded-lg text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
                                     >
                                       Cancel
                                     </button>
                                     <button
                                       onClick={handleSaveEdit}
                                       disabled={!editInput.trim() || isTyping}
-                                      className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all shadow-lg disabled:opacity-40 disabled:cursor-not-allowed ${
-                                        msg.role === 'user'
-                                          ? 'bg-white text-indigo-600 hover:bg-zinc-100'
-                                          : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-indigo-500/20'
-                                      }`}
+                                      className="px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all shadow-lg disabled:opacity-40 disabled:cursor-not-allowed bg-indigo-600 text-white hover:bg-indigo-700 shadow-indigo-500/20"
                                     >
                                       Send
                                     </button>
@@ -672,7 +684,7 @@ export default function Chat({ user, onLogout }: Props) {
                                         <CodeBlock language={match[1]} value={content} />
                                       ) : (
                                         <code
-                                          className={`${className || ''} bg-zinc-100/50 dark:bg-white/5 text-indigo-500 px-1 py-0.5 rounded font-mono text-[0.85em]`}
+                                          className={`${className || ''} bg-zinc-100 dark:bg-zinc-800 text-indigo-600 dark:text-indigo-400 px-1 py-0.5 rounded font-mono text-[0.85em]`}
                                           {...props}
                                         >
                                           {children}
@@ -734,7 +746,7 @@ export default function Chat({ user, onLogout }: Props) {
                     <div className="w-7 h-7 md:w-8 md:h-8 shrink-0 flex items-center justify-center mt-1">
                       <StormLogo className="w-6 h-6 text-indigo-500 animate-spin" />
                     </div>
-                    <div className="bg-white/90 dark:bg-zinc-900/90 border border-zinc-200 dark:border-zinc-800 px-4 py-3 rounded-2xl rounded-tl-none shadow-sm flex flex-col gap-2 backdrop-blur-xl">
+                    <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 px-4 py-3 rounded-2xl rounded-tl-none shadow-sm flex flex-col gap-2 backdrop-blur-xl">
                       <div className="flex items-center gap-2">
                         <motion.div animate={{ scale: [1, 1.2, 1], opacity: [0.3, 1, 0.3] }} transition={{ repeat: Infinity, duration: 1 }} className="w-1.5 h-1.5 bg-indigo-600 rounded-full" />
                         <motion.div animate={{ scale: [1, 1.2, 1], opacity: [0.3, 1, 0.3] }} transition={{ repeat: Infinity, duration: 1, delay: 0.2 }} className="w-1.5 h-1.5 bg-indigo-600 rounded-full" />
@@ -766,7 +778,8 @@ export default function Chat({ user, onLogout }: Props) {
         </div>
 
         {/* ── INPUT BAR ── */}
-        <div className="shrink-0 bg-[--bg-main] border-t border-[--border]/50 px-3 sm:px-4 md:px-6 py-3 md:py-4">
+        {/* FIX: bg-[--bg-main] border-[--border] → explicit Tailwind classes */}
+        <div className="shrink-0 bg-white dark:bg-zinc-950 border-t border-zinc-200/50 dark:border-zinc-800/50 px-3 sm:px-4 md:px-6 py-3 md:py-4 transition-colors duration-300">
           <div className="max-w-3xl mx-auto relative">
 
             {/* Scroll-to-bottom fab */}
@@ -786,7 +799,7 @@ export default function Chat({ user, onLogout }: Props) {
             </AnimatePresence>
 
             {/* Input container */}
-            <div className={`relative flex flex-row items-end bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-lg transition-all overflow-hidden ${justFinished ? 'animate-blink' : ''}`}>
+            <div className={`relative flex flex-row items-end bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-2xl shadow-lg transition-all overflow-hidden ${justFinished ? 'animate-blink' : ''}`}>
               {/* Textarea */}
               <div className="relative flex-1 min-w-0">
                 <textarea
@@ -804,7 +817,7 @@ export default function Chat({ user, onLogout }: Props) {
                   disabled={isTyping}
                   placeholder={showBlinkingCursor ? '' : 'Write a message...'}
                   rows={1}
-                  className="w-full px-4 md:px-5 py-3.5 md:py-4 bg-transparent focus:outline-none font-medium text-[--text-main] placeholder:text-zinc-400 dark:placeholder:text-zinc-500 text-sm md:text-base leading-relaxed resize-none min-h-[52px] max-h-[180px] overflow-y-auto"
+                  className="w-full px-4 md:px-5 py-3.5 md:py-4 bg-transparent focus:outline-none font-medium text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-500 text-sm md:text-base leading-relaxed resize-none min-h-[52px] max-h-[180px] overflow-y-auto transition-colors"
                   onInput={(e) => {
                     const target = e.target as HTMLTextAreaElement;
                     target.style.height = 'auto';
@@ -830,8 +843,8 @@ export default function Chat({ user, onLogout }: Props) {
                   aria-label={isTyping ? 'Stop response' : 'Send message'}
                   className={`relative flex items-center justify-center w-9 h-9 md:w-10 md:h-10 rounded-full transition-all duration-200 border-2 ${
                     isTyping
-                      ? 'bg-white border-indigo-400 dark:bg-zinc-800 dark:border-indigo-500 shadow-lg shadow-indigo-200/50'
-                      : 'bg-white border-zinc-300 dark:bg-zinc-800 dark:border-zinc-600 shadow-md hover:border-indigo-400 dark:hover:border-indigo-500'
+                      ? 'bg-white dark:bg-zinc-800 border-indigo-400 dark:border-indigo-500 shadow-lg shadow-indigo-200/50'
+                      : 'bg-white dark:bg-zinc-800 border-zinc-300 dark:border-zinc-600 shadow-md hover:border-indigo-400 dark:hover:border-indigo-500'
                   }`}
                 >
                   {isTyping ? (
@@ -849,7 +862,8 @@ export default function Chat({ user, onLogout }: Props) {
             </div>
 
             {/* Disclaimer */}
-            <p className="mt-2.5 text-center text-[10px] font-medium text-[--text-muted]/40">
+            {/* FIX: text-[--text-muted]/40 → explicit Tailwind classes */}
+            <p className="mt-2.5 text-center text-[10px] font-medium text-zinc-500/40 dark:text-zinc-400/40 transition-colors">
               Nexus is AI and can make mistakes. Please double-check responses.
             </p>
           </div>
