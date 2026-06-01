@@ -149,12 +149,14 @@ public class ChatController {
 
     // ========================= SEND (Multipart – files) =========================
     @PostMapping(value = "/send", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResponseEntity<?> sendMessageWithFiles(
-            @RequestParam("message") String message,
-            @RequestParam(value = "sessionId", required = false) Long sessionId,
-            @RequestParam(value = "model", required = false) String model,
-            @RequestPart("files") List<MultipartFile> files,
-            HttpSession session) {
+public ResponseEntity<?> sendMessageWithFiles(
+        @RequestParam("message") String message,
+        @RequestParam(value = "sessionId", required = false) Long sessionId,
+        @RequestParam(value = "model", required = false) String model,
+        @RequestPart(value = "files", required = false) List<MultipartFile> files,
+        HttpSession session) {
+
+    if (files == null) files = List.of();
 
         try {
             User currentUser = getCurrentUser(session);
