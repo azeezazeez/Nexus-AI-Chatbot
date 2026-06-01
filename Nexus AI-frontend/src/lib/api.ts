@@ -11,6 +11,17 @@ type ApiError = Error & {
   status?: number;
 };
 
+// ── ProcessedFile type (mirrors Chat.tsx) ─────────────────────────────────────
+export interface ProcessedFile {
+  id: string;
+  name: string;
+  type: 'image' | 'text';
+  content: string; // base64 for images, raw text for text files
+  mimeType: string;
+  size: number;
+  preview?: string; // data URL thumbnail — UI only, not sent to backend
+}
+
 /**
  * Wake up the Render server and WAIT for it to be ready.
  * Returns a Promise so callers can await it before making API calls.
@@ -183,17 +194,23 @@ export const chatApi = {
   clearSessions: () =>
     fetchWithAuth(`${API_BASE}/chat/sessions`, { method: 'DELETE' }),
 
+  // ── UPDATED: now accepts optional files array ─────────────────────────────
   sendMessage: (
     message: string,
     sessionId: number | null,
     signal?: AbortSignal,
-    model?: string
-  ) =>
-    fetchWithAuth(`${API_BASE}/chat/send`, {
+    model?: string,
+    files?: ProcessedFile[]
+  ) => {
+    // Strip preview from files before sending (it's UI-only, saves bandwidth)
+    const sanitisedFiles = files?.map(({ preview: _preview, ...rest }) => rest);
+
+    return fetchWithAuth(`${API_BASE}/chat/send`, {
       method: 'POST',
       signal,
-      body: JSON.stringify({ message, sessionId, model }),
-    }),
+      body: JSON.stringify({ message, sessionId, model, files: sanitisedFiles }),
+    });
+  },
 
   searchSessions: (query: string) =>
     fetchWithAuth(`${API_BASE}/chat/search?q=${encodeURIComponent(query)}`),
