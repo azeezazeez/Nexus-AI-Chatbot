@@ -31,7 +31,12 @@ public class FileProcessorService {
         }
 
         if (contentType.startsWith("image/")) {
-            return extractImageText(file);
+            try {
+                return extractImageText(file);
+            } catch (Exception e) {
+                // Fallback if OCR fails
+                return "[Image detected but text extraction failed: " + e.getMessage() + "]";
+            }
         } else if (contentType.equals("text/plain") ||
                    contentType.equals("text/markdown") ||
                    contentType.equals("text/csv") ||
@@ -51,7 +56,11 @@ public class FileProcessorService {
             if (image == null) {
                 return "[Could not decode image: " + file.getOriginalFilename() + "]";
             }
-            return tesseract.doOCR(image);
+            String result = tesseract.doOCR(image);
+            if (result == null || result.trim().isEmpty()) {
+                return "[No text found in image]";
+            }
+            return result;
         } catch (TesseractException e) {
             throw new IOException("OCR failed: " + e.getMessage(), e);
         }
