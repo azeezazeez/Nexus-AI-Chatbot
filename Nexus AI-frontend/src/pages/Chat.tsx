@@ -336,7 +336,7 @@ export default function Chat({ user, onLogout }: Props) {
     }));
   };
 
-  // Send message with files
+  // Send message with conditional API call (FIXED)
   const sendMessage = async (
     messageText: string,
     messagesSnapshot?: Message[],
@@ -376,13 +376,28 @@ export default function Chat({ user, onLogout }: Props) {
     }, 4000);
 
     try {
-      const response = await chatApi.sendMessageWithFiles(
-        messageText.trim() || (filesToSend?.some(f => f.type.startsWith('image/')) ? 'What is in this image?' : 'Please analyse the attached file.'),
-        currentSessionId,
-        controller.signal,
-        'default',
-        filesToSend || []
-      ) as any;
+      let response: any;
+      const hasFiles = filesToSend && filesToSend.length > 0;
+      const finalMessage = messageText.trim() || (hasFiles && filesToSend.some(f => f.type.startsWith('image/')) ? 'What is in this image?' : 'Please analyse the attached file.');
+
+      if (hasFiles) {
+        // Use multipart endpoint
+        response = await chatApi.sendMessageWithFiles(
+          finalMessage,
+          currentSessionId,
+          controller.signal,
+          'default',
+          filesToSend
+        );
+      } else {
+        // Use JSON endpoint (text-only)
+        response = await chatApi.sendMessage(
+          finalMessage,
+          currentSessionId,
+          controller.signal,
+          'default'
+        );
+      }
 
       clearTimeout(wakingTimer);
       setServerWaking(false);
@@ -448,7 +463,8 @@ export default function Chat({ user, onLogout }: Props) {
     if (e) { e.preventDefault(); e.stopPropagation(); }
     const text = directMessage !== undefined ? directMessage : input;
     if (!text.trim() && selectedFiles.length === 0) return;
-    const filesToSend = [...selectedFiles];
+    // Pass undefined instead of empty array when no files
+    const filesToSend = selectedFiles.length > 0 ? [...selectedFiles] : undefined;
     await sendMessage(text, undefined, filesToSend);
   };
 
