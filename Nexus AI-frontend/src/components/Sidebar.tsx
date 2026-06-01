@@ -7,6 +7,8 @@
  *    state and refs — no shared refs between mobile and desktop instances.
  * 3. displaySessions = searchResults ?? sessions, so when searchResults is null
  *    (no active search) the full live sessions prop is shown immediately.
+ * 4. Theme toggle button added to mobile drawer header (desktop toggle lives
+ *    in Chat.tsx header — no duplication needed there).
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -14,7 +16,7 @@ import { Session, User } from '../types';
 import {
   Plus, LogOut, Trash2, X, Search, Sparkles,
   MoreHorizontal, Pin, PinOff, Edit3,
-  MessageSquare,
+  MessageSquare, Sun, Moon,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import UserAvatar from './UserAvatar';
@@ -83,9 +85,79 @@ function IconTooltip({ label, children }: { label: string; children: React.React
   );
 }
 
+// ─── ThemeToggleButton ────────────────────────────────────────────────────────
+// Reads dark mode state directly from the DOM so it stays in sync with
+// whatever toggles the class (Chat.tsx header button or this button).
+function ThemeToggleButton({ className }: { className?: string }) {
+  const [isDark, setIsDark] = useState(() =>
+    typeof document !== 'undefined' &&
+    document.documentElement.classList.contains('dark')
+  );
+
+  const toggle = () => {
+    const next = !isDark;
+    document.documentElement.classList.toggle('dark', next);
+    localStorage.setItem('theme', next ? 'dark' : 'light');
+    setIsDark(next);
+  };
+
+  // Stay in sync if Chat.tsx header button toggled first
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      setIsDark(document.documentElement.classList.contains('dark'));
+    });
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['class'],
+    });
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <motion.button
+      whileHover={{ scale: 1.1 }}
+      whileTap={{ scale: 0.9 }}
+      onClick={toggle}
+      aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+      className={`flex items-center justify-center rounded-full
+        bg-zinc-100 dark:bg-zinc-800
+        border border-zinc-200 dark:border-zinc-700
+        text-zinc-500 dark:text-zinc-400
+        hover:text-indigo-600 dark:hover:text-indigo-400
+        hover:border-indigo-300 dark:hover:border-indigo-600
+        shadow-sm transition-all duration-200
+        ${className ?? 'w-9 h-9'}`}
+    >
+      <AnimatePresence mode="wait" initial={false}>
+        {isDark ? (
+          <motion.span
+            key="sun"
+            initial={{ rotate: -90, opacity: 0, scale: 0.5 }}
+            animate={{ rotate: 0, opacity: 1, scale: 1 }}
+            exit={{ rotate: 90, opacity: 0, scale: 0.5 }}
+            transition={{ duration: 0.2 }}
+            className="flex items-center justify-center"
+          >
+            <Sun className="w-4 h-4" />
+          </motion.span>
+        ) : (
+          <motion.span
+            key="moon"
+            initial={{ rotate: 90, opacity: 0, scale: 0.5 }}
+            animate={{ rotate: 0, opacity: 1, scale: 1 }}
+            exit={{ rotate: -90, opacity: 0, scale: 0.5 }}
+            transition={{ duration: 0.2 }}
+            className="flex items-center justify-center"
+          >
+            <Moon className="w-4 h-4" />
+          </motion.span>
+        )}
+      </AnimatePresence>
+    </motion.button>
+  );
+}
+
 // ─── SessionList ──────────────────────────────────────────────────────────────
-// Fully self-contained: owns search, rename, menu, pin state and all refs.
-// Receives `sessions` from parent so it always has the latest data.
 interface SessionListProps {
   user: User;
   sessions: Session[];
@@ -115,7 +187,6 @@ function SessionList({
 }: SessionListProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
-  // null = no active search → show full sessions prop directly (never stale)
   const [searchResults, setSearchResults] = useState<Session[] | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -128,14 +199,12 @@ function SessionList({
 
   const [pinnedIds, setPinnedIds] = useState<number[]>(loadPinnedIds);
 
-  // Focus search input on mount when requested
   useEffect(() => {
     if (focusSearchOnMount) {
       setTimeout(() => searchInputRef.current?.focus(), 80);
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Search
   useEffect(() => {
     if (!searchQuery.trim()) {
       setSearchResults(null);
@@ -159,7 +228,6 @@ function SessionList({
     return () => clearTimeout(timer);
   }, [searchQuery, sessions]);
 
-  // Close context menu on outside click
   useEffect(() => {
     if (menuOpenId === null) return;
     const handler = (e: MouseEvent) => {
@@ -171,14 +239,12 @@ function SessionList({
     return () => document.removeEventListener('mousedown', handler);
   }, [menuOpenId]);
 
-  // Auto-focus rename input
   useEffect(() => {
     if (renamingId !== null) {
       setTimeout(() => renameInputRef.current?.focus(), 50);
     }
   }, [renamingId]);
 
-  // Derived list — searchResults=null means show full live sessions prop
   const displaySessions: Session[] = searchResults ?? sessions;
 
   const sortedSessions = [
@@ -494,7 +560,6 @@ export default function Sidebar({
     else collapseDesktop();
   }, [desktopCollapsed, expandDesktop, collapseDesktop]);
 
-  // Common props for every SessionList instance
   const listProps = {
     user,
     sessions,
@@ -534,6 +599,7 @@ export default function Sidebar({
               className="lg:hidden fixed inset-y-0 left-0 z-50 w-72 bg-white dark:bg-zinc-950 border-r border-zinc-200 dark:border-zinc-800 flex flex-col h-full shadow-2xl"
               onClick={e => e.stopPropagation()}
             >
+              {/* Mobile drawer header — logo + title + theme toggle + close */}
               <div className="flex items-center justify-between px-5 pt-5 pb-2 shrink-0">
                 <div className="flex items-center gap-2.5">
                   <div className="w-8 h-8 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-500/20 p-1.5">
@@ -541,13 +607,23 @@ export default function Sidebar({
                   </div>
                   <h2 className="text-lg font-black tracking-tighter text-zinc-900 dark:text-white italic">NEXUS</h2>
                 </div>
-                <button
-                  onClick={onMobileClose}
-                  className="p-2 rounded-xl text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all"
-                  aria-label="Close menu"
-                >
-                  <X className="w-5 h-5" />
-                </button>
+
+                {/* Right side: theme toggle + close button */}
+                <div className="flex items-center gap-2">
+                  <ThemeToggleButton className="w-9 h-9" />
+                  <button
+                    onClick={onMobileClose}
+                    className="w-9 h-9 flex items-center justify-center rounded-full
+                               bg-zinc-100 dark:bg-zinc-800
+                               border border-zinc-200 dark:border-zinc-700
+                               text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200
+                               hover:border-zinc-300 dark:hover:border-zinc-600
+                               shadow-sm transition-all"
+                    aria-label="Close menu"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
 
               <SessionList
