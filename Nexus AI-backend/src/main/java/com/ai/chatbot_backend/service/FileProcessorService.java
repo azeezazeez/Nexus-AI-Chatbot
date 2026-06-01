@@ -24,12 +24,6 @@ public class FileProcessorService {
         this.tesseract.setLanguage("eng");
     }
 
-    /**
-     * Extract text content from an uploaded file.
-     * - Images -> OCR
-     * - Text files -> read directly
-     * - Other -> placeholder
-     */
     public String extractContent(MultipartFile file) throws IOException {
         String contentType = file.getContentType();
         if (contentType == null) {
