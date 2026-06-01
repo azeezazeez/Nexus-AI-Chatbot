@@ -11,7 +11,7 @@ import ConfirmationModal from '../components/ConfirmationModal';
 import {
   ArrowDown, ArrowUp,
   Copy, Check, Edit2, Sun, Moon, Menu,
-  Paperclip, X, FileText,
+  Paperclip, X, FileText, Camera, Image as ImageIcon,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import type { Components } from 'react-markdown';
@@ -128,15 +128,14 @@ const processFile = (file: File): Promise<ProcessedFile> =>
           id,
           name: file.name,
           type: 'image',
-          content: dataUrl.split(',')[1], // pure base64, no data URL prefix
+          content: dataUrl.split(',')[1],
           mimeType: file.type,
           size: file.size,
-          preview: dataUrl,             // full data URL kept for thumbnail
+          preview: dataUrl,
         });
       };
       reader.readAsDataURL(file);
     } else {
-      // All non-image files (txt, md, json, csv, etc.) → read as text
       reader.onload = (e) => {
         resolve({
           id,
@@ -174,6 +173,14 @@ export default function Chat({ user, onLogout }: Props) {
   const [isProcessingFiles, setIsProcessingFiles] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // ── NEW: Attachment menu state ────────────────────────────────────────────
+  const [showAttachMenu, setShowAttachMenu] = useState(false);
+
+  // ── NEW: Camera & photo input refs ────────────────────────────────────────
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const photoInputRef = useRef<HTMLInputElement>(null);
+  const attachMenuRef = useRef<HTMLDivElement>(null);
+
   // ── Theme state ───────────────────────────────────────────────────────────
   const [isDark, setIsDark] = useState<boolean>(() => {
     const dark = getInitialTheme();
@@ -203,6 +210,19 @@ export default function Chat({ user, onLogout }: Props) {
     setCurrentSessionId(id);
     persistSessionId(id);
   }, []);
+
+  // ── NEW: Close attach menu when clicking outside ──────────────────────────
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (attachMenuRef.current && !attachMenuRef.current.contains(e.target as Node)) {
+        setShowAttachMenu(false);
+      }
+    };
+    if (showAttachMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showAttachMenu]);
 
   // ── Data Loading ──────────────────────────────────────────────────────────
   const loadSessions = useCallback(async () => {
@@ -275,7 +295,10 @@ export default function Chat({ user, onLogout }: Props) {
       console.error('File processing error:', err);
     } finally {
       setIsProcessingFiles(false);
+      // Reset all three inputs so the same file can be picked again
       if (fileInputRef.current) fileInputRef.current.value = '';
+      if (cameraInputRef.current) cameraInputRef.current.value = '';
+      if (photoInputRef.current) photoInputRef.current.value = '';
     }
   };
 
@@ -327,7 +350,7 @@ export default function Chat({ user, onLogout }: Props) {
         currentSessionId,
         controller.signal,
         'default',
-        filesToSend,        // ← pass files to API
+        filesToSend,
       ) as any;
 
       clearTimeout(wakingTimer);
@@ -385,7 +408,7 @@ export default function Chat({ user, onLogout }: Props) {
     } finally {
       isSendingRef.current = false;
       abortControllerRef.current = null;
-      setIsTyping(false);            // ← safety net: always reset typing state
+      setIsTyping(false);
       setJustFinished(true);
       setTimeout(() => setJustFinished(false), 3000);
       setTimeout(() => inputRef.current?.focus(), 100);
@@ -396,7 +419,6 @@ export default function Chat({ user, onLogout }: Props) {
     if (e) { e.preventDefault(); e.stopPropagation(); }
     const text = directMessage || input.trim();
     if (!text && !uploadedFiles.length) return;
-    // Snapshot files and clear immediately — don't wait for the async call
     const filesToSend = [...uploadedFiles];
     setUploadedFiles([]);
     await sendMessage(text, undefined, filesToSend);
@@ -501,6 +523,7 @@ export default function Chat({ user, onLogout }: Props) {
   };
 
   // ── Derived values ────────────────────────────────────────────────────────
+  // Only show blinking cursor when there's no typed input yet
   const showBlinkingCursor = !input && (isTyping || justFinished);
 
   // ── Loading Screen ────────────────────────────────────────────────────────
@@ -866,7 +889,26 @@ export default function Chat({ user, onLogout }: Props) {
               )}
             </AnimatePresence>
 
-            {/* Hidden file input */}
+            {/* ── Hidden file inputs (three: camera, photos, files) ── */}
+            {/* Camera — opens device camera directly on mobile */}
+            <input
+              ref={cameraInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              onChange={handleFileChange}
+              className="hidden"
+            />
+            {/* Photos — image picker (gallery) */}
+            <input
+              ref={photoInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/gif,image/webp"
+              multiple
+              onChange={handleFileChange}
+              className="hidden"
+            />
+            {/* Files — any supported file type */}
             <input
               ref={fileInputRef}
               type="file"
@@ -876,17 +918,22 @@ export default function Chat({ user, onLogout }: Props) {
               className="hidden"
             />
 
-            {/* Input container */}
-            <div className={`relative flex flex-col bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-2xl shadow-lg transition-all overflow-hidden ${justFinished ? 'animate-blink' : ''}`}>
+            {/* ── Main input container ── */}
+            {/*
+              NOTE: overflow-hidden intentionally removed so the
+              attach menu (positioned absolute, above the container)
+              is not clipped by this wrapper.
+            */}
+            <div className={`relative flex flex-col bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-2xl shadow-lg transition-all ${justFinished ? 'animate-blink' : ''}`}>
 
-              {/* ── File preview strip (shown inside the box when files are attached) ── */}
+              {/* ── File preview strip ── */}
               <AnimatePresence>
                 {uploadedFiles.length > 0 && (
                   <motion.div
                     initial={{ opacity: 0, height: 0 }}
                     animate={{ opacity: 1, height: 'auto' }}
                     exit={{ opacity: 0, height: 0 }}
-                    className="flex flex-wrap gap-2 px-3 pt-2.5 pb-2 border-b border-zinc-100 dark:border-zinc-800/70"
+                    className="flex flex-wrap gap-2 px-3 pt-2.5 pb-2 border-b border-zinc-100 dark:border-zinc-800/70 overflow-hidden"
                   >
                     {uploadedFiles.map(file => (
                       <div
@@ -917,7 +964,6 @@ export default function Chat({ user, onLogout }: Props) {
                             </div>
                           </>
                         )}
-                        {/* Remove button */}
                         <button
                           onClick={() => removeFile(file.id)}
                           className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full flex items-center justify-center
@@ -933,9 +979,121 @@ export default function Chat({ user, onLogout }: Props) {
                 )}
               </AnimatePresence>
 
-              {/* ── Textarea row ── */}
+              {/* ── Textarea row: [paperclip LEFT] [textarea] [send RIGHT] ── */}
               <div className="flex flex-row items-end">
-                {/* Textarea */}
+
+                {/* ── LEFT: Paperclip + expandable attach menu ── */}
+                <div
+                  ref={attachMenuRef}
+                  className="relative flex items-center pl-2 pb-2.5 md:pb-3 shrink-0"
+                >
+                  {/* Expandable attach options menu — appears above the button */}
+                  <AnimatePresence>
+                    {showAttachMenu && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 6, scale: 0.95 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: 6, scale: 0.95 }}
+                        transition={{ duration: 0.15, ease: 'easeOut' }}
+                        className="absolute bottom-full left-0 mb-2 z-50
+                                   bg-white dark:bg-zinc-800
+                                   border border-zinc-200 dark:border-zinc-700
+                                   rounded-2xl shadow-xl dark:shadow-zinc-900/60
+                                   min-w-[148px] overflow-hidden"
+                      >
+                        {/* Camera */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            cameraInputRef.current?.click();
+                            setShowAttachMenu(false);
+                          }}
+                          className="flex items-center gap-3 w-full px-4 py-3
+                                     text-[13px] font-semibold
+                                     text-zinc-700 dark:text-zinc-200
+                                     hover:bg-zinc-50 dark:hover:bg-zinc-700/60
+                                     transition-colors"
+                        >
+                          <span className="flex items-center justify-center w-7 h-7 rounded-xl bg-indigo-100 dark:bg-indigo-950/60">
+                            <Camera className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                          </span>
+                          Camera
+                        </button>
+
+                        {/* Divider */}
+                        <div className="h-px bg-zinc-100 dark:bg-zinc-700/50" />
+
+                        {/* Photos */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            photoInputRef.current?.click();
+                            setShowAttachMenu(false);
+                          }}
+                          className="flex items-center gap-3 w-full px-4 py-3
+                                     text-[13px] font-semibold
+                                     text-zinc-700 dark:text-zinc-200
+                                     hover:bg-zinc-50 dark:hover:bg-zinc-700/60
+                                     transition-colors"
+                        >
+                          <span className="flex items-center justify-center w-7 h-7 rounded-xl bg-emerald-100 dark:bg-emerald-950/60">
+                            <ImageIcon className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                          </span>
+                          Photos
+                        </button>
+
+                        {/* Divider */}
+                        <div className="h-px bg-zinc-100 dark:bg-zinc-700/50" />
+
+                        {/* Files */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            fileInputRef.current?.click();
+                            setShowAttachMenu(false);
+                          }}
+                          className="flex items-center gap-3 w-full px-4 py-3
+                                     text-[13px] font-semibold
+                                     text-zinc-700 dark:text-zinc-200
+                                     hover:bg-zinc-50 dark:hover:bg-zinc-700/60
+                                     transition-colors"
+                        >
+                          <span className="flex items-center justify-center w-7 h-7 rounded-xl bg-violet-100 dark:bg-violet-950/60">
+                            <FileText className="w-3.5 h-3.5 text-violet-600 dark:text-violet-400" />
+                          </span>
+                          Files
+                        </button>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+
+                  {/* Paperclip toggle button */}
+                  <motion.button
+                    type="button"
+                    whileTap={{ scale: 0.88 }}
+                    onClick={() => setShowAttachMenu(prev => !prev)}
+                    disabled={isProcessingFiles}
+                    title="Attach — camera, photos or files"
+                    aria-label="Open attach menu"
+                    className={`flex items-center justify-center w-9 h-9 rounded-full
+                               transition-all duration-200
+                               disabled:opacity-40 disabled:cursor-not-allowed
+                               ${showAttachMenu
+                                 ? 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400'
+                                 : 'text-zinc-400 dark:text-zinc-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-zinc-100 dark:hover:bg-zinc-800'
+                               }`}
+                  >
+                    <motion.span
+                      animate={{ rotate: showAttachMenu ? 45 : 0 }}
+                      transition={{ duration: 0.2, ease: 'easeInOut' }}
+                      className="flex items-center justify-center"
+                    >
+                      <Paperclip className={`w-4 h-4 ${isProcessingFiles ? 'animate-spin' : ''}`} />
+                    </motion.span>
+                  </motion.button>
+                </div>
+
+                {/* ── CENTRE: Textarea ── */}
                 <div className="relative flex-1 min-w-0">
                   <textarea
                     ref={inputRef}
@@ -949,45 +1107,27 @@ export default function Chat({ user, onLogout }: Props) {
                         handleSendMessage();
                       }
                     }}
-                    disabled={isTyping}
+                    // ── NOT disabled while isTyping — user can pre-type their next message ──
                     placeholder={showBlinkingCursor ? '' : 'Write a message...'}
                     rows={1}
-                    className="w-full px-4 md:px-5 py-3.5 md:py-4 bg-transparent focus:outline-none font-medium text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-500 text-sm md:text-base leading-relaxed resize-none min-h-[52px] max-h-[180px] overflow-y-auto transition-colors"
+                    className="w-full px-3 md:px-4 py-3.5 md:py-4 bg-transparent focus:outline-none font-medium text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-500 text-sm md:text-base leading-relaxed resize-none min-h-[52px] max-h-[180px] overflow-y-auto transition-colors"
                     onInput={(e) => {
                       const target = e.target as HTMLTextAreaElement;
                       target.style.height = 'auto';
                       target.style.height = `${Math.min(target.scrollHeight, 180)}px`;
                     }}
                   />
-                  {/* ── FIXED: BlinkingCursor now BEFORE text (cursor at start) ── */}
+                  {/* Blinking cursor placeholder — only shown when input is empty and not focused */}
                   {showBlinkingCursor && !inputFocused && (
-                    <div className="absolute left-4 md:left-5 top-1/2 -translate-y-1/2 flex items-center gap-1 pointer-events-none">
+                    <div className="absolute left-3 md:left-4 top-1/2 -translate-y-1/2 flex items-center gap-1 pointer-events-none">
                       <BlinkingCursor />
                       <span className="text-sm md:text-base font-medium text-zinc-400 dark:text-zinc-500">Write a message</span>
                     </div>
                   )}
                 </div>
 
-                {/* Action buttons: attach + send/stop */}
-                <div className="flex items-center px-2 pb-2.5 md:pb-3 gap-1 shrink-0">
-
-                  {/* Paperclip / attach button */}
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={isTyping || isProcessingFiles}
-                    title="Attach images or text files"
-                    aria-label="Attach files"
-                    className="flex items-center justify-center w-9 h-9 rounded-full
-                               text-zinc-400 dark:text-zinc-500
-                               hover:text-indigo-600 dark:hover:text-indigo-400
-                               hover:bg-zinc-100 dark:hover:bg-zinc-800
-                               transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    <Paperclip className={`w-4 h-4 ${isProcessingFiles ? 'animate-spin' : ''}`} />
-                  </button>
-
-                  {/* Send / Stop button */}
+                {/* ── RIGHT: Send / Stop button ── */}
+                <div className="flex items-center px-2 pb-2.5 md:pb-3 shrink-0">
                   <motion.button
                     whileHover={{ scale: isTyping || input.trim() || uploadedFiles.length ? 1.08 : 1.02 }}
                     whileTap={{ scale: 0.92 }}
@@ -1012,6 +1152,7 @@ export default function Chat({ user, onLogout }: Props) {
                     )}
                   </motion.button>
                 </div>
+
               </div>
             </div>
 
