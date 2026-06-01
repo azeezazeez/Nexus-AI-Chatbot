@@ -336,7 +336,7 @@ export default function Chat({ user, onLogout }: Props) {
     }));
   };
 
-  // Send message with conditional API call (FIXED)
+  // Send message with conditional API call
   const sendMessage = async (
     messageText: string,
     messagesSnapshot?: Message[],
@@ -371,9 +371,12 @@ export default function Chat({ user, onLogout }: Props) {
     setFilePreviews([]);
 
     const isNewSession = !currentSessionId;
+    // Increase timeout for file uploads (OCR takes time)
     const wakingTimer = setTimeout(() => {
-      if (isSendingRef.current) setServerWaking(true);
-    }, 4000);
+      if (isSendingRef.current) {
+        setServerWaking(true);
+      }
+    }, 10000); // 10 seconds instead of 4
 
     try {
       let response: any;
@@ -381,7 +384,6 @@ export default function Chat({ user, onLogout }: Props) {
       const finalMessage = messageText.trim() || (hasFiles && filesToSend.some(f => f.type.startsWith('image/')) ? 'What is in this image?' : 'Please analyse the attached file.');
 
       if (hasFiles) {
-        // Use multipart endpoint
         response = await chatApi.sendMessageWithFiles(
           finalMessage,
           currentSessionId,
@@ -390,7 +392,6 @@ export default function Chat({ user, onLogout }: Props) {
           filesToSend
         );
       } else {
-        // Use JSON endpoint (text-only)
         response = await chatApi.sendMessage(
           finalMessage,
           currentSessionId,
@@ -463,7 +464,6 @@ export default function Chat({ user, onLogout }: Props) {
     if (e) { e.preventDefault(); e.stopPropagation(); }
     const text = directMessage !== undefined ? directMessage : input;
     if (!text.trim() && selectedFiles.length === 0) return;
-    // Pass undefined instead of empty array when no files
     const filesToSend = selectedFiles.length > 0 ? [...selectedFiles] : undefined;
     await sendMessage(text, undefined, filesToSend);
   };
@@ -597,7 +597,7 @@ export default function Chat({ user, onLogout }: Props) {
       />
 
       <main className="flex-1 flex flex-col min-w-0 bg-transparent relative z-20 lg:pl-14">
-        {/* Header */}
+        {/* Header (unchanged) */}
         <header className="sticky top-0 z-30 h-14 md:h-16 bg-white/90 dark:bg-zinc-950/80 backdrop-blur-2xl border-b border-zinc-200 dark:border-zinc-800 shrink-0 transition-colors duration-300">
           <div className="flex items-center justify-between h-full px-3 md:px-5">
             <div className="w-9 md:w-10 shrink-0 flex items-center justify-center">
@@ -619,7 +619,7 @@ export default function Chat({ user, onLogout }: Props) {
           </div>
         </header>
 
-        {/* Messages */}
+        {/* Messages (unchanged, already handles file previews via messageAttachments if needed, but we removed that; file preview is only in input bar) */}
         <div className="flex-1 overflow-y-auto scroll-hide" onScroll={handleScroll}>
           <div className="max-w-3xl mx-auto px-3 sm:px-4 md:px-6 py-6 md:py-10">
             {messages.length === 0 && !isTyping ? (
@@ -708,7 +708,13 @@ export default function Chat({ user, onLogout }: Props) {
                         <motion.div animate={{ scale: [1, 1.2, 1], opacity: [0.3, 1, 0.3] }} transition={{ repeat: Infinity, duration: 1, delay: 0.2 }} className="w-1.5 h-1.5 bg-indigo-600 rounded-full" />
                         <motion.div animate={{ scale: [1, 1.2, 1], opacity: [0.3, 1, 0.3] }} transition={{ repeat: Infinity, duration: 1, delay: 0.4 }} className="w-1.5 h-1.5 bg-indigo-600 rounded-full" />
                       </div>
-                      <AnimatePresence>{serverWaking && <motion.p initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="text-[10px] font-medium text-zinc-400">Server is waking up, please wait...</motion.p>}</AnimatePresence>
+                      <AnimatePresence>
+                        {serverWaking && (
+                          <motion.p initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="text-[10px] font-medium text-zinc-400">
+                            {selectedFiles.length ? "Processing uploaded file (OCR may take 10-15 seconds)..." : "Server is waking up, please wait..."}
+                          </motion.p>
+                        )}
+                      </AnimatePresence>
                     </div>
                   </div>
                 )}
@@ -719,7 +725,7 @@ export default function Chat({ user, onLogout }: Props) {
           </div>
         </div>
 
-        {/* Input bar with attachment (only Camera & Files) */}
+        {/* Input bar (unchanged from previous version, already correct) */}
         <div className="shrink-0 bg-white dark:bg-zinc-950 border-t border-zinc-200/50 dark:border-zinc-800/50 px-3 sm:px-4 md:px-6 py-3 md:py-4">
           <div className="max-w-3xl mx-auto relative">
             <AnimatePresence>
@@ -751,7 +757,6 @@ export default function Chat({ user, onLogout }: Props) {
               </AnimatePresence>
 
               <div className="flex flex-row items-end">
-                {/* Attachment menu - only Camera & Files (no Photos) */}
                 <div ref={attachMenuRef} className="relative flex items-center pl-2 pb-2.5 md:pb-3 shrink-0">
                   <AnimatePresence>
                     {showAttachMenu && (
@@ -765,7 +770,6 @@ export default function Chat({ user, onLogout }: Props) {
                   <motion.button whileTap={{ scale: 0.88 }} onClick={() => setShowAttachMenu(prev => !prev)} disabled={isProcessingFiles} className={`flex items-center justify-center w-9 h-9 rounded-full transition-all duration-200 disabled:opacity-40 ${showAttachMenu ? 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600' : 'text-zinc-400 dark:text-zinc-500 hover:text-indigo-600 hover:bg-zinc-100 dark:hover:bg-zinc-800'}`}><Paperclip className={`w-4 h-4 ${isProcessingFiles ? 'animate-spin' : ''}`} /></motion.button>
                 </div>
 
-                {/* Textarea */}
                 <div className="relative flex-1 min-w-0">
                   <textarea
                     ref={inputRef}
