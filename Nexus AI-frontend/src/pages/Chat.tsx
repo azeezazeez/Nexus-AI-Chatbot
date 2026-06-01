@@ -97,7 +97,6 @@ const getInitialTheme = (): boolean => {
   return window.matchMedia('(prefers-color-scheme: dark)').matches;
 };
 
-// Helper to format file size
 const formatFileSize = (bytes: number): string => {
   if (bytes < 1024) return `${bytes}B`;
   if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)}KB`;
@@ -122,23 +121,23 @@ export default function Chat({ user, onLogout }: Props) {
   const [inputFocused, setInputFocused] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  // ── File upload state ─────────────────────────────────────────────
+  // File upload
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [filePreviews, setFilePreviews] = useState<{ id: string; file: File; preview?: string }[]>([]);
   const [isProcessingFiles, setIsProcessingFiles] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
 
-  // ── Attachment menu state ────────────────────────────────────────
+  // Attach menu
   const [showAttachMenu, setShowAttachMenu] = useState(false);
   const attachMenuRef = useRef<HTMLDivElement>(null);
 
-  // ── Speech-to-text (Web Speech API) ──────────────────────────────
+  // Speech recognition
   const [isListening, setIsListening] = useState(false);
   const recognitionRef = useRef<any>(null);
   const speechBaseRef = useRef('');
 
-  // ── Theme ────────────────────────────────────────────────────────
+  // Theme
   const [isDark, setIsDark] = useState<boolean>(() => {
     const dark = getInitialTheme();
     if (typeof document !== 'undefined') {
@@ -162,7 +161,7 @@ export default function Chat({ user, onLogout }: Props) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const skipMessageLoadRef = useRef(false);
 
-  // ── Auto-resize textarea ─────────────────────────────────────────
+  // Auto-resize textarea
   useEffect(() => {
     if (inputRef.current) {
       inputRef.current.style.height = 'auto';
@@ -170,7 +169,7 @@ export default function Chat({ user, onLogout }: Props) {
     }
   }, [input]);
 
-  // ── Close attach menu when clicking outside ─────────────────────
+  // Close attach menu
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (attachMenuRef.current && !attachMenuRef.current.contains(e.target as Node)) {
@@ -181,7 +180,7 @@ export default function Chat({ user, onLogout }: Props) {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showAttachMenu]);
 
-  // ── Clean up file previews when component unmounts ───────────────
+  // Clean up object URLs
   useEffect(() => {
     return () => {
       filePreviews.forEach(fp => {
@@ -190,16 +189,14 @@ export default function Chat({ user, onLogout }: Props) {
     };
   }, [filePreviews]);
 
-  // ── Speech recognition (fixed) ───────────────────────────────────
+  // Speech recognition
   const startListening = useCallback(() => {
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SR) {
       alert('Your browser does not support speech recognition. Please use Chrome, Edge, or Safari.');
       return;
     }
-
     if (recognitionRef.current) recognitionRef.current.stop();
-
     speechBaseRef.current = inputRef.current?.value || '';
 
     const recognition = new SR();
@@ -211,43 +208,31 @@ export default function Chat({ user, onLogout }: Props) {
     recognition.onresult = (event: any) => {
       let finalSegment = '';
       let interimSegment = '';
-
       for (let i = event.resultIndex; i < event.results.length; i++) {
-        if (event.results[i].isFinal) {
-          finalSegment += event.results[i][0].transcript;
-        } else {
-          interimSegment += event.results[i][0].transcript;
-        }
+        if (event.results[i].isFinal) finalSegment += event.results[i][0].transcript;
+        else interimSegment += event.results[i][0].transcript;
       }
-
       if (finalSegment) {
         speechBaseRef.current = speechBaseRef.current
           ? `${speechBaseRef.current} ${finalSegment}`.trim()
           : finalSegment.trim();
       }
-
       const display = interimSegment
         ? `${speechBaseRef.current} ${interimSegment}`.trim()
         : speechBaseRef.current;
       setInput(display);
     };
-
     recognition.onend = () => {
       setIsListening(false);
       recognitionRef.current = null;
     };
-
     recognition.onerror = (event: any) => {
-      console.error('Speech recognition error:', event.error);
+      console.error('Speech error:', event.error);
       setIsListening(false);
       recognitionRef.current = null;
-      if (event.error === 'not-allowed') {
-        alert('Microphone access was denied. Please allow microphone access and try again.');
-      } else if (event.error === 'network') {
-        alert('Network error occurred. Please check your connection.');
-      }
+      if (event.error === 'not-allowed') alert('Microphone access denied.');
+      else if (event.error === 'network') alert('Network error occurred.');
     };
-
     recognitionRef.current = recognition;
     recognition.start();
     inputRef.current?.focus();
@@ -263,15 +248,15 @@ export default function Chat({ user, onLogout }: Props) {
     else startListening();
   }, [isListening, startListening, stopListening]);
 
-  // ── Data loading ─────────────────────────────────────────────────
+  // Load sessions & messages
   const loadSessions = useCallback(async () => {
     try {
       wakeUpServer();
       const response = await chatApi.getSessions() as any;
       setSessions(response.sessions || []);
-    } catch (err: unknown) {
+    } catch (err: any) {
       console.error('Failed to load sessions:', err);
-      if (err && typeof err === 'object' && 'status' in err && (err as { status: number }).status === 401) onLogout();
+      if (err.status === 401) onLogout();
     } finally {
       setLoading(false);
     }
@@ -281,9 +266,9 @@ export default function Chat({ user, onLogout }: Props) {
     try {
       const response = await chatApi.getMessages(sid) as any;
       setMessages(response.messages || []);
-    } catch (err: unknown) {
+    } catch (err: any) {
       console.error('Failed to load messages:', err);
-      if (err && typeof err === 'object' && 'status' in err && (err as { status: number }).status === 401) onLogout();
+      if (err.status === 401) onLogout();
     }
   }, [onLogout]);
 
@@ -322,19 +307,17 @@ export default function Chat({ user, onLogout }: Props) {
     setShowScrollBottom(scrollHeight - scrollTop - clientHeight > 100);
   };
 
-  // ── File handlers (using native File objects and FormData) ───────
+  // File handlers
   const handleFileSelection = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
     setIsProcessingFiles(true);
     const newFiles = Array.from(files);
     const newPreviews = await Promise.all(
-      newFiles.map(async (file) => {
-        let preview: string | undefined;
-        if (file.type.startsWith('image/')) {
-          preview = URL.createObjectURL(file);
-        }
-        return { id: `${file.name}-${Date.now()}-${Math.random()}`, file, preview };
-      })
+      newFiles.map(async (file) => ({
+        id: `${file.name}-${Date.now()}-${Math.random()}`,
+        file,
+        preview: file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined,
+      }))
     );
     setFilePreviews(prev => [...prev, ...newPreviews]);
     setSelectedFiles(prev => [...prev, ...newFiles]);
@@ -346,13 +329,12 @@ export default function Chat({ user, onLogout }: Props) {
     if (removed?.preview) URL.revokeObjectURL(removed.preview);
     setFilePreviews(prev => prev.filter(fp => fp.id !== id));
     setSelectedFiles(prev => prev.filter((_, idx) => {
-      // find index of removed file
       const removedFile = removed?.file;
       return removedFile ? prev[idx] !== removedFile : true;
     }));
   };
 
-  // ── Core send with multipart FormData ────────────────────────────
+  // Send message with files
   const sendMessage = async (
     messageText: string,
     messagesSnapshot?: Message[],
@@ -360,7 +342,6 @@ export default function Chat({ user, onLogout }: Props) {
   ) => {
     if ((!messageText.trim() && (!filesToSend || filesToSend.length === 0))) return;
     if (isSendingRef.current) return;
-
     if (isListening) stopListening();
 
     isSendingRef.current = true;
@@ -380,24 +361,19 @@ export default function Chat({ user, onLogout }: Props) {
       timestamp: new Date().toISOString(),
     };
 
-    if (messagesSnapshot) {
-      setMessages([...messagesSnapshot, tempUserMsg]);
-    } else {
-      setMessages(prev => [...prev, tempUserMsg]);
-    }
+    if (messagesSnapshot) setMessages([...messagesSnapshot, tempUserMsg]);
+    else setMessages(prev => [...prev, tempUserMsg]);
 
     setInput('');
     setSelectedFiles([]);
     setFilePreviews([]);
 
     const isNewSession = !currentSessionId;
-
     const wakingTimer = setTimeout(() => {
       if (isSendingRef.current) setServerWaking(true);
     }, 4000);
 
     try {
-      // Use the chatApi with FormData
       const response = await chatApi.sendMessageWithFiles(
         messageText.trim() || (filesToSend?.some(f => f.type.startsWith('image/')) ? 'What is in this image?' : 'Please analyse the attached file.'),
         currentSessionId,
@@ -438,19 +414,16 @@ export default function Chat({ user, onLogout }: Props) {
           const { title } = await chatApi.generateTitle(messageText.trim() || 'File analysis') as any;
           await chatApi.renameSession(activeSessionId, title);
           await loadSessions();
-        } catch (renameErr) {
-          console.error('Rename failed:', renameErr);
-        }
+        } catch (renameErr) { console.error('Rename failed:', renameErr); }
       }
-    } catch (err: unknown) {
+    } catch (err: any) {
       clearTimeout(wakingTimer);
       setServerWaking(false);
       setIsTyping(false);
-      if (err && typeof err === 'object' && 'name' in err && (err as { name: string }).name === 'AbortError') {
-        console.log('Chat aborted');
-      } else {
+      if (err.name === 'AbortError') console.log('Chat aborted');
+      else {
         console.error('Chat error:', err);
-        const errMsg = err instanceof Error ? err.message : 'Sorry, I encountered an error. Please try again.';
+        const errMsg = err.message || 'Sorry, I encountered an error. Please try again.';
         setMessages(prev => [...prev, {
           id: 'error-' + Date.now(),
           sessionId: currentSessionId || 0,
@@ -512,10 +485,8 @@ export default function Chat({ user, onLogout }: Props) {
         setMessages([]);
       }
       await loadSessions();
-    } catch (err) unknown) {
-      console.error('Failed to delete session:', err);
-      if (err && typeof err === 'object' && 'status' in err && (err as { status: number }).status === 401) onLogout();
-    } finally {
+    } catch (err) { console.error('Delete session failed:', err); }
+    finally {
       setSessionIdToDelete(null);
       setModalType('none');
     }
@@ -526,10 +497,7 @@ export default function Chat({ user, onLogout }: Props) {
     try {
       await chatApi.renameSession(sid, newName);
       await loadSessions();
-    } catch (err: unknown) {
-      console.error('Failed to rename session:', err);
-      if (err && typeof err === 'object' && 'status' in err && (err as { status: number }).status === 401) onLogout();
-    }
+    } catch (err) { console.error('Rename failed:', err); }
   };
 
   const confirmClearAll = async () => {
@@ -539,12 +507,8 @@ export default function Chat({ user, onLogout }: Props) {
       persistSessionId(null);
       setMessages([]);
       await loadSessions();
-    } catch (err: unknown) {
-      console.error('Failed to clear sessions:', err);
-      if (err && typeof err === 'object' && 'status' in err && (err as { status: number }).status === 401) onLogout();
-    } finally {
-      setModalType('none');
-    }
+    } catch (err) { console.error('Clear sessions failed:', err); }
+    finally { setModalType('none'); }
   };
 
   const handleLogout = async () => {
@@ -615,47 +579,29 @@ export default function Chat({ user, onLogout }: Props) {
       />
 
       <main className="flex-1 flex flex-col min-w-0 bg-transparent relative z-20 lg:pl-14">
-        {/* Header (unchanged) */}
+        {/* Header */}
         <header className="sticky top-0 z-30 h-14 md:h-16 bg-white/90 dark:bg-zinc-950/80 backdrop-blur-2xl border-b border-zinc-200 dark:border-zinc-800 shrink-0 transition-colors duration-300">
           <div className="flex items-center justify-between h-full px-3 md:px-5">
             <div className="w-9 md:w-10 shrink-0 flex items-center justify-center">
-              <button
-                onClick={() => setMobileOpen(true)}
-                className="lg:hidden w-9 h-9 flex items-center justify-center rounded-xl text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all"
-              >
-                <Menu className="w-5 h-5" />
-              </button>
+              <button onClick={() => setMobileOpen(true)} className="lg:hidden w-9 h-9 flex items-center justify-center rounded-xl text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all"><Menu className="w-5 h-5" /></button>
             </div>
             <div className="flex flex-col items-center gap-0.5 max-w-[60vw] sm:max-w-xs md:max-w-sm">
               <div className="flex items-center gap-1.5">
                 <StormLogo className="w-4 h-4 md:w-5 md:h-5 text-indigo-600 dark:text-indigo-500 shrink-0" />
                 <span className="text-[10px] md:text-xs font-black text-zinc-900 dark:text-zinc-100 uppercase tracking-widest">Nexus AI</span>
-                <div className="hidden sm:flex items-center gap-1 ml-1">
-                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                </div>
+                <div className="hidden sm:flex items-center gap-1 ml-1"><div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /></div>
               </div>
-              <span className="text-[10px] font-semibold text-zinc-500 dark:text-zinc-400 truncate">
-                {sessions.find(s => s.id === currentSessionId)?.sessionName || 'New Chat'}
-              </span>
+              <span className="text-[10px] font-semibold text-zinc-500 dark:text-zinc-400 truncate">{sessions.find(s => s.id === currentSessionId)?.sessionName || 'New Chat'}</span>
             </div>
-            <motion.button
-              whileHover={{ scale: 1.1 }}
-              whileTap={{ scale: 0.9 }}
-              onClick={toggleTheme}
-              className="w-9 h-9 md:w-10 md:h-10 shrink-0 flex items-center justify-center rounded-full bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-500 dark:text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all"
-            >
+            <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={toggleTheme} className="w-9 h-9 md:w-10 md:h-10 shrink-0 flex items-center justify-center rounded-full bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-500 dark:text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all">
               <AnimatePresence mode="wait" initial={false}>
-                {isDark ? (
-                  <motion.span key="sun" initial={{ rotate: -90, opacity: 0 }} animate={{ rotate: 0, opacity: 1 }} exit={{ rotate: 90, opacity: 0 }}><Sun className="w-4 h-4" /></motion.span>
-                ) : (
-                  <motion.span key="moon" initial={{ rotate: 90, opacity: 0 }} animate={{ rotate: 0, opacity: 1 }} exit={{ rotate: -90, opacity: 0 }}><Moon className="w-4 h-4" /></motion.span>
-                )}
+                {isDark ? <motion.span key="sun" initial={{ rotate: -90, opacity: 0 }} animate={{ rotate: 0, opacity: 1 }} exit={{ rotate: 90, opacity: 0 }}><Sun className="w-4 h-4" /></motion.span> : <motion.span key="moon" initial={{ rotate: 90, opacity: 0 }} animate={{ rotate: 0, opacity: 1 }} exit={{ rotate: -90, opacity: 0 }}><Moon className="w-4 h-4" /></motion.span>}
               </AnimatePresence>
             </motion.button>
           </div>
         </header>
 
-        {/* Messages area (unchanged structurally, but we remove attachment display because files aren't stored in messages) */}
+        {/* Messages */}
         <div className="flex-1 overflow-y-auto scroll-hide" onScroll={handleScroll}>
           <div className="max-w-3xl mx-auto px-3 sm:px-4 md:px-6 py-6 md:py-10">
             {messages.length === 0 && !isTyping ? (
@@ -664,9 +610,7 @@ export default function Chat({ user, onLogout }: Props) {
                 <h2 className="text-2xl md:text-3xl font-bold text-zinc-900 dark:text-zinc-100 mb-6">How can I help you today?</h2>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 w-full">
                   {['Plan a 3-day trip to Tokyo', 'How to build a SaaS with React?', 'Write a professional covering letter', 'Explain the theory of relativity'].map((s, i) => (
-                    <button key={i} onClick={() => handleSendMessage(undefined, s)} className="group p-3.5 md:p-4 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-xl text-sm font-medium text-zinc-500 dark:text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:border-indigo-400 transition-all text-left shadow-sm">
-                      <span className="block truncate">{s}</span>
-                    </button>
+                    <button key={i} onClick={() => handleSendMessage(undefined, s)} className="group p-3.5 md:p-4 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-xl text-sm font-medium text-zinc-500 dark:text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:border-indigo-400 transition-all text-left shadow-sm"><span className="block truncate">{s}</span></button>
                   ))}
                 </div>
               </div>
@@ -680,9 +624,7 @@ export default function Chat({ user, onLogout }: Props) {
                       <div className={`flex gap-2.5 md:gap-3 w-full ${msg.role === 'user' ? 'flex-row-reverse justify-start' : 'flex-row'}`}>
                         <div className="w-7 h-7 md:w-8 md:h-8 shrink-0 flex items-center justify-center mt-1">
                           {msg.role === 'user' ? (
-                            <div className="w-full h-full rounded-full border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 flex items-center justify-center shadow-sm overflow-hidden">
-                              <UserAvatar name={user?.username || 'User'} className="w-full h-full text-[10px]" />
-                            </div>
+                            <div className="w-full h-full rounded-full border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 flex items-center justify-center shadow-sm overflow-hidden"><UserAvatar name={user?.username || 'User'} className="w-full h-full text-[10px]" /></div>
                           ) : (
                             <StormLogo className={`w-6 h-6 text-indigo-500 dark:text-indigo-400 ${shouldSpin ? 'animate-spin' : ''}`} />
                           )}
@@ -696,66 +638,42 @@ export default function Chat({ user, onLogout }: Props) {
                             <div className="text-sm md:text-base leading-relaxed markdown-body max-w-none">
                               {isEditing ? (
                                 <div className="flex flex-col gap-3 min-w-[200px] sm:min-w-[340px] p-1">
-                                  <textarea
-                                    value={editInput}
-                                    onChange={(e) => setEditInput(e.target.value)}
-                                    onKeyDown={(e) => {
-                                      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); handleSaveEdit(); }
-                                      if (e.key === 'Escape') handleCancelEdit();
-                                    }}
-                                    className="w-full border rounded-xl p-3 text-sm focus:outline-none focus:ring-2 focus:ring-white/20 resize-none min-h-[100px] bg-zinc-50 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-700"
-                                    autoFocus
-                                  />
-                                  <div className="flex justify-end gap-2">
-                                    <span className="text-[9px] text-zinc-400 mr-auto">⌘↵ to send · Esc to cancel</span>
-                                    <button onClick={handleCancelEdit} className="px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg text-zinc-500 hover:text-zinc-900">Cancel</button>
-                                    <button onClick={handleSaveEdit} disabled={!editInput.trim() || isTyping} className="px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest shadow-lg disabled:opacity-40 bg-indigo-600 text-white hover:bg-indigo-700">Send</button>
-                                  </div>
+                                  <textarea value={editInput} onChange={(e) => setEditInput(e.target.value)} onKeyDown={(e) => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); handleSaveEdit(); } if (e.key === 'Escape') handleCancelEdit(); }} className="w-full border rounded-xl p-3 text-sm focus:outline-none focus:ring-2 focus:ring-white/20 resize-none min-h-[100px] bg-zinc-50 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-700" autoFocus />
+                                  <div className="flex justify-end gap-2"><span className="text-[9px] text-zinc-400 mr-auto">⌘↵ to send · Esc to cancel</span><button onClick={handleCancelEdit} className="px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg text-zinc-500 hover:text-zinc-900">Cancel</button><button onClick={handleSaveEdit} disabled={!editInput.trim() || isTyping} className="px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest shadow-lg disabled:opacity-40 bg-indigo-600 text-white hover:bg-indigo-700">Send</button></div>
                                 </div>
                               ) : (
-                                <ReactMarkdown
-                                  remarkPlugins={[remarkGfm]}
-                                  components={{
-                                    pre({ children, ...props }: any) {
-                                      return (
-                                        <div className="my-6 overflow-hidden rounded-xl border border-indigo-200/40 dark:border-indigo-500/20 shadow-lg bg-gradient-to-br from-indigo-50/80 to-violet-50/60 dark:from-indigo-950/50 dark:to-violet-950/40 backdrop-blur-xl">
-                                          <div className="flex items-center gap-2 px-4 py-2 border-b border-indigo-200/30 dark:border-indigo-500/15 bg-indigo-100/40 dark:bg-indigo-900/20">
-                                            <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 dark:bg-indigo-500" />
-                                            <span className="text-[10px] font-black uppercase tracking-widest text-indigo-400 dark:text-indigo-500">Architecture</span>
-                                          </div>
-                                          <pre className="p-5 overflow-x-auto text-[0.82rem] leading-relaxed font-mono text-indigo-700 dark:text-indigo-300 whitespace-pre" {...props}>{children}</pre>
+                                <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
+                                  pre({ children, ...props }: any) {
+                                    return (
+                                      <div className="my-6 overflow-hidden rounded-xl border border-indigo-200/40 dark:border-indigo-500/20 shadow-lg bg-gradient-to-br from-indigo-50/80 to-violet-50/60 dark:from-indigo-950/50 dark:to-violet-950/40 backdrop-blur-xl">
+                                        <div className="flex items-center gap-2 px-4 py-2 border-b border-indigo-200/30 dark:border-indigo-500/15 bg-indigo-100/40 dark:bg-indigo-900/20">
+                                          <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 dark:bg-indigo-500" />
+                                          <span className="text-[10px] font-black uppercase tracking-widest text-indigo-400 dark:text-indigo-500">Architecture</span>
                                         </div>
-                                      );
-                                    },
-                                    code({ className, children, ...props }: any) {
-                                      const match = /language-(\w+)/.exec(className || '');
-                                      const content = String(children).replace(/\n$/, '');
-                                      const isInline = props.inline || !className;
-                                      return !isInline && match ? (
-                                        <CodeBlock language={match[1]} value={content} />
-                                      ) : (
-                                        <code className={`${className || ''} bg-zinc-100 dark:bg-zinc-800 text-indigo-600 dark:text-indigo-400 px-1 py-0.5 rounded font-mono text-[0.85em]`} {...props}>{children}</code>
-                                      );
-                                    }
-                                  } as Components}
-                                >
-                                  {cleanMessageContent(msg.content)}
-                                </ReactMarkdown>
+                                        <pre className="p-5 overflow-x-auto text-[0.82rem] leading-relaxed font-mono text-indigo-700 dark:text-indigo-300 whitespace-pre" {...props}>{children}</pre>
+                                      </div>
+                                    );
+                                  },
+                                  code({ className, children, ...props }: any) {
+                                    const match = /language-(\w+)/.exec(className || '');
+                                    const content = String(children).replace(/\n$/, '');
+                                    const isInline = props.inline || !className;
+                                    return !isInline && match ? (
+                                      <CodeBlock language={match[1]} value={content} />
+                                    ) : (
+                                      <code className={`${className || ''} bg-zinc-100 dark:bg-zinc-800 text-indigo-600 dark:text-indigo-400 px-1 py-0.5 rounded font-mono text-[0.85em]`} {...props}>{children}</code>
+                                    );
+                                  }
+                                } as Components}>{cleanMessageContent(msg.content)}</ReactMarkdown>
                               )}
                             </div>
                           </div>
                           <div className="flex items-center gap-1 mt-1 px-1 opacity-0 group-hover:opacity-100 transition-opacity">
                             {msg.role === 'assistant' && <span className="text-[10px] font-black text-indigo-500/50 uppercase tracking-[0.2em] mr-auto pl-1">Nexus AI</span>}
-                            <span className="text-[9px] font-black text-zinc-400 dark:text-zinc-500 uppercase tracking-widest whitespace-nowrap mr-1">
-                              {msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Now'}
-                            </span>
+                            <span className="text-[9px] font-black text-zinc-400 dark:text-zinc-500 uppercase tracking-widest whitespace-nowrap mr-1">{msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Now'}</span>
                             <div className="flex items-center gap-0.5">
-                              {msg.role === 'user' && !isEditing && !isTyping && (
-                                <button onClick={() => handleStartEdit(msg)} className="p-1 px-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 hover:text-indigo-600"><Edit2 className="w-3.5 h-3.5" /></button>
-                              )}
-                              <button onClick={() => { navigator.clipboard.writeText(cleanMessageContent(msg.content)); setCopiedId(msg.id); setTimeout(() => setCopiedId(null), 2000); }} className={`p-1 px-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all ${copiedId === msg.id ? 'text-emerald-500' : 'text-zinc-400 hover:text-indigo-600'}`}>
-                                {copiedId === msg.id ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                              </button>
+                              {msg.role === 'user' && !isEditing && !isTyping && (<button onClick={() => handleStartEdit(msg)} className="p-1 px-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 hover:text-indigo-600"><Edit2 className="w-3.5 h-3.5" /></button>)}
+                              <button onClick={() => { navigator.clipboard.writeText(cleanMessageContent(msg.content)); setCopiedId(msg.id); setTimeout(() => setCopiedId(null), 2000); }} className={`p-1 px-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all ${copiedId === msg.id ? 'text-emerald-500' : 'text-zinc-400 hover:text-indigo-600'}`}>{copiedId === msg.id ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}</button>
                             </div>
                           </div>
                         </div>
@@ -783,47 +701,31 @@ export default function Chat({ user, onLogout }: Props) {
           </div>
         </div>
 
-        {/* Input Bar with fixed file previews and no "Photos" option */}
+        {/* Input bar with attachment (only Camera & Files) */}
         <div className="shrink-0 bg-white dark:bg-zinc-950 border-t border-zinc-200/50 dark:border-zinc-800/50 px-3 sm:px-4 md:px-6 py-3 md:py-4">
           <div className="max-w-3xl mx-auto relative">
             <AnimatePresence>
               {showScrollBottom && (
-                <motion.button
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: 10 }}
-                  onClick={() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })}
-                  className="absolute -top-14 right-2 p-2.5 bg-indigo-600 text-white rounded-full shadow-xl shadow-indigo-500/30 hover:bg-indigo-700 transition-all z-10 group hover:scale-110"
-                >
-                  <ArrowDown className="w-4 h-4 md:w-5 md:h-5" />
-                </motion.button>
+                <motion.button initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }} onClick={() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })} className="absolute -top-14 right-2 p-2.5 bg-indigo-600 text-white rounded-full shadow-xl shadow-indigo-500/30 hover:bg-indigo-700 transition-all z-10 group hover:scale-110"><ArrowDown className="w-4 h-4 md:w-5 md:h-5" /></motion.button>
               )}
             </AnimatePresence>
 
-            {/* Hidden inputs for Camera and Files */}
             <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" onChange={(e) => handleFileSelection(e.target.files)} className="hidden" />
             <input ref={fileInputRef} type="file" multiple accept="image/png,image/jpeg,image/gif,image/webp,.txt,.md,.json,.csv,.ts,.tsx,.js,.jsx,.py,.html,.css" onChange={(e) => handleFileSelection(e.target.files)} className="hidden" />
 
             <div className={`relative flex flex-col bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-2xl shadow-lg transition-all ${justFinished ? 'animate-blink' : ''}`}>
-              {/* File preview strip */}
               <AnimatePresence>
                 {filePreviews.length > 0 && (
                   <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="flex flex-wrap gap-3 px-3 pt-3 pb-2.5 border-b border-zinc-100 dark:border-zinc-800/70">
                     {filePreviews.map(fp => (
                       <div key={fp.id} className="relative flex flex-col items-center gap-1 shrink-0">
                         {fp.preview ? (
-                          <div className="w-16 h-16 rounded-xl overflow-hidden bg-zinc-200 dark:bg-zinc-700 shadow-sm border border-zinc-200/60">
-                            <img src={fp.preview} alt={fp.file.name} className="w-full h-full object-cover" />
-                          </div>
+                          <div className="w-16 h-16 rounded-xl overflow-hidden bg-zinc-200 dark:bg-zinc-700 shadow-sm border border-zinc-200/60"><img src={fp.preview} alt={fp.file.name} className="w-full h-full object-cover" /></div>
                         ) : (
-                          <div className="w-16 h-16 rounded-xl flex items-center justify-center bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700">
-                            <FileText className="w-6 h-6 text-indigo-500" />
-                          </div>
+                          <div className="w-16 h-16 rounded-xl flex items-center justify-center bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700"><FileText className="w-6 h-6 text-indigo-500" /></div>
                         )}
                         <span className="text-[9px] font-medium text-zinc-400 truncate max-w-[64px]">{fp.file.name}</span>
-                        <button onClick={() => removeFile(fp.id)} className="absolute -top-1.5 -right-1.5 w-[18px] h-[18px] rounded-full flex items-center justify-center bg-zinc-600 dark:bg-zinc-500 text-white shadow-md hover:bg-red-500">
-                          <X className="w-2.5 h-2.5" />
-                        </button>
+                        <button onClick={() => removeFile(fp.id)} className="absolute -top-1.5 -right-1.5 w-[18px] h-[18px] rounded-full flex items-center justify-center bg-zinc-600 dark:bg-zinc-500 text-white shadow-md hover:bg-red-500"><X className="w-2.5 h-2.5" /></button>
                       </div>
                     ))}
                   </motion.div>
@@ -831,34 +733,18 @@ export default function Chat({ user, onLogout }: Props) {
               </AnimatePresence>
 
               <div className="flex flex-row items-end">
-                {/* Attachment menu - only Camera and Files (removed Photos) */}
+                {/* Attachment menu - only Camera & Files (no Photos) */}
                 <div ref={attachMenuRef} className="relative flex items-center pl-2 pb-2.5 md:pb-3 shrink-0">
                   <AnimatePresence>
                     {showAttachMenu && (
                       <motion.div initial={{ opacity: 0, y: 6, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 6, scale: 0.95 }} className="absolute bottom-full left-0 mb-2 z-50 bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-2xl shadow-xl min-w-[148px] overflow-hidden">
-                        <button type="button" onClick={() => { cameraInputRef.current?.click(); setShowAttachMenu(false); }} className="flex items-center gap-3 w-full px-4 py-3 text-[13px] font-semibold text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-700/60">
-                          <span className="flex items-center justify-center w-7 h-7 rounded-xl bg-indigo-100 dark:bg-indigo-950/60"><Camera className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" /></span>
-                          Camera
-                        </button>
+                        <button type="button" onClick={() => { cameraInputRef.current?.click(); setShowAttachMenu(false); }} className="flex items-center gap-3 w-full px-4 py-3 text-[13px] font-semibold text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-700/60"><span className="flex items-center justify-center w-7 h-7 rounded-xl bg-indigo-100 dark:bg-indigo-950/60"><Camera className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" /></span>Camera</button>
                         <div className="h-px bg-zinc-100 dark:bg-zinc-700/50" />
-                        <button type="button" onClick={() => { fileInputRef.current?.click(); setShowAttachMenu(false); }} className="flex items-center gap-3 w-full px-4 py-3 text-[13px] font-semibold text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-700/60">
-                          <span className="flex items-center justify-center w-7 h-7 rounded-xl bg-violet-100 dark:bg-violet-950/60"><FileText className="w-3.5 h-3.5 text-violet-600 dark:text-violet-400" /></span>
-                          Files
-                        </button>
+                        <button type="button" onClick={() => { fileInputRef.current?.click(); setShowAttachMenu(false); }} className="flex items-center gap-3 w-full px-4 py-3 text-[13px] font-semibold text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-700/60"><span className="flex items-center justify-center w-7 h-7 rounded-xl bg-violet-100 dark:bg-violet-950/60"><FileText className="w-3.5 h-3.5 text-violet-600 dark:text-violet-400" /></span>Files</button>
                       </motion.div>
                     )}
                   </AnimatePresence>
-                  <motion.button
-                    type="button"
-                    whileTap={{ scale: 0.88 }}
-                    onClick={() => setShowAttachMenu(prev => !prev)}
-                    disabled={isProcessingFiles}
-                    className={`flex items-center justify-center w-9 h-9 rounded-full transition-all duration-200 disabled:opacity-40 ${
-                      showAttachMenu ? 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600' : 'text-zinc-400 dark:text-zinc-500 hover:text-indigo-600 hover:bg-zinc-100 dark:hover:bg-zinc-800'
-                    }`}
-                  >
-                    <Paperclip className={`w-4 h-4 ${isProcessingFiles ? 'animate-spin' : ''}`} />
-                  </motion.button>
+                  <motion.button whileTap={{ scale: 0.88 }} onClick={() => setShowAttachMenu(prev => !prev)} disabled={isProcessingFiles} className={`flex items-center justify-center w-9 h-9 rounded-full transition-all duration-200 disabled:opacity-40 ${showAttachMenu ? 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600' : 'text-zinc-400 dark:text-zinc-500 hover:text-indigo-600 hover:bg-zinc-100 dark:hover:bg-zinc-800'}`}><Paperclip className={`w-4 h-4 ${isProcessingFiles ? 'animate-spin' : ''}`} /></motion.button>
                 </div>
 
                 {/* Textarea */}
@@ -866,63 +752,29 @@ export default function Chat({ user, onLogout }: Props) {
                   <textarea
                     ref={inputRef}
                     value={input}
-                    onChange={(e) => {
-                      setInput(e.target.value);
-                      if (isListening) speechBaseRef.current = e.target.value;
-                    }}
+                    onChange={(e) => { setInput(e.target.value); if (isListening) speechBaseRef.current = e.target.value; }}
                     onFocus={() => setInputFocused(true)}
                     onBlur={() => setInputFocused(false)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && !e.shiftKey && !isTyping) {
-                        e.preventDefault();
-                        handleSendMessage();
-                      }
-                    }}
+                    onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !isTyping) { e.preventDefault(); handleSendMessage(); } }}
                     placeholder={showBlinkingCursor ? '' : isListening ? 'Listening…' : 'Write a message...'}
                     rows={1}
                     className="w-full px-3 md:px-4 py-3.5 md:py-4 bg-transparent focus:outline-none font-medium text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-500 text-sm md:text-base leading-relaxed resize-none min-h-[52px] max-h-[180px] overflow-y-auto"
-                    onInput={(e) => {
-                      const target = e.target as HTMLTextAreaElement;
-                      target.style.height = 'auto';
-                      target.style.height = `${Math.min(target.scrollHeight, 180)}px`;
-                    }}
+                    onInput={(e) => { const target = e.target as HTMLTextAreaElement; target.style.height = 'auto'; target.style.height = `${Math.min(target.scrollHeight, 180)}px`; }}
                   />
                   {showBlinkingCursor && !inputFocused && !isListening && (
-                    <div className="absolute left-3 md:left-4 top-1/2 -translate-y-1/2 flex items-center gap-1 pointer-events-none">
-                      <BlinkingCursor />
-                      <span className="text-sm md:text-base font-medium text-zinc-400">Write a message</span>
-                    </div>
+                    <div className="absolute left-3 md:left-4 top-1/2 -translate-y-1/2 flex items-center gap-1 pointer-events-none"><BlinkingCursor /><span className="text-sm md:text-base font-medium text-zinc-400">Write a message</span></div>
                   )}
                 </div>
 
-                {/* Mic + Send/Stop */}
                 <div className="flex items-center gap-1 px-2 pb-2.5 md:pb-3 shrink-0">
-                  <motion.button
-                    type="button"
-                    whileTap={{ scale: 0.88 }}
-                    onClick={toggleListening}
-                    className={`relative flex items-center justify-center w-9 h-9 rounded-full transition-all duration-200 ${
-                      isListening ? 'bg-red-50 dark:bg-red-950/40 text-red-500 dark:text-red-400 ring-2 ring-red-300 dark:ring-red-700' : 'text-zinc-400 dark:text-zinc-500 hover:text-indigo-600 hover:bg-zinc-100 dark:hover:bg-zinc-800'
-                    }`}
-                  >
+                  <motion.button whileTap={{ scale: 0.88 }} onClick={toggleListening} className={`relative flex items-center justify-center w-9 h-9 rounded-full transition-all duration-200 ${isListening ? 'bg-red-50 dark:bg-red-950/40 text-red-500 dark:text-red-400 ring-2 ring-red-300 dark:ring-red-700' : 'text-zinc-400 dark:text-zinc-500 hover:text-indigo-600 hover:bg-zinc-100 dark:hover:bg-zinc-800'}`}>
                     {isListening && <motion.span animate={{ scale: [1, 1.6, 1], opacity: [0.4, 0, 0.4] }} transition={{ repeat: Infinity, duration: 1.4 }} className="absolute inset-0 rounded-full bg-red-400/30" />}
                     <Mic className="w-4 h-4 relative z-10" />
                   </motion.button>
 
-                  <motion.button
-                    whileHover={{ scale: isTyping || input.trim() || filePreviews.length ? 1.08 : 1.02 }}
-                    whileTap={{ scale: 0.92 }}
-                    onClick={isTyping ? handleStopResponse : () => handleSendMessage()}
-                    disabled={!input.trim() && filePreviews.length === 0 && !isTyping}
-                    className={`relative flex items-center justify-center w-9 h-9 md:w-10 md:h-10 rounded-full transition-all duration-200 border-2 ${
-                      isTyping ? 'bg-white dark:bg-zinc-800 border-indigo-400 dark:border-indigo-500 shadow-lg' : 'bg-white dark:bg-zinc-800 border-zinc-300 dark:border-zinc-600 shadow-md hover:border-indigo-400'
-                    }`}
-                  >
+                  <motion.button whileHover={{ scale: isTyping || input.trim() || filePreviews.length ? 1.08 : 1.02 }} whileTap={{ scale: 0.92 }} onClick={isTyping ? handleStopResponse : () => handleSendMessage()} disabled={!input.trim() && filePreviews.length === 0 && !isTyping} className={`relative flex items-center justify-center w-9 h-9 md:w-10 md:h-10 rounded-full transition-all duration-200 border-2 ${isTyping ? 'bg-white dark:bg-zinc-800 border-indigo-400 dark:border-indigo-500 shadow-lg' : 'bg-white dark:bg-zinc-800 border-zinc-300 dark:border-zinc-600 shadow-md hover:border-indigo-400'}`}>
                     {isTyping ? (
-                      <span className="relative flex items-center justify-center w-full h-full">
-                        <svg className="absolute inset-0 w-full h-full animate-spin" viewBox="0 0 40 40"><circle cx="20" cy="20" r="16" fill="none" stroke="#6366f1" strokeWidth="3" strokeDasharray="55 45" strokeLinecap="round" /></svg>
-                        <span className="w-3 h-3 rounded-sm bg-zinc-800 dark:bg-zinc-200 block relative z-10" />
-                      </span>
+                      <span className="relative flex items-center justify-center w-full h-full"><svg className="absolute inset-0 w-full h-full animate-spin" viewBox="0 0 40 40"><circle cx="20" cy="20" r="16" fill="none" stroke="#6366f1" strokeWidth="3" strokeDasharray="55 45" strokeLinecap="round" /></svg><span className="w-3 h-3 rounded-sm bg-zinc-800 dark:bg-zinc-200 block relative z-10" /></span>
                     ) : (
                       <ArrowUp className={`w-4 h-4 transition-all ${input.trim() || filePreviews.length ? 'text-zinc-800 dark:text-zinc-100 scale-110' : 'text-zinc-400 dark:text-zinc-500 scale-90'}`} />
                     )}
