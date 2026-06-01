@@ -28,3 +28,5 @@ EXPOSE 8080
 
 # Run the app
 ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75", "-jar", "app.jar"]
+
+RUN apt-get update && apt-get install -y tesseract-ocr tesseract-ocr-eng
