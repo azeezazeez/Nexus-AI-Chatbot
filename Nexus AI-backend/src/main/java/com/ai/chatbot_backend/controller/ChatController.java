@@ -34,9 +34,9 @@ public class ChatController {
     private final ChatHistoryService chatHistoryService;
     private final UserService userService;
     private final RedisEventService redisEventService;
-    private final FileProcessorService fileProcessorService;  // NEW
+    private final FileProcessorService fileProcessorService;
 
-    // ─── Helpers (unchanged) ──────────────────────────────────────────────
+    // ========================= HELPERS =========================
     private User getCurrentUser(HttpSession session) {
         Long userId = (Long) session.getAttribute("userId");
         if (userId == null) return null;
@@ -70,7 +70,7 @@ public class ChatController {
                 || lower.contains("unable to find");
     }
 
-    // ─── Status (unchanged) ───────────────────────────────────────────────
+    // ========================= STATUS =========================
     @GetMapping("/status")
     public ResponseEntity<Map<String, Object>> getStatus() {
         Map<String, Object> response = new HashMap<>();
@@ -80,7 +80,7 @@ public class ChatController {
         return ResponseEntity.ok(response);
     }
 
-    // ─── JSON endpoint (text‑only, unchanged) ─────────────────────────────
+    // ========================= SEND (JSON – text‑only) =========================
     @PostMapping("/send")
     public ResponseEntity<?> sendMessage(
             @Valid @RequestBody ChatRequest request, HttpSession session) {
@@ -137,25 +137,17 @@ public class ChatController {
             ChatResponse chatResponse = new ChatResponse();
             chatResponse.setResponse(aiResponse);
             if (isAuthenticated) chatResponse.setSessionId(sessionId);
-
             return ResponseEntity.ok(chatResponse);
 
         } catch (Exception e) {
             log.error("Chat error: {}", e.getMessage(), e);
-            if (isSessionNotFoundError(e.getMessage())) {
-                ChatResponse errorResponse = new ChatResponse();
-                errorResponse.setError("Session not found: " + request.getSessionId());
-                return ResponseEntity.status(HttpStatus.NOT_FOUND).body(errorResponse);
-            }
             ChatResponse errorResponse = new ChatResponse();
-            errorResponse.setError(e.getMessage() != null
-                    ? e.getMessage()
-                    : "An unexpected error occurred. Please try again.");
+            errorResponse.setError(e.getMessage() != null ? e.getMessage() : "Unexpected error");
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
         }
     }
 
-    // ─── NEW: Multipart endpoint for files ────────────────────────────────
+    // ========================= SEND (Multipart – files) =========================
     @PostMapping(value = "/send", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<?> sendMessageWithFiles(
             @RequestParam("message") String message,
@@ -168,7 +160,6 @@ public class ChatController {
             User currentUser = getCurrentUser(session);
             boolean isAuthenticated = (currentUser != null);
 
-            // Extract content from each file
             StringBuilder filesContent = new StringBuilder();
             for (MultipartFile file : files) {
                 String extracted = fileProcessorService.extractContent(file);
@@ -178,7 +169,6 @@ public class ChatController {
                         .append(extracted);
             }
 
-            // Combine user message with file contents
             String fullPrompt = message + filesContent.toString();
             List<Map<String, String>> conversationHistory = new ArrayList<>();
 
@@ -200,7 +190,6 @@ public class ChatController {
                     }
                 }
 
-                // Load previous conversation (optional, but helpful)
                 List<ChatMessage> previousMessages =
                         chatHistoryService.getSessionMessages(sessionId);
                 int startIndex = Math.max(0, previousMessages.size() - 10);
@@ -212,13 +201,11 @@ public class ChatController {
                     ));
                 }
 
-                // Save user message (original, without file content) to history
                 chatHistoryService.saveMessage(sessionId, "user", message);
                 redisEventService.sendUserEvent(
                         "MESSAGE_SENT", currentUser.getId() + ":" + sessionId);
             }
 
-            // Generate AI response using the full prompt (message + file contents)
             String aiResponse = groqService.generateResponse(fullPrompt, conversationHistory);
 
             if (isAuthenticated && sessionId != null) {
@@ -230,7 +217,6 @@ public class ChatController {
             ChatResponse chatResponse = new ChatResponse();
             chatResponse.setResponse(aiResponse);
             if (isAuthenticated) chatResponse.setSessionId(sessionId);
-
             return ResponseEntity.ok(chatResponse);
 
         } catch (Exception e) {
@@ -238,6 +224,254 @@ public class ChatController {
             ChatResponse errorResponse = new ChatResponse();
             errorResponse.setError(e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
+        }
+    }
+
+    // ========================= SESSIONS =========================
+    @GetMapping("/sessions")
+    public ResponseEntity<Map<String, Object>> getUserSessions(HttpSession session) {
+        Map<String, Object> response = new HashMap<>();
+        try {
+            User currentUser = getCurrentUser(session);
+            if (currentUser == null) {
+                response.put("sessions", List.of());
+                response.put("authenticated", false);
+                return ResponseEntity.ok(response);
+            }
+            List<ChatSession> sessions = chatHistoryService.getUserSessions(currentUser);
+            List<ChatSession> sessionDTOs = sessions.stream()
+                    .map(this::convertToSessionDTO)
+                    .collect(Collectors.toList());
+            response.put("sessions", sessionDTOs);
+            response.put("authenticated", true);
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("Error fetching sessions: {}", e.getMessage(), e);
+            response.put("sessions", List.of());
+            response.put("error", e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
+        }
+    }
+
+    // ========================= HISTORY =========================
+    @GetMapping("/history/{sessionId}")
+    public ResponseEntity<Map<String, Object>> getSessionHistory(
+            @PathVariable Long sessionId, HttpSession session) {
+        Map<String, Object> response = new HashMap<>();
+        try {
+            User currentUser = getCurrentUser(session);
+            if (currentUser == null) {
+                response.put("messages", List.of());
+                response.put("authenticated", false);
+                return ResponseEntity.ok(response);
+            }
+            boolean exists = chatHistoryService.sessionExistsForUser(sessionId, currentUser);
+            if (!exists) {
+                response.put("messages", List.of());
+                response.put("sessionId", sessionId);
+                response.put("stale", true);
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
+            }
+            List<ChatMessage> messages = chatHistoryService.getSessionMessages(sessionId);
+            List<ChatMessage> messageDTOs = messages.stream()
+                    .map(this::convertToMessageDTO)
+                    .collect(Collectors.toList());
+            response.put("messages", messageDTOs);
+            response.put("sessionId", sessionId);
+            response.put("authenticated", true);
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("Error fetching history: {}", e.getMessage(), e);
+            response.put("messages", List.of());
+            response.put("error", e.getMessage());
+            return ResponseEntity.ok(response);
+        }
+    }
+
+    // ========================= NEW SESSION =========================
+    @PostMapping("/new-session")
+    public ResponseEntity<Map<String, Object>> createNewSession(HttpSession session) {
+        Map<String, Object> response = new HashMap<>();
+        try {
+            User currentUser = getCurrentUser(session);
+            if (currentUser == null) {
+                response.put("error", "User not logged in");
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(response);
+            }
+            ChatSession newSession = chatHistoryService.createNewSession(currentUser, "New Chat");
+            redisEventService.sendUserEvent(
+                    "SESSION_CREATED", currentUser.getId() + ":" + newSession.getId());
+            response.put("id", newSession.getId());
+            response.put("sessionName", newSession.getSessionName());
+            response.put("message", "New session created successfully");
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("Error creating session: {}", e.getMessage(), e);
+            response.put("error", e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
+        }
+    }
+
+    // ========================= RENAME SESSION =========================
+    @PatchMapping("/rename")
+    public ResponseEntity<Map<String, Object>> renameSession(
+            @RequestBody Map<String, Object> request, HttpSession session) {
+        Map<String, Object> response = new HashMap<>();
+        try {
+            User currentUser = getCurrentUser(session);
+            if (currentUser == null) {
+                response.put("error", "User not logged in");
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(response);
+            }
+            Object sessionIdObj = request.get("sessionId");
+            if (sessionIdObj == null) {
+                response.put("error", "sessionId is required");
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+            }
+            Long sessionId = ((Number) sessionIdObj).longValue();
+            String name = (String) request.get("name");
+            if (name == null || name.trim().isEmpty()) {
+                response.put("error", "Session name cannot be empty");
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+            }
+            boolean exists = chatHistoryService.sessionExistsForUser(sessionId, currentUser);
+            if (!exists) {
+                response.put("error", "Session not found");
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
+            }
+            ChatSession updatedSession = chatHistoryService.renameSession(sessionId, name.trim());
+            response.put("success", true);
+            response.put("sessionId", updatedSession.getId());
+            response.put("sessionName", updatedSession.getSessionName());
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("Error renaming session: {}", e.getMessage(), e);
+            response.put("error", e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
+        }
+    }
+
+    // ========================= GENERATE TITLE =========================
+    @PostMapping("/generate-title")
+    public ResponseEntity<Map<String, Object>> generateTitle(
+            @RequestBody Map<String, String> request, HttpSession session) {
+        Map<String, Object> response = new HashMap<>();
+        try {
+            User currentUser = getCurrentUser(session);
+            if (currentUser == null) {
+                response.put("error", "User not logged in");
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(response);
+            }
+            String firstMessage = request.get("firstMessage");
+            if (firstMessage == null || firstMessage.trim().isEmpty()) {
+                response.put("error", "Message cannot be empty");
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+            }
+            String truncated = firstMessage.length() > 100
+                    ? firstMessage.substring(0, 100)
+                    : firstMessage;
+            String prompt = String.format(
+                    "Generate a very short, concise title (maximum 5-7 words) for a " +
+                    "conversation that starts with: \"%s\". " +
+                    "Return ONLY the title, no quotes, no explanation.",
+                    truncated);
+            String title = groqService.generateResponse(prompt, List.of());
+            title = title.replace("\"", "").replace("'", "").trim();
+            if (title.length() > 60) title = title.substring(0, 57) + "...";
+            response.put("title", title);
+            response.put("success", true);
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("Error generating title: {}", e.getMessage(), e);
+            String raw = request.getOrDefault("firstMessage", "New Chat");
+            String fallbackTitle = raw.length() > 30 ? raw.substring(0, 30) + "..." : raw;
+            response.put("title", fallbackTitle);
+            response.put("success", false);
+            return ResponseEntity.ok(response);
+        }
+    }
+
+    // ========================= DELETE SESSION =========================
+    @DeleteMapping("/session/{sessionId}")
+    public ResponseEntity<Map<String, Object>> deleteSession(
+            @PathVariable Long sessionId, HttpSession session) {
+        Map<String, Object> response = new HashMap<>();
+        try {
+            User currentUser = getCurrentUser(session);
+            if (currentUser == null) {
+                response.put("error", "User not logged in");
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(response);
+            }
+            boolean exists = chatHistoryService.sessionExistsForUser(sessionId, currentUser);
+            if (!exists) {
+                response.put("message", "Session already deleted");
+                return ResponseEntity.ok(response);
+            }
+            chatHistoryService.deleteSession(sessionId);
+            redisEventService.sendUserEvent(
+                    "SESSION_DELETED", currentUser.getId() + ":" + sessionId);
+            response.put("message", "Session deleted successfully");
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("Error deleting session: {}", e.getMessage(), e);
+            response.put("error", e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
+        }
+    }
+
+    // ========================= CLEAR ALL SESSIONS =========================
+    @DeleteMapping("/sessions")
+    public ResponseEntity<Map<String, Object>> clearAllSessions(HttpSession session) {
+        Map<String, Object> response = new HashMap<>();
+        try {
+            User currentUser = getCurrentUser(session);
+            if (currentUser == null) {
+                response.put("error", "User not logged in");
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(response);
+            }
+            chatHistoryService.clearUserSessions(currentUser);
+            redisEventService.sendUserEvent(
+                    "ALL_SESSIONS_CLEARED", String.valueOf(currentUser.getId()));
+            response.put("message", "All sessions cleared successfully");
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("Error clearing sessions: {}", e.getMessage(), e);
+            response.put("error", e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
+        }
+    }
+
+    // ========================= SEARCH SESSIONS =========================
+    @GetMapping("/search")
+    public ResponseEntity<Map<String, Object>> searchSessions(
+            @RequestParam("q") String query, HttpSession session) {
+        Map<String, Object> response = new HashMap<>();
+        try {
+            User currentUser = getCurrentUser(session);
+            if (currentUser == null) {
+                response.put("sessions", List.of());
+                response.put("authenticated", false);
+                return ResponseEntity.ok(response);
+            }
+            if (query == null || query.trim().isEmpty()) {
+                response.put("sessions", List.of());
+                return ResponseEntity.ok(response);
+            }
+            List<ChatSession> sessions = chatHistoryService.getUserSessions(currentUser);
+            String lowerQuery = query.trim().toLowerCase();
+            List<ChatSession> filtered = sessions.stream()
+                    .filter(s -> s.getSessionName() != null
+                            && s.getSessionName().toLowerCase().contains(lowerQuery))
+                    .map(this::convertToSessionDTO)
+                    .collect(Collectors.toList());
+            response.put("sessions", filtered);
+            response.put("authenticated", true);
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("Error searching sessions: {}", e.getMessage(), e);
+            response.put("sessions", List.of());
+            response.put("error", e.getMessage());
+            return ResponseEntity.ok(response);
         }
     }
 }
