@@ -11,7 +11,7 @@ import ConfirmationModal from '../components/ConfirmationModal';
 import {
   ArrowDown, ArrowUp,
   Copy, Check, Edit2, Sun, Moon, Menu,
-  Paperclip, X, FileText, Camera, Image as ImageIcon,
+  Paperclip, X, FileText, Camera, Image as ImageIcon, Mic,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import type { Components } from 'react-markdown';
@@ -173,13 +173,22 @@ export default function Chat({ user, onLogout }: Props) {
   const [isProcessingFiles, setIsProcessingFiles] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // ── NEW: Attachment menu state ────────────────────────────────────────────
+  // ── Attachment menu state ────────────────────────────────────────────────
   const [showAttachMenu, setShowAttachMenu] = useState(false);
-
-  // ── NEW: Camera & photo input refs ────────────────────────────────────────
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
   const attachMenuRef = useRef<HTMLDivElement>(null);
+
+  // ── FIX: Message attachments — maps temp message id → files so images
+  //         are displayed inside the user's chat bubble after sending ─────────
+  const [messageAttachments, setMessageAttachments] = useState<Record<string, ProcessedFile[]>>({});
+
+  // ── Speech-to-text (Web Speech API — fastest, zero latency) ──────────────
+  const [isListening, setIsListening] = useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const recognitionRef = useRef<any>(null);
+  // Tracks the committed (final) transcript text so interim results overlay cleanly
+  const speechBaseRef = useRef('');
 
   // ── Theme state ───────────────────────────────────────────────────────────
   const [isDark, setIsDark] = useState<boolean>(() => {
@@ -211,7 +220,15 @@ export default function Chat({ user, onLogout }: Props) {
     persistSessionId(id);
   }, []);
 
-  // ── NEW: Close attach menu when clicking outside ──────────────────────────
+  // ── Auto-resize textarea when `input` changes (handles speech updates) ────
+  useEffect(() => {
+    if (inputRef.current) {
+      inputRef.current.style.height = 'auto';
+      inputRef.current.style.height = `${Math.min(inputRef.current.scrollHeight, 180)}px`;
+    }
+  }, [input]);
+
+  // ── Close attach menu when clicking outside ──────────────────────────────
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (attachMenuRef.current && !attachMenuRef.current.contains(e.target as Node)) {
@@ -223,6 +240,77 @@ export default function Chat({ user, onLogout }: Props) {
     }
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showAttachMenu]);
+
+  // ── Speech recognition handlers ───────────────────────────────────────────
+  const startListening = useCallback(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SR) return; // silently no-op in unsupported browsers
+
+    // Seed the committed base with whatever the user already typed
+    speechBaseRef.current = inputRef.current?.value ?? '';
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const recognition = new SR() as any;
+    recognition.continuous = true;       // keep going until user stops
+    recognition.interimResults = true;   // show words as they are spoken
+    recognition.lang = 'en-US';
+
+    recognition.onstart = () => setIsListening(true);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    recognition.onresult = (event: any) => {
+      let finalSegment = '';
+      let interimSegment = '';
+
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        if (event.results[i].isFinal) {
+          finalSegment += event.results[i][0].transcript;
+        } else {
+          interimSegment += event.results[i][0].transcript;
+        }
+      }
+
+      // Commit final words to the base
+      if (finalSegment) {
+        speechBaseRef.current = speechBaseRef.current
+          ? `${speechBaseRef.current} ${finalSegment}`.trim()
+          : finalSegment.trim();
+      }
+
+      // Render: committed base + live interim
+      const display = interimSegment
+        ? `${speechBaseRef.current} ${interimSegment}`.trim()
+        : speechBaseRef.current;
+
+      setInput(display);
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+      recognitionRef.current = null;
+    };
+
+    recognition.onerror = () => {
+      setIsListening(false);
+      recognitionRef.current = null;
+    };
+
+    recognitionRef.current = recognition;
+    recognition.start();
+    inputRef.current?.focus();
+  }, []);
+
+  const stopListening = useCallback(() => {
+    recognitionRef.current?.stop();
+    // onend will flip isListening; set it here too for instant UI feedback
+    setIsListening(false);
+  }, []);
+
+  const toggleListening = useCallback(() => {
+    if (isListening) stopListening();
+    else startListening();
+  }, [isListening, startListening, stopListening]);
 
   // ── Data Loading ──────────────────────────────────────────────────────────
   const loadSessions = useCallback(async () => {
@@ -295,7 +383,6 @@ export default function Chat({ user, onLogout }: Props) {
       console.error('File processing error:', err);
     } finally {
       setIsProcessingFiles(false);
-      // Reset all three inputs so the same file can be picked again
       if (fileInputRef.current) fileInputRef.current.value = '';
       if (cameraInputRef.current) cameraInputRef.current.value = '';
       if (photoInputRef.current) photoInputRef.current.value = '';
@@ -314,6 +401,9 @@ export default function Chat({ user, onLogout }: Props) {
     if (!messageText.trim() && (!filesToSend || !filesToSend.length)) return;
     if (isSendingRef.current) return;
 
+    // Stop any active speech recognition before sending
+    if (isListening) stopListening();
+
     isSendingRef.current = true;
     setIsTyping(true);
     setJustFinished(false);
@@ -322,13 +412,22 @@ export default function Chat({ user, onLogout }: Props) {
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
+    // Use a stable temp id so we can map attachments to it
+    const tempId = `temp-${Date.now()}`;
+
     const tempUserMsg: Message = {
-      id: 'temp-' + Date.now(),
+      id: tempId,
       sessionId: currentSessionId || 0,
       role: 'user',
       content: messageText,
       timestamp: new Date().toISOString(),
     };
+
+    // FIX 2 & 3: Store file previews keyed by temp message id so images
+    // appear inside the user's chat bubble after sending
+    if (filesToSend && filesToSend.length > 0) {
+      setMessageAttachments(prev => ({ ...prev, [tempId]: filesToSend }));
+    }
 
     if (messagesSnapshot) {
       setMessages([...messagesSnapshot, tempUserMsg]);
@@ -344,9 +443,16 @@ export default function Chat({ user, onLogout }: Props) {
       if (isSendingRef.current) setServerWaking(true);
     }, 4000);
 
+    // FIX 1: Spring's @NotBlank rejects an empty string — provide a
+    // sensible fallback when the user sends files without typing any text
+    const apiText = messageText.trim() ||
+      (filesToSend?.some(f => f.type === 'image')
+        ? 'What is in this image?'
+        : 'Please analyse the attached file.');
+
     try {
       const response = await chatApi.sendMessage(
-        messageText,
+        apiText,             // ← always non-empty for the backend
         currentSessionId,
         controller.signal,
         'default',
@@ -381,7 +487,7 @@ export default function Chat({ user, onLogout }: Props) {
 
       if (isNewSession && activeSessionId) {
         try {
-          const { title } = await chatApi.generateTitle(messageText) as any;
+          const { title } = await chatApi.generateTitle(apiText) as any;
           await chatApi.renameSession(activeSessionId, title);
           await loadSessions();
         } catch (renameErr: unknown) {
@@ -440,6 +546,7 @@ export default function Chat({ user, onLogout }: Props) {
     setInput('');
     setEditingMessage(null);
     setUploadedFiles([]);
+    setMessageAttachments({});  // clear attachment previews
   };
 
   const deleteSession = (sid: number) => {
@@ -481,6 +588,7 @@ export default function Chat({ user, onLogout }: Props) {
       await chatApi.clearSessions();
       updateCurrentSessionId(null);
       setMessages([]);
+      setMessageAttachments({});
       await loadSessions();
     } catch (err: unknown) {
       console.error('Failed to clear sessions:', err);
@@ -523,7 +631,6 @@ export default function Chat({ user, onLogout }: Props) {
   };
 
   // ── Derived values ────────────────────────────────────────────────────────
-  // Only show blinking cursor when there's no typed input yet
   const showBlinkingCursor = !input && (isTyping || justFinished);
 
   // ── Loading Screen ────────────────────────────────────────────────────────
@@ -685,6 +792,11 @@ export default function Chat({ user, onLogout }: Props) {
                 {messages.map((msg, index) => {
                   const isEditing = editingMessage?.id === msg.id;
                   const shouldSpin = isTyping && msg.role === 'assistant' && index === messages.length - 1;
+                  // FIX: retrieve any image attachments for this message
+                  const attachedImages = (messageAttachments[msg.id] ?? []).filter(
+                    f => f.type === 'image' && f.preview,
+                  );
+
                   return (
                     <div
                       key={msg.id || `msg-${index}`}
@@ -749,44 +861,61 @@ export default function Chat({ user, onLogout }: Props) {
                                   </div>
                                 </div>
                               ) : (
-                                <ReactMarkdown
-                                  remarkPlugins={[remarkGfm]}
-                                  components={{
-                                    pre({ children, ...props }: any) {
-                                      return (
-                                        <div className="my-6 overflow-hidden rounded-xl border border-indigo-200/40 dark:border-indigo-500/20 shadow-lg bg-gradient-to-br from-indigo-50/80 to-violet-50/60 dark:from-indigo-950/50 dark:to-violet-950/40 backdrop-blur-xl">
-                                          <div className="flex items-center gap-2 px-4 py-2 border-b border-indigo-200/30 dark:border-indigo-500/15 bg-indigo-100/40 dark:bg-indigo-900/20">
-                                            <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 dark:bg-indigo-500" />
-                                            <span className="text-[10px] font-black uppercase tracking-widest text-indigo-400 dark:text-indigo-500">Architecture</span>
-                                          </div>
-                                          <pre
-                                            className="p-5 overflow-x-auto text-[0.82rem] leading-relaxed font-mono text-indigo-700 dark:text-indigo-300 whitespace-pre"
-                                            {...props}
-                                          >
-                                            {children}
-                                          </pre>
-                                        </div>
-                                      );
-                                    },
-                                    code({ className, children, ...props }: any) {
-                                      const match = /language-(\w+)/.exec(className || '');
-                                      const content = String(children).replace(/\n$/, '');
-                                      const isInline = props.inline || !className;
-                                      return !isInline && match ? (
-                                        <CodeBlock language={match[1]} value={content} />
-                                      ) : (
-                                        <code
-                                          className={`${className || ''} bg-zinc-100 dark:bg-zinc-800 text-indigo-600 dark:text-indigo-400 px-1 py-0.5 rounded font-mono text-[0.85em]`}
-                                          {...props}
-                                        >
-                                          {children}
-                                        </code>
-                                      );
-                                    }
-                                  } as Components}
-                                >
-                                  {cleanMessageContent(msg.content)}
-                                </ReactMarkdown>
+                                <>
+                                  {/* FIX: Show image attachments inside the user bubble */}
+                                  {attachedImages.length > 0 && (
+                                    <div className={`flex flex-wrap gap-2 ${cleanMessageContent(msg.content) ? 'mb-2' : ''}`}>
+                                      {attachedImages.map(f => (
+                                        <img
+                                          key={f.id}
+                                          src={f.preview}
+                                          alt={f.name}
+                                          className="max-w-[220px] max-h-[180px] w-auto h-auto rounded-xl object-cover shadow-sm border border-zinc-200/40 dark:border-zinc-700/40"
+                                        />
+                                      ))}
+                                    </div>
+                                  )}
+                                  {cleanMessageContent(msg.content) && (
+                                    <ReactMarkdown
+                                      remarkPlugins={[remarkGfm]}
+                                      components={{
+                                        pre({ children, ...props }: any) {
+                                          return (
+                                            <div className="my-6 overflow-hidden rounded-xl border border-indigo-200/40 dark:border-indigo-500/20 shadow-lg bg-gradient-to-br from-indigo-50/80 to-violet-50/60 dark:from-indigo-950/50 dark:to-violet-950/40 backdrop-blur-xl">
+                                              <div className="flex items-center gap-2 px-4 py-2 border-b border-indigo-200/30 dark:border-indigo-500/15 bg-indigo-100/40 dark:bg-indigo-900/20">
+                                                <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 dark:bg-indigo-500" />
+                                                <span className="text-[10px] font-black uppercase tracking-widest text-indigo-400 dark:text-indigo-500">Architecture</span>
+                                              </div>
+                                              <pre
+                                                className="p-5 overflow-x-auto text-[0.82rem] leading-relaxed font-mono text-indigo-700 dark:text-indigo-300 whitespace-pre"
+                                                {...props}
+                                              >
+                                                {children}
+                                              </pre>
+                                            </div>
+                                          );
+                                        },
+                                        code({ className, children, ...props }: any) {
+                                          const match = /language-(\w+)/.exec(className || '');
+                                          const content = String(children).replace(/\n$/, '');
+                                          const isInline = props.inline || !className;
+                                          return !isInline && match ? (
+                                            <CodeBlock language={match[1]} value={content} />
+                                          ) : (
+                                            <code
+                                              className={`${className || ''} bg-zinc-100 dark:bg-zinc-800 text-indigo-600 dark:text-indigo-400 px-1 py-0.5 rounded font-mono text-[0.85em]`}
+                                              {...props}
+                                            >
+                                              {children}
+                                            </code>
+                                          );
+                                        }
+                                      } as Components}
+                                    >
+                                      {cleanMessageContent(msg.content)}
+                                    </ReactMarkdown>
+                                  )}
+                                </>
                               )}
                             </div>
                           </div>
@@ -889,97 +1018,76 @@ export default function Chat({ user, onLogout }: Props) {
               )}
             </AnimatePresence>
 
-            {/* ── Hidden file inputs (three: camera, photos, files) ── */}
-            {/* Camera — opens device camera directly on mobile */}
-            <input
-              ref={cameraInputRef}
-              type="file"
-              accept="image/*"
-              capture="environment"
-              onChange={handleFileChange}
-              className="hidden"
-            />
-            {/* Photos — image picker (gallery) */}
-            <input
-              ref={photoInputRef}
-              type="file"
-              accept="image/png,image/jpeg,image/gif,image/webp"
-              multiple
-              onChange={handleFileChange}
-              className="hidden"
-            />
-            {/* Files — any supported file type */}
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              accept="image/png,image/jpeg,image/gif,image/webp,.txt,.md,.json,.csv,.ts,.tsx,.js,.jsx,.py,.html,.css"
-              onChange={handleFileChange}
-              className="hidden"
-            />
+            {/* ── Hidden file inputs ── */}
+            <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" onChange={handleFileChange} className="hidden" />
+            <input ref={photoInputRef} type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple onChange={handleFileChange} className="hidden" />
+            <input ref={fileInputRef} type="file" multiple accept="image/png,image/jpeg,image/gif,image/webp,.txt,.md,.json,.csv,.ts,.tsx,.js,.jsx,.py,.html,.css" onChange={handleFileChange} className="hidden" />
 
             {/* ── Main input container ── */}
-            {/*
-              NOTE: overflow-hidden intentionally removed so the
-              attach menu (positioned absolute, above the container)
-              is not clipped by this wrapper.
-            */}
             <div className={`relative flex flex-col bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-2xl shadow-lg transition-all ${justFinished ? 'animate-blink' : ''}`}>
 
-              {/* ── File preview strip ── */}
+              {/* ── FIX: Improved file preview strip — images shown at 64 × 64 ── */}
               <AnimatePresence>
                 {uploadedFiles.length > 0 && (
                   <motion.div
                     initial={{ opacity: 0, height: 0 }}
                     animate={{ opacity: 1, height: 'auto' }}
                     exit={{ opacity: 0, height: 0 }}
-                    className="flex flex-wrap gap-2 px-3 pt-2.5 pb-2 border-b border-zinc-100 dark:border-zinc-800/70 overflow-hidden"
+                    className="flex flex-wrap gap-3 px-3 pt-3 pb-2.5 border-b border-zinc-100 dark:border-zinc-800/70"
                   >
                     {uploadedFiles.map(file => (
-                      <div
-                        key={file.id}
-                        className="relative flex items-center gap-1.5 bg-zinc-100 dark:bg-zinc-800 rounded-xl px-2.5 py-1.5 max-w-[180px]"
-                      >
-                        {file.type === 'image' && file.preview ? (
-                          <>
+                      file.type === 'image' && file.preview ? (
+                        /* ── Image file: large square thumbnail ── */
+                        <div key={file.id} className="relative flex flex-col items-center gap-1 shrink-0">
+                          <div className="w-16 h-16 rounded-xl overflow-hidden bg-zinc-200 dark:bg-zinc-700 shadow-sm border border-zinc-200/60 dark:border-zinc-600/60">
                             <img
                               src={file.preview}
                               alt={file.name}
-                              className="w-7 h-7 rounded-lg object-cover shrink-0"
+                              className="w-full h-full object-cover"
                             />
-                            <span className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400 truncate max-w-[100px]">
+                          </div>
+                          <span className="text-[9px] font-medium text-zinc-400 dark:text-zinc-500 truncate max-w-[64px] leading-none">
+                            {file.name}
+                          </span>
+                          <button
+                            onClick={() => removeFile(file.id)}
+                            className="absolute -top-1.5 -right-1.5 w-4.5 h-4.5 w-[18px] h-[18px] rounded-full flex items-center justify-center
+                                       bg-zinc-600 dark:bg-zinc-500 text-white shadow-md
+                                       hover:bg-red-500 dark:hover:bg-red-500 transition-colors"
+                            aria-label={`Remove ${file.name}`}
+                          >
+                            <X className="w-2.5 h-2.5" />
+                          </button>
+                        </div>
+                      ) : (
+                        /* ── Non-image file: pill with icon ── */
+                        <div key={file.id} className="relative flex items-center gap-1.5 bg-zinc-100 dark:bg-zinc-800 rounded-xl px-2.5 py-1.5 max-w-[160px] shrink-0">
+                          <FileText className="w-4 h-4 text-indigo-500 shrink-0" />
+                          <div className="flex flex-col min-w-0">
+                            <span className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400 truncate max-w-[85px]">
                               {file.name}
                             </span>
-                          </>
-                        ) : (
-                          <>
-                            <FileText className="w-4 h-4 text-indigo-500 shrink-0" />
-                            <div className="flex flex-col min-w-0">
-                              <span className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400 truncate max-w-[90px]">
-                                {file.name}
-                              </span>
-                              <span className="text-[9px] font-medium text-zinc-400">
-                                {formatFileSize(file.size)}
-                              </span>
-                            </div>
-                          </>
-                        )}
-                        <button
-                          onClick={() => removeFile(file.id)}
-                          className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full flex items-center justify-center
-                                     bg-zinc-500 dark:bg-zinc-600 text-white shadow-sm
-                                     hover:bg-red-500 dark:hover:bg-red-500 transition-colors"
-                          aria-label={`Remove ${file.name}`}
-                        >
-                          <X className="w-2.5 h-2.5" />
-                        </button>
-                      </div>
+                            <span className="text-[9px] font-medium text-zinc-400">
+                              {formatFileSize(file.size)}
+                            </span>
+                          </div>
+                          <button
+                            onClick={() => removeFile(file.id)}
+                            className="absolute -top-1.5 -right-1.5 w-[18px] h-[18px] rounded-full flex items-center justify-center
+                                       bg-zinc-500 dark:bg-zinc-600 text-white shadow-sm
+                                       hover:bg-red-500 dark:hover:bg-red-500 transition-colors"
+                            aria-label={`Remove ${file.name}`}
+                          >
+                            <X className="w-2.5 h-2.5" />
+                          </button>
+                        </div>
+                      )
                     ))}
                   </motion.div>
                 )}
               </AnimatePresence>
 
-              {/* ── Textarea row: [paperclip LEFT] [textarea] [send RIGHT] ── */}
+              {/* ── Textarea row: [paperclip] [textarea] [mic] [send] ── */}
               <div className="flex flex-row items-end">
 
                 {/* ── LEFT: Paperclip + expandable attach menu ── */}
@@ -987,7 +1095,7 @@ export default function Chat({ user, onLogout }: Props) {
                   ref={attachMenuRef}
                   className="relative flex items-center pl-2 pb-2.5 md:pb-3 shrink-0"
                 >
-                  {/* Expandable attach options menu — appears above the button */}
+                  {/* Attach options menu */}
                   <AnimatePresence>
                     {showAttachMenu && (
                       <motion.div
@@ -1001,62 +1109,32 @@ export default function Chat({ user, onLogout }: Props) {
                                    rounded-2xl shadow-xl dark:shadow-zinc-900/60
                                    min-w-[148px] overflow-hidden"
                       >
-                        {/* Camera */}
                         <button
                           type="button"
-                          onClick={() => {
-                            cameraInputRef.current?.click();
-                            setShowAttachMenu(false);
-                          }}
-                          className="flex items-center gap-3 w-full px-4 py-3
-                                     text-[13px] font-semibold
-                                     text-zinc-700 dark:text-zinc-200
-                                     hover:bg-zinc-50 dark:hover:bg-zinc-700/60
-                                     transition-colors"
+                          onClick={() => { cameraInputRef.current?.click(); setShowAttachMenu(false); }}
+                          className="flex items-center gap-3 w-full px-4 py-3 text-[13px] font-semibold text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-700/60 transition-colors"
                         >
                           <span className="flex items-center justify-center w-7 h-7 rounded-xl bg-indigo-100 dark:bg-indigo-950/60">
                             <Camera className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
                           </span>
                           Camera
                         </button>
-
-                        {/* Divider */}
                         <div className="h-px bg-zinc-100 dark:bg-zinc-700/50" />
-
-                        {/* Photos */}
                         <button
                           type="button"
-                          onClick={() => {
-                            photoInputRef.current?.click();
-                            setShowAttachMenu(false);
-                          }}
-                          className="flex items-center gap-3 w-full px-4 py-3
-                                     text-[13px] font-semibold
-                                     text-zinc-700 dark:text-zinc-200
-                                     hover:bg-zinc-50 dark:hover:bg-zinc-700/60
-                                     transition-colors"
+                          onClick={() => { photoInputRef.current?.click(); setShowAttachMenu(false); }}
+                          className="flex items-center gap-3 w-full px-4 py-3 text-[13px] font-semibold text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-700/60 transition-colors"
                         >
                           <span className="flex items-center justify-center w-7 h-7 rounded-xl bg-emerald-100 dark:bg-emerald-950/60">
                             <ImageIcon className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
                           </span>
                           Photos
                         </button>
-
-                        {/* Divider */}
                         <div className="h-px bg-zinc-100 dark:bg-zinc-700/50" />
-
-                        {/* Files */}
                         <button
                           type="button"
-                          onClick={() => {
-                            fileInputRef.current?.click();
-                            setShowAttachMenu(false);
-                          }}
-                          className="flex items-center gap-3 w-full px-4 py-3
-                                     text-[13px] font-semibold
-                                     text-zinc-700 dark:text-zinc-200
-                                     hover:bg-zinc-50 dark:hover:bg-zinc-700/60
-                                     transition-colors"
+                          onClick={() => { fileInputRef.current?.click(); setShowAttachMenu(false); }}
+                          className="flex items-center gap-3 w-full px-4 py-3 text-[13px] font-semibold text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-700/60 transition-colors"
                         >
                           <span className="flex items-center justify-center w-7 h-7 rounded-xl bg-violet-100 dark:bg-violet-950/60">
                             <FileText className="w-3.5 h-3.5 text-violet-600 dark:text-violet-400" />
@@ -1075,13 +1153,11 @@ export default function Chat({ user, onLogout }: Props) {
                     disabled={isProcessingFiles}
                     title="Attach — camera, photos or files"
                     aria-label="Open attach menu"
-                    className={`flex items-center justify-center w-9 h-9 rounded-full
-                               transition-all duration-200
-                               disabled:opacity-40 disabled:cursor-not-allowed
-                               ${showAttachMenu
-                                 ? 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400'
-                                 : 'text-zinc-400 dark:text-zinc-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-zinc-100 dark:hover:bg-zinc-800'
-                               }`}
+                    className={`flex items-center justify-center w-9 h-9 rounded-full transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed ${
+                      showAttachMenu
+                        ? 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400'
+                        : 'text-zinc-400 dark:text-zinc-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-zinc-100 dark:hover:bg-zinc-800'
+                    }`}
                   >
                     <motion.span
                       animate={{ rotate: showAttachMenu ? 45 : 0 }}
@@ -1098,7 +1174,11 @@ export default function Chat({ user, onLogout }: Props) {
                   <textarea
                     ref={inputRef}
                     value={input}
-                    onChange={(e) => setInput(e.target.value)}
+                    onChange={(e) => {
+                      setInput(e.target.value);
+                      // Keep speech base in sync if user edits while mic is on
+                      if (isListening) speechBaseRef.current = e.target.value;
+                    }}
                     onFocus={() => setInputFocused(true)}
                     onBlur={() => setInputFocused(false)}
                     onKeyDown={(e) => {
@@ -1107,8 +1187,7 @@ export default function Chat({ user, onLogout }: Props) {
                         handleSendMessage();
                       }
                     }}
-                    // ── NOT disabled while isTyping — user can pre-type their next message ──
-                    placeholder={showBlinkingCursor ? '' : 'Write a message...'}
+                    placeholder={showBlinkingCursor ? '' : isListening ? 'Listening…' : 'Write a message...'}
                     rows={1}
                     className="w-full px-3 md:px-4 py-3.5 md:py-4 bg-transparent focus:outline-none font-medium text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-500 text-sm md:text-base leading-relaxed resize-none min-h-[52px] max-h-[180px] overflow-y-auto transition-colors"
                     onInput={(e) => {
@@ -1117,8 +1196,8 @@ export default function Chat({ user, onLogout }: Props) {
                       target.style.height = `${Math.min(target.scrollHeight, 180)}px`;
                     }}
                   />
-                  {/* Blinking cursor placeholder — only shown when input is empty and not focused */}
-                  {showBlinkingCursor && !inputFocused && (
+                  {/* Blinking cursor placeholder */}
+                  {showBlinkingCursor && !inputFocused && !isListening && (
                     <div className="absolute left-3 md:left-4 top-1/2 -translate-y-1/2 flex items-center gap-1 pointer-events-none">
                       <BlinkingCursor />
                       <span className="text-sm md:text-base font-medium text-zinc-400 dark:text-zinc-500">Write a message</span>
@@ -1126,8 +1205,38 @@ export default function Chat({ user, onLogout }: Props) {
                   )}
                 </div>
 
-                {/* ── RIGHT: Send / Stop button ── */}
-                <div className="flex items-center px-2 pb-2.5 md:pb-3 shrink-0">
+                {/* ── RIGHT: Mic + Send/Stop ── */}
+                <div className="flex items-center gap-1 px-2 pb-2.5 md:pb-3 shrink-0">
+
+                  {/* ── Mic button (Web Speech API — fastest approach, zero latency) ── */}
+                  <motion.button
+                    type="button"
+                    whileTap={{ scale: 0.88 }}
+                    onClick={toggleListening}
+                    title={isListening ? 'Stop voice input' : 'Start voice input'}
+                    aria-label={isListening ? 'Stop voice input' : 'Start voice input'}
+                    className={`relative flex items-center justify-center w-9 h-9 rounded-full transition-all duration-200 ${
+                      isListening
+                        ? 'bg-red-50 dark:bg-red-950/40 text-red-500 dark:text-red-400 ring-2 ring-red-300 dark:ring-red-700'
+                        : 'text-zinc-400 dark:text-zinc-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-zinc-100 dark:hover:bg-zinc-800'
+                    }`}
+                  >
+                    {isListening ? (
+                      <>
+                        {/* Pulsing ring behind mic icon while listening */}
+                        <motion.span
+                          animate={{ scale: [1, 1.6, 1], opacity: [0.4, 0, 0.4] }}
+                          transition={{ repeat: Infinity, duration: 1.4, ease: 'easeOut' }}
+                          className="absolute inset-0 rounded-full bg-red-400/30 dark:bg-red-500/20"
+                        />
+                        <Mic className="w-4 h-4 relative z-10" />
+                      </>
+                    ) : (
+                      <Mic className="w-4 h-4" />
+                    )}
+                  </motion.button>
+
+                  {/* ── Send / Stop button ── */}
                   <motion.button
                     whileHover={{ scale: isTyping || input.trim() || uploadedFiles.length ? 1.08 : 1.02 }}
                     whileTap={{ scale: 0.92 }}
