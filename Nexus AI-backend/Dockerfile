@@ -20,6 +20,9 @@ RUN mvn package -DskipTests
 FROM eclipse-temurin:17-jre-alpine
 WORKDIR /app
 
+# ✅ Install Tesseract OCR (Alpine package)
+RUN apk add --no-cache tesseract-ocr tesseract-ocr-eng
+
 # Copy jar from build stage
 COPY --from=build /app/target/*.jar app.jar
 
@@ -28,5 +31,3 @@ EXPOSE 8080
 
 # Run the app
 ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75", "-jar", "app.jar"]
-
-RUN apt-get update && apt-get install -y tesseract-ocr tesseract-ocr-eng
