@@ -827,8 +827,8 @@ export default function Chat({ user, onLogout }: Props) {
                 {/* Blinking cursor placeholder */}
                 {showBlinkingCursor && !inputFocused && (
                   <div className="absolute left-4 md:left-5 top-1/2 -translate-y-1/2 flex items-center gap-1 pointer-events-none">
-                    <span className="text-sm md:text-base font-medium text-zinc-400 dark:text-zinc-500">Write a message</span>
                     <BlinkingCursor />
+                    <span className="text-sm md:text-base font-medium text-zinc-400 dark:text-zinc-500">Write a message</span>
                   </div>
                 )}
               </div>
