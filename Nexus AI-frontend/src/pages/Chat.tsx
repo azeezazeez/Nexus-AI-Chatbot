@@ -399,7 +399,7 @@ export default function Chat({ user, onLogout }: Props) {
     try {
       let response: any;
       const hasFiles = filesToSend && filesToSend.length > 0;
-      const finalMessage = messageText.trim() || (hasFiles && filesToSend.some(f => f.type.startsWith('image/')) ? 'What is in this image?' : 'Please analyse the attached file.');
+      const finalMessage = messageText.trim() || (hasFiles && filesToSend.some(f => f.type.startsWith('image/')) ? );
 
       if (hasFiles) {
         response = await chatApi.sendMessageWithFiles(
