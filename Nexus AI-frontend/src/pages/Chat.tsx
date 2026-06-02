@@ -375,7 +375,7 @@ export default function Chat({ user, onLogout }: Props) {
       id: tempId,
       sessionId: currentSessionId || 0,
       role: 'user',
-      content: messageText.trim() || (filesToSend?.some(f => f.type.startsWith('image/')) ? ),
+      content: messageText.trim() || (filesToSend?.some(f => f.type.startsWith('image/')) ? 'Image uploaded' : ''),
       timestamp: new Date().toISOString(),
     };
 
@@ -399,7 +399,7 @@ export default function Chat({ user, onLogout }: Props) {
     try {
       let response: any;
       const hasFiles = filesToSend && filesToSend.length > 0;
-      const finalMessage = messageText.trim() || (hasFiles && filesToSend.some(f => f.type.startsWith('image/')) ? );
+      const finalMessage = messageText.trim() || (hasFiles && filesToSend.some(f => f.type.startsWith('image/')) ?  'Image uploaded': '');
 
       if (hasFiles) {
         response = await chatApi.sendMessageWithFiles(
