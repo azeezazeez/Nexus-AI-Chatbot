@@ -11,8 +11,7 @@ import ConfirmationModal from '../components/ConfirmationModal';
 import {
   ArrowDown, ArrowUp,
   Copy, Check, Edit2, Sun, Moon, Menu,
-  Paperclip, X, FileText, Camera, Mic,
-  RotateCcw, // FIX 1: Added for retry button
+  X, RotateCcw,
 } from 'lucide-react';
 
 import ReactMarkdown from 'react-markdown';
@@ -106,7 +105,6 @@ const formatFileSize = (bytes: number): string => {
   return `${(bytes / 1048576).toFixed(1)}MB`;
 };
 
-// FIX 3: Helper to convert a File to a persistent base64 data URL
 const fileToDataUrl = (file: File): Promise<string> =>
   new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -133,21 +131,16 @@ export default function Chat({ user, onLogout }: Props) {
   const [inputFocused, setInputFocused] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  // FIX 3: Persistent map of message ID → base64 image data URLs
-  const [messageAttachments, setMessageAttachments] = useState<Record<string | number, string[]>>({});
-
-  // File upload
+  // File upload (UI removed, but state kept to avoid breaking existing logic)
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [filePreviews, setFilePreviews] = useState<{ id: string; file: File; preview?: string }[]>([]);
   const [isProcessingFiles, setIsProcessingFiles] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
 
-  // Attach menu
-  const [showAttachMenu, setShowAttachMenu] = useState(false);
-  const attachMenuRef = useRef<HTMLDivElement>(null);
+  const [messageAttachments, setMessageAttachments] = useState<Record<string | number, string[]>>({});
 
-  // Speech recognition
+  // Speech recognition (UI removed)
   const [isListening, setIsListening] = useState(false);
   const recognitionRef = useRef<any>(null);
   const speechBaseRef = useRef('');
@@ -184,18 +177,7 @@ export default function Chat({ user, onLogout }: Props) {
     }
   }, [input]);
 
-  // Close attach menu on outside click
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (attachMenuRef.current && !attachMenuRef.current.contains(e.target as Node)) {
-        setShowAttachMenu(false);
-      }
-    };
-    if (showAttachMenu) document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [showAttachMenu]);
-
-  // Clean up object URLs on unmount only (not on every filePreviews change)
+  // Clean up object URLs
   const filePreviewsRef = useRef(filePreviews);
   useEffect(() => { filePreviewsRef.current = filePreviews; }, [filePreviews]);
   useEffect(() => {
@@ -206,7 +188,7 @@ export default function Chat({ user, onLogout }: Props) {
     };
   }, []);
 
-  // Speech recognition
+  // Speech recognition handlers (kept but never called)
   const startListening = useCallback(() => {
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SR) {
@@ -324,7 +306,7 @@ export default function Chat({ user, onLogout }: Props) {
     setShowScrollBottom(scrollHeight - scrollTop - clientHeight > 100);
   };
 
-  // File handlers
+  // File handlers (kept but no UI to trigger them)
   const handleFileSelection = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
     setIsProcessingFiles(true);
@@ -351,7 +333,6 @@ export default function Chat({ user, onLogout }: Props) {
     }));
   };
 
-  // FIX 3 + FIX 1: sendMessage now accepts persistent previewUrls to display in the message bubble
   const sendMessage = async (
     messageText: string,
     messagesSnapshot?: Message[],
@@ -382,7 +363,6 @@ export default function Chat({ user, onLogout }: Props) {
     if (messagesSnapshot) setMessages([...messagesSnapshot, tempUserMsg]);
     else setMessages(prev => [...prev, tempUserMsg]);
 
-    // FIX 3: Store base64 preview URLs keyed by this message's temp ID
     if (previewUrls && previewUrls.length > 0) {
       setMessageAttachments(prev => ({ ...prev, [tempId]: previewUrls }));
     }
@@ -399,7 +379,7 @@ export default function Chat({ user, onLogout }: Props) {
     try {
       let response: any;
       const hasFiles = filesToSend && filesToSend.length > 0;
-      const finalMessage = messageText.trim() || (hasFiles && filesToSend.some(f => f.type.startsWith('image/')) ?  'Image uploaded': '');
+      const finalMessage = messageText.trim() || (hasFiles && filesToSend.some(f => f.type.startsWith('image/')) ? 'Image uploaded' : '');
 
       if (hasFiles) {
         response = await chatApi.sendMessageWithFiles(
@@ -481,15 +461,12 @@ export default function Chat({ user, onLogout }: Props) {
     }
   };
 
-  // FIX 3: Capture base64 data URLs BEFORE clearing filePreviews, so they persist in the message bubble
   const handleSendMessage = async (e?: React.FormEvent, directMessage?: string) => {
     if (e) { e.preventDefault(); e.stopPropagation(); }
     const text = directMessage !== undefined ? directMessage : input;
     if (!text.trim() && selectedFiles.length === 0) return;
 
     const filesToSend = selectedFiles.length > 0 ? [...selectedFiles] : undefined;
-
-    // Convert image files to base64 data URLs now — these won't be revoked like object URLs
     let previewUrls: string[] | undefined;
     if (filesToSend) {
       const imageFiles = filesToSend.filter(f => f.type.startsWith('image/'));
@@ -501,7 +478,6 @@ export default function Chat({ user, onLogout }: Props) {
     await sendMessage(text, undefined, filesToSend, previewUrls);
   };
 
-  // FIX 1: Retry handler — resends the user's message, trimming everything after it
   const handleRetryMessage = (msg: Message) => {
     if (isTyping) return;
     const msgIndex = messages.findIndex(m => m.id === msg.id);
@@ -695,7 +671,6 @@ export default function Chat({ user, onLogout }: Props) {
                 {messages.map((msg, index) => {
                   const isEditing = editingMessage?.id === msg.id;
                   const shouldSpin = isTyping && msg.role === 'assistant' && index === messages.length - 1;
-                  // FIX 3: Look up any stored image attachments for this message
                   const attachedImages = messageAttachments[msg.id] || [];
 
                   return (
@@ -717,7 +692,6 @@ export default function Chat({ user, onLogout }: Props) {
                               ? 'bg-white/80 dark:bg-zinc-900/60 border-zinc-200/60 dark:border-zinc-700/50 text-zinc-900 dark:text-zinc-100 rounded-tl-none'
                               : 'bg-zinc-100/80 dark:bg-zinc-800/60 border-zinc-200/40 dark:border-zinc-700/40 text-zinc-900 dark:text-zinc-100 rounded-tr-none'
                           }`}>
-                            {/* FIX 3: Render attached images above the message text */}
                             {attachedImages.length > 0 && (
                               <div className="flex flex-wrap gap-2 mb-3">
                                 {attachedImages.map((url, i) => (
@@ -794,7 +768,6 @@ export default function Chat({ user, onLogout }: Props) {
                             </span>
 
                             <div className="flex items-center gap-0.5">
-                              {/* FIX 1: Retry button — shown next to copy for user messages */}
                               {msg.role === 'user' && !isEditing && !isTyping && (
                                 <>
                                   <button
@@ -813,7 +786,6 @@ export default function Chat({ user, onLogout }: Props) {
                                 </>
                               )}
 
-                              {/* Copy button — shown for all messages */}
                               <button
                                 onClick={() => {
                                   navigator.clipboard.writeText(cleanMessageContent(msg.content));
@@ -862,7 +834,7 @@ export default function Chat({ user, onLogout }: Props) {
           </div>
         </div>
 
-        {/* Input bar */}
+        {/* Input bar - paperclip and mic buttons removed */}
         <div className="shrink-0 bg-white dark:bg-zinc-950 border-t border-zinc-200/50 dark:border-zinc-800/50 px-3 sm:px-4 md:px-6 py-3 md:py-4">
           <div className="max-w-3xl mx-auto relative">
             <AnimatePresence>
@@ -877,28 +849,8 @@ export default function Chat({ user, onLogout }: Props) {
               )}
             </AnimatePresence>
 
-            {/* FIX 2: Added onClick to reset value so the same file can be selected again */}
-            <input
-              ref={cameraInputRef}
-              type="file"
-              accept="image/*"
-              capture="environment"
-              className="hidden"
-              onClick={(e) => { (e.target as HTMLInputElement).value = ''; }}
-              onChange={(e) => handleFileSelection(e.target.files)}
-            />
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              accept="image/png,image/jpeg,image/gif,image/webp,.txt,.md,.json,.csv,.ts,.tsx,.js,.jsx,.py,.html,.css"
-              className="hidden"
-              onClick={(e) => { (e.target as HTMLInputElement).value = ''; }}
-              onChange={(e) => handleFileSelection(e.target.files)}
-            />
-
             <div className={`relative flex flex-col bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-2xl shadow-lg transition-all ${justFinished ? 'animate-blink' : ''}`}>
-              {/* File preview strip */}
+              {/* File preview strip (kept for consistency but never shown) */}
               <AnimatePresence>
                 {filePreviews.length > 0 && (
                   <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="flex flex-wrap gap-3 px-3 pt-3 pb-2.5 border-b border-zinc-100 dark:border-zinc-800/70">
@@ -910,7 +862,7 @@ export default function Chat({ user, onLogout }: Props) {
                           </div>
                         ) : (
                           <div className="w-16 h-16 rounded-xl flex items-center justify-center bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700">
-                            <FileText className="w-6 h-6 text-indigo-500" />
+                            <X className="w-6 h-6 text-indigo-500" />
                           </div>
                         )}
                         <span className="text-[9px] font-medium text-zinc-400 truncate max-w-[64px]">{fp.file.name}</span>
@@ -924,37 +876,6 @@ export default function Chat({ user, onLogout }: Props) {
               </AnimatePresence>
 
               <div className="flex flex-row items-end">
-                {/* Attach button + menu */}
-                <div ref={attachMenuRef} className="relative flex items-center pl-2 pb-2.5 md:pb-3 shrink-0">
-                  <AnimatePresence>
-                    {showAttachMenu && (
-                      <motion.div initial={{ opacity: 0, y: 6, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 6, scale: 0.95 }} className="absolute bottom-full left-0 mb-2 z-50 bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-2xl shadow-xl min-w-[148px] overflow-hidden">
-                        <button type="button" onClick={() => { cameraInputRef.current?.click(); setShowAttachMenu(false); }} className="flex items-center gap-3 w-full px-4 py-3 text-[13px] font-semibold text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-700/60">
-                          <span className="flex items-center justify-center w-7 h-7 rounded-xl bg-indigo-100 dark:bg-indigo-950/60">
-                            <Camera className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                          </span>
-                          Camera
-                        </button>
-                        <div className="h-px bg-zinc-100 dark:bg-zinc-700/50" />
-                        <button type="button" onClick={() => { fileInputRef.current?.click(); setShowAttachMenu(false); }} className="flex items-center gap-3 w-full px-4 py-3 text-[13px] font-semibold text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-700/60">
-                          <span className="flex items-center justify-center w-7 h-7 rounded-xl bg-violet-100 dark:bg-violet-950/60">
-                            <FileText className="w-3.5 h-3.5 text-violet-600 dark:text-violet-400" />
-                          </span>
-                          Files
-                        </button>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                  <motion.button
-                    whileTap={{ scale: 0.88 }}
-                    onClick={() => setShowAttachMenu(prev => !prev)}
-                    disabled={isProcessingFiles}
-                    className={`flex items-center justify-center w-9 h-9 rounded-full transition-all duration-200 disabled:opacity-40 ${showAttachMenu ? 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600' : 'text-zinc-400 dark:text-zinc-500 hover:text-indigo-600 hover:bg-zinc-100 dark:hover:bg-zinc-800'}`}
-                  >
-                    <Paperclip className={`w-4 h-4 ${isProcessingFiles ? 'animate-spin' : ''}`} />
-                  </motion.button>
-                </div>
-
                 {/* Textarea */}
                 <div className="relative flex-1 min-w-0">
                   <textarea
@@ -977,17 +898,8 @@ export default function Chat({ user, onLogout }: Props) {
                   )}
                 </div>
 
-                {/* Mic + Send */}
+                {/* Only send button remains */}
                 <div className="flex items-center gap-1 px-2 pb-2.5 md:pb-3 shrink-0">
-                  <motion.button
-                    whileTap={{ scale: 0.88 }}
-                    onClick={toggleListening}
-                    className={`relative flex items-center justify-center w-9 h-9 rounded-full transition-all duration-200 ${isListening ? 'bg-red-50 dark:bg-red-950/40 text-red-500 dark:text-red-400 ring-2 ring-red-300 dark:ring-red-700' : 'text-zinc-400 dark:text-zinc-500 hover:text-indigo-600 hover:bg-zinc-100 dark:hover:bg-zinc-800'}`}
-                  >
-                    {isListening && <motion.span animate={{ scale: [1, 1.6, 1], opacity: [0.4, 0, 0.4] }} transition={{ repeat: Infinity, duration: 1.4 }} className="absolute inset-0 rounded-full bg-red-400/30" />}
-                    <Mic className="w-4 h-4 relative z-10" />
-                  </motion.button>
-
                   <motion.button
                     whileHover={{ scale: isTyping || input.trim() || filePreviews.length ? 1.08 : 1.02 }}
                     whileTap={{ scale: 0.92 }}
