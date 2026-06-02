@@ -375,7 +375,7 @@ export default function Chat({ user, onLogout }: Props) {
       id: tempId,
       sessionId: currentSessionId || 0,
       role: 'user',
-      content: messageText.trim() || (filesToSend?.some(f => f.type.startsWith('image/')) ? 'What is in this image?' : 'Please analyse the attached file.'),
+      content: messageText.trim() || (filesToSend?.some(f => f.type.startsWith('image/')) ? ),
       timestamp: new Date().toISOString(),
     };
 
