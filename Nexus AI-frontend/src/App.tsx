@@ -36,6 +36,18 @@ export default function App() {
     }
   };
 
+  // ✅ Clear stored session ID on login so user starts with a new chat
+  const handleLogin = (loggedInUser: User) => {
+    localStorage.removeItem('scout_current_session_id');
+    setUser(loggedInUser);
+  };
+
+  // Also clear on signup (same behavior)
+  const handleSignup = (signedUpUser: User) => {
+    localStorage.removeItem('scout_current_session_id');
+    setUser(signedUpUser);
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-[--bg-main] transition-colors duration-300">
@@ -48,12 +60,11 @@ export default function App() {
   }
 
   return (
-    // ✅ Future flags added to remove React Router warnings
     <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <Routes>
-        <Route path="/login" element={!user ? <Login onLogin={setUser} /> : <Navigate to="/" />} />
-        <Route path="/signup" element={!user ? <Signup onSignup={(u) => setUser(u)} /> : <Navigate to="/" />} />
-        <Route path="/verify-otp" element={!user ? <VerifyOtp onLogin={setUser} /> : <Navigate to="/" />} />
+        <Route path="/login" element={!user ? <Login onLogin={handleLogin} /> : <Navigate to="/" />} />
+        <Route path="/signup" element={!user ? <Signup onSignup={handleSignup} /> : <Navigate to="/" />} />
+        <Route path="/verify-otp" element={!user ? <VerifyOtp onLogin={handleLogin} /> : <Navigate to="/" />} />
         <Route path="/forgot-password" element={!user ? <ForgotPassword /> : <Navigate to="/" />} />
         <Route path="/" element={user ? <Chat user={user} onLogout={() => setUser(null)} /> : <Navigate to="/login" />} />
         <Route path="*" element={<Navigate to="/" />} />
