@@ -23,6 +23,7 @@ import org.springframework.web.multipart.MultipartFile;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
+import java.util.Base64;
 
 @RestController
 @RequestMapping("/api/chat")
@@ -80,7 +81,7 @@ public class ChatController {
         return ResponseEntity.ok(response);
     }
 
-    // ========================= SEND (JSON – text‑only) =========================
+    // ========================= SEND (JSON – text-only) =========================
     @PostMapping("/send")
     public ResponseEntity<?> sendMessage(
             @Valid @RequestBody ChatRequest request, HttpSession session) {
@@ -149,29 +150,53 @@ public class ChatController {
 
     // ========================= SEND (Multipart – files) =========================
     @PostMapping(value = "/send", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-public ResponseEntity<?> sendMessageWithFiles(
-        @RequestParam("message") String message,
-        @RequestParam(value = "sessionId", required = false) Long sessionId,
-        @RequestParam(value = "model", required = false) String model,
-        @RequestPart(value = "files", required = false) List<MultipartFile> files,
-        HttpSession session) {
+    public ResponseEntity<?> sendMessageWithFiles(
+            @RequestParam("message") String message,
+            @RequestParam(value = "sessionId", required = false) Long sessionId,
+            @RequestParam(value = "model", required = false) String model,
+            @RequestPart(value = "files", required = false) List<MultipartFile> files,
+            HttpSession session) {
 
-    if (files == null) files = List.of();
+        if (files == null) files = List.of();
 
         try {
             User currentUser = getCurrentUser(session);
             boolean isAuthenticated = (currentUser != null);
 
-            StringBuilder filesContent = new StringBuilder();
+            // ── Separate images from other file types ──────────────────────────
+            //
+            // Images go directly to the Groq vision API as Base64 payloads.
+            // Non-image files (PDFs, text, code …) are OCR/text-extracted as
+            // before and appended to the prompt string.
+
+            List<String> base64Images = new ArrayList<>();
+            List<String> imageMimeTypes = new ArrayList<>();
+            StringBuilder nonImageContent = new StringBuilder();
+
             for (MultipartFile file : files) {
-                String extracted = fileProcessorService.extractContent(file);
-                filesContent.append("\n\n[Attached file: ")
-                        .append(file.getOriginalFilename())
-                        .append("]\n")
-                        .append(extracted);
+                String contentType = file.getContentType();
+                if (contentType != null && contentType.startsWith("image/")) {
+                    // Encode image bytes as Base64 – no OCR needed
+                    byte[] bytes = file.getBytes();
+                    base64Images.add(Base64.getEncoder().encodeToString(bytes));
+                    imageMimeTypes.add(contentType);
+                    log.info("Image file queued for vision API: {} ({})",
+                            file.getOriginalFilename(), contentType);
+                } else {
+                    // Non-image: extract text as before
+                    String extracted = fileProcessorService.extractContent(file);
+                    nonImageContent.append("\n\n[Attached file: ")
+                            .append(file.getOriginalFilename())
+                            .append("]\n")
+                            .append(extracted);
+                }
             }
 
-            String fullPrompt = message + filesContent.toString();
+            // The prompt sent to Groq includes the user text + any extracted
+            // non-image file content.
+            String fullPrompt = message + nonImageContent.toString();
+
+            // ── Session management (unchanged) ────────────────────────────────
             List<Map<String, String>> conversationHistory = new ArrayList<>();
 
             if (isAuthenticated) {
@@ -208,7 +233,16 @@ public ResponseEntity<?> sendMessageWithFiles(
                         "MESSAGE_SENT", currentUser.getId() + ":" + sessionId);
             }
 
-            String aiResponse = groqService.generateResponse(fullPrompt, conversationHistory);
+            // ── Route to vision or text endpoint ──────────────────────────────
+            String aiResponse;
+            if (!base64Images.isEmpty()) {
+                // At least one image → use the multimodal vision path
+                aiResponse = groqService.generateResponseWithImages(
+                        fullPrompt, conversationHistory, base64Images, imageMimeTypes);
+            } else {
+                // No images (text / non-image file only) → plain text path
+                aiResponse = groqService.generateResponse(fullPrompt, conversationHistory);
+            }
 
             if (isAuthenticated && sessionId != null) {
                 chatHistoryService.saveMessage(sessionId, "assistant", aiResponse);
@@ -373,9 +407,9 @@ public ResponseEntity<?> sendMessageWithFiles(
                     ? firstMessage.substring(0, 100)
                     : firstMessage;
             String prompt = String.format(
-                    "Generate a very short, concise title (maximum 5-7 words) for a " +
-                    "conversation that starts with: \"%s\". " +
-                    "Return ONLY the title, no quotes, no explanation.",
+                    "Generate a very short, concise title (maximum 5-7 words) for a "
+                    + "conversation that starts with: \"%s\". "
+                    + "Return ONLY the title, no quotes, no explanation.",
                     truncated);
             String title = groqService.generateResponse(prompt, List.of());
             title = title.replace("\"", "").replace("'", "").trim();
