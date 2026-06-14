@@ -9,21 +9,17 @@ import com.ai.chatbot_backend.service.RedisEventService;
 import com.ai.chatbot_backend.service.ChatHistoryService;
 import com.ai.chatbot_backend.service.GroqService;
 import com.ai.chatbot_backend.service.UserService;
-import com.ai.chatbot_backend.service.FileProcessorService;
 import jakarta.servlet.http.HttpSession;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.multipart.MultipartFile;
 
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
-import java.util.Base64;
 
 @RestController
 @RequestMapping("/api/chat")
@@ -35,7 +31,6 @@ public class ChatController {
     private final ChatHistoryService chatHistoryService;
     private final UserService userService;
     private final RedisEventService redisEventService;
-    private final FileProcessorService fileProcessorService;
 
     // ========================= HELPERS =========================
     private User getCurrentUser(HttpSession session) {
@@ -81,7 +76,7 @@ public class ChatController {
         return ResponseEntity.ok(response);
     }
 
-    // ========================= SEND (JSON – text-only) =========================
+    // ========================= SEND (text‑only) =========================
     @PostMapping("/send")
     public ResponseEntity<?> sendMessage(
             @Valid @RequestBody ChatRequest request, HttpSession session) {
@@ -144,121 +139,6 @@ public class ChatController {
             log.error("Chat error: {}", e.getMessage(), e);
             ChatResponse errorResponse = new ChatResponse();
             errorResponse.setError(e.getMessage() != null ? e.getMessage() : "Unexpected error");
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
-        }
-    }
-
-    // ========================= SEND (Multipart – files) =========================
-    @PostMapping(value = "/send", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResponseEntity<?> sendMessageWithFiles(
-            @RequestParam("message") String message,
-            @RequestParam(value = "sessionId", required = false) Long sessionId,
-            @RequestParam(value = "model", required = false) String model,
-            @RequestPart(value = "files", required = false) List<MultipartFile> files,
-            HttpSession session) {
-
-        if (files == null) files = List.of();
-
-        try {
-            User currentUser = getCurrentUser(session);
-            boolean isAuthenticated = (currentUser != null);
-
-            // ── Separate images from other file types ──────────────────────────
-            //
-            // Images go directly to the Groq vision API as Base64 payloads.
-            // Non-image files (PDFs, text, code …) are OCR/text-extracted as
-            // before and appended to the prompt string.
-
-            List<String> base64Images = new ArrayList<>();
-            List<String> imageMimeTypes = new ArrayList<>();
-            StringBuilder nonImageContent = new StringBuilder();
-
-            for (MultipartFile file : files) {
-                String contentType = file.getContentType();
-                if (contentType != null && contentType.startsWith("image/")) {
-                    // Encode image bytes as Base64 – no OCR needed
-                    byte[] bytes = file.getBytes();
-                    base64Images.add(Base64.getEncoder().encodeToString(bytes));
-                    imageMimeTypes.add(contentType);
-                    log.info("Image file queued for vision API: {} ({})",
-                            file.getOriginalFilename(), contentType);
-                } else {
-                    // Non-image: extract text as before
-                    String extracted = fileProcessorService.extractContent(file);
-                    nonImageContent.append("\n\n[Attached file: ")
-                            .append(file.getOriginalFilename())
-                            .append("]\n")
-                            .append(extracted);
-                }
-            }
-
-            // The prompt sent to Groq includes the user text + any extracted
-            // non-image file content.
-            String fullPrompt = message + nonImageContent.toString();
-
-            // ── Session management (unchanged) ────────────────────────────────
-            List<Map<String, String>> conversationHistory = new ArrayList<>();
-
-            if (isAuthenticated) {
-                if (sessionId == null) {
-                    ChatSession newSession = chatHistoryService
-                            .createNewSession(currentUser, "New Chat");
-                    sessionId = newSession.getId();
-                    log.info("Created new session: {}", sessionId);
-                } else {
-                    boolean exists = chatHistoryService
-                            .sessionExistsForUser(sessionId, currentUser);
-                    if (!exists) {
-                        log.warn("Stale session {} for user {} – creating new session",
-                                sessionId, currentUser.getId());
-                        ChatSession newSession = chatHistoryService
-                                .createNewSession(currentUser, "New Chat");
-                        sessionId = newSession.getId();
-                    }
-                }
-
-                List<ChatMessage> previousMessages =
-                        chatHistoryService.getSessionMessages(sessionId);
-                int startIndex = Math.max(0, previousMessages.size() - 10);
-                for (int i = startIndex; i < previousMessages.size(); i++) {
-                    ChatMessage msg = previousMessages.get(i);
-                    conversationHistory.add(Map.of(
-                            "role", msg.getRole(),
-                            "content", msg.getContent()
-                    ));
-                }
-
-                chatHistoryService.saveMessage(sessionId, "user", message);
-                redisEventService.sendUserEvent(
-                        "MESSAGE_SENT", currentUser.getId() + ":" + sessionId);
-            }
-
-            // ── Route to vision or text endpoint ──────────────────────────────
-            String aiResponse;
-            if (!base64Images.isEmpty()) {
-                // At least one image → use the multimodal vision path
-                aiResponse = groqService.generateResponseWithImages(
-                        fullPrompt, conversationHistory, base64Images, imageMimeTypes);
-            } else {
-                // No images (text / non-image file only) → plain text path
-                aiResponse = groqService.generateResponse(fullPrompt, conversationHistory);
-            }
-
-            if (isAuthenticated && sessionId != null) {
-                chatHistoryService.saveMessage(sessionId, "assistant", aiResponse);
-                redisEventService.sendUserEvent(
-                        "AI_RESPONSE_SENT", currentUser.getId() + ":" + sessionId);
-            }
-
-            ChatResponse chatResponse = new ChatResponse();
-            chatResponse.setResponse(aiResponse);
-            if (isAuthenticated) chatResponse.setSessionId(sessionId);
-            return ResponseEntity.ok(chatResponse);
-
-        } catch (Exception e) {
-            log.error("File upload chat error: {}", e.getMessage(), e);
-            ChatResponse errorResponse = new ChatResponse();
-            errorResponse.setError(e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
         }
     }
