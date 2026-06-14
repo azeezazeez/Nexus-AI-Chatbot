@@ -25,7 +25,6 @@
 	</properties>
 
 	<dependencies>
-
 		<!-- Spring Session -->
 		<dependency>
 			<groupId>org.springframework.session</groupId>
@@ -114,18 +113,6 @@
 			<scope>provided</scope>
 		</dependency>
 
-		<!-- Apache Tika (document text extraction, replaces OCR) -->
-		<dependency>
-			<groupId>org.apache.tika</groupId>
-			<artifactId>tika-core</artifactId>
-			<version>2.9.2</version>
-		</dependency>
-		<dependency>
-			<groupId>org.apache.tika</groupId>
-			<artifactId>tika-parsers-standard-package</artifactId>
-			<version>2.9.2</version>
-		</dependency>
-
 		<!-- Testing -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
@@ -137,7 +124,6 @@
 			<artifactId>reactor-test</artifactId>
 			<scope>test</scope>
 		</dependency>
-
 	</dependencies>
 
 	<build>
@@ -165,4 +151,4 @@
 		</plugins>
 	</build>
 
-</project>
+</xml>
