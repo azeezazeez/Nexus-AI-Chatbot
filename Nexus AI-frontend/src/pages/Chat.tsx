@@ -167,7 +167,12 @@ export default function Chat({ user, onLogout }: Props) {
   const isSendingRef = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const skipMessageLoadRef = useRef(false);
+
+  // FIX 3: Changed from boolean ref to number | null ref.
+  // Stores the specific session ID that should skip one message load
+  // (the newly created session after first send), so switching to any
+  // OTHER existing session always loads its messages correctly.
+  const skipMessageLoadRef = useRef<number | null>(null);
 
   // Auto-resize textarea
   useEffect(() => {
@@ -188,7 +193,7 @@ export default function Chat({ user, onLogout }: Props) {
     };
   }, []);
 
-  // Speech recognition handlers (kept but never called)
+  // Speech recognition handlers (kept but never called from UI)
   const startListening = useCallback(() => {
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SR) {
@@ -285,10 +290,15 @@ export default function Chat({ user, onLogout }: Props) {
     }
   }, [sessions, loading]);
 
+  // FIX 3 (continued): Only skip loading messages if the currentSessionId
+  // exactly matches the ID we marked to skip (the newly created session).
+  // Any other session — including ones selected on mobile — always loads.
   useEffect(() => {
     if (currentSessionId) {
-      if (skipMessageLoadRef.current) {
-        skipMessageLoadRef.current = false;
+      if (skipMessageLoadRef.current === currentSessionId) {
+        // This is the new session we just created inline — messages are
+        // already in state from the sendMessage flow, so skip the fetch.
+        skipMessageLoadRef.current = null;
         return;
       }
       loadMessages(currentSessionId);
@@ -404,7 +414,10 @@ export default function Chat({ user, onLogout }: Props) {
       const activeSessionId = response.sessionId || currentSessionId;
 
       if (isNewSession && activeSessionId) {
-        skipMessageLoadRef.current = true;
+        // FIX 3: Store the new session's ID (not just `true`) so the
+        // message-load effect skips ONLY this specific session's fetch.
+        // Switching to any other session will still trigger a full load.
+        skipMessageLoadRef.current = activeSessionId;
         setCurrentSessionId(activeSessionId);
         persistSessionId(activeSessionId);
         await loadSessions();
@@ -834,7 +847,7 @@ export default function Chat({ user, onLogout }: Props) {
           </div>
         </div>
 
-        {/* Input bar - paperclip and mic buttons removed */}
+        {/* Input bar */}
         <div className="shrink-0 bg-white dark:bg-zinc-950 border-t border-zinc-200/50 dark:border-zinc-800/50 px-3 sm:px-4 md:px-6 py-3 md:py-4">
           <div className="max-w-3xl mx-auto relative">
             <AnimatePresence>
@@ -850,7 +863,7 @@ export default function Chat({ user, onLogout }: Props) {
             </AnimatePresence>
 
             <div className={`relative flex flex-col bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-2xl shadow-lg transition-all ${justFinished ? 'animate-blink' : ''}`}>
-              {/* File preview strip (kept for consistency but never shown) */}
+              {/* File preview strip (kept for consistency but never shown without UI trigger) */}
               <AnimatePresence>
                 {filePreviews.length > 0 && (
                   <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="flex flex-wrap gap-3 px-3 pt-3 pb-2.5 border-b border-zinc-100 dark:border-zinc-800/70">
@@ -898,7 +911,7 @@ export default function Chat({ user, onLogout }: Props) {
                   )}
                 </div>
 
-                {/* Only send button remains */}
+                {/* Send / Stop button */}
                 <div className="flex items-center gap-1 px-2 pb-2.5 md:pb-3 shrink-0">
                   <motion.button
                     whileHover={{ scale: isTyping || input.trim() || filePreviews.length ? 1.08 : 1.02 }}
