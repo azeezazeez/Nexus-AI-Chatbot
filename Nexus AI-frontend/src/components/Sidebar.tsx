@@ -1,16 +1,3 @@
-/**
- * Sidebar.tsx — fully rewritten for correctness.
- *
- * KEY FIXES:
- * 1. Sessions always derived from prop — never stale on mobile open.
- * 2. SessionList is a self-contained component with its own search/rename/menu
- *    state and refs — no shared refs between mobile and desktop instances.
- * 3. displaySessions = searchResults ?? sessions, so when searchResults is null
- *    (no active search) the full live sessions prop is shown immediately.
- * 4. Theme toggle button added to mobile drawer header (desktop toggle lives
- *    in Chat.tsx header — no duplication needed there).
- */
-
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Session, User } from '../types';
 import {
@@ -86,8 +73,6 @@ function IconTooltip({ label, children }: { label: string; children: React.React
 }
 
 // ─── ThemeToggleButton ────────────────────────────────────────────────────────
-// Reads dark mode state directly from the DOM so it stays in sync with
-// whatever toggles the class (Chat.tsx header button or this button).
 function ThemeToggleButton({ className }: { className?: string }) {
   const [isDark, setIsDark] = useState(() =>
     typeof document !== 'undefined' &&
@@ -101,7 +86,6 @@ function ThemeToggleButton({ className }: { className?: string }) {
     setIsDark(next);
   };
 
-  // Stay in sync if Chat.tsx header button toggled first
   useEffect(() => {
     const observer = new MutationObserver(() => {
       setIsDark(document.documentElement.classList.contains('dark'));
@@ -303,6 +287,14 @@ function SessionList({
     });
   };
 
+  // FIX 2: Close drawer FIRST, then select after short delay to avoid
+  // touch-event race conditions on mobile.
+  const handleSelectSession = (id: number) => {
+    if (renamingId !== null) return;
+    onClose();
+    setTimeout(() => onSelectSession(id), 50);
+  };
+
   return (
     <>
       {/* Top controls */}
@@ -396,12 +388,7 @@ function SessionList({
                             ? 'bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300'
                             : 'text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 hover:text-zinc-800 dark:hover:text-zinc-200'
                         }`}
-                        onClick={() => {
-                          if (!isRenaming) {
-                            onSelectSession(session.id);
-                            onClose();
-                          }
-                        }}
+                        onClick={() => handleSelectSession(session.id)}
                       >
                         <div className={`shrink-0 w-1.5 h-1.5 rounded-full transition-colors ${
                           isActive ? 'bg-indigo-500' : isPinned ? 'bg-amber-400' : 'bg-transparent'
@@ -626,8 +613,14 @@ export default function Sidebar({
                 </div>
               </div>
 
+              {/*
+                FIX 1: key prop forces SessionList to fully remount every time
+                the mobile drawer opens, clearing any stale search state that
+                would otherwise filter out sessions incorrectly.
+              */}
               <SessionList
                 {...listProps}
+                key={mobileOpen ? 'mobile-open' : 'mobile-closed'}
                 onClose={onMobileClose}
                 focusSearchOnMount={false}
               />
@@ -654,7 +647,7 @@ export default function Sidebar({
             <div className="w-5 border-t border-zinc-100 dark:border-zinc-800 my-3" />
             <IconTooltip label="New Chat">
               <button
-                onClick={ onNewSession }
+                onClick={onNewSession}
                 className="w-9 h-9 rounded-xl flex items-center justify-center text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all"
               >
                 <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
