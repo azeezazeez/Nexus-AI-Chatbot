@@ -11,11 +11,11 @@ public class SessionConfig {
     @Bean
     public CookieSerializer cookieSerializer() {
         DefaultCookieSerializer serializer = new DefaultCookieSerializer();
-        serializer.setSameSite("None");        // allows cross-site (Vercel → Render)
-        serializer.setSecure(true);            // required when SameSite=None
+        serializer.setSameSite("None");              // allows cross-site (Vercel → Render)
+        serializer.setUseSecureCookie(true);         // ✅ fixed: required when SameSite=None
         serializer.setUseHttpOnlyCookie(true);
         serializer.setCookieName("NEXUS_SESSION");
-        serializer.setCookieMaxAge(86400);     // 24 hours
+        serializer.setCookieMaxAge(86400);           // 24 hours
         return serializer;
     }
 }
