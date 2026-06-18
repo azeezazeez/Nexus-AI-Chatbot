@@ -4,7 +4,6 @@ import com.ai.chatbot_backend.redis.consumer.RedisEventListener;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
-import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.listener.PatternTopic;
 import org.springframework.data.redis.listener.RedisMessageListenerContainer;
@@ -12,11 +11,6 @@ import org.springframework.data.redis.listener.adapter.MessageListenerAdapter;
 
 @Configuration
 public class RedisConfig {
-
-    @Bean
-    public RedisConnectionFactory redisConnectionFactory() {
-        return new LettuceConnectionFactory();
-    }
 
     @Bean
     public StringRedisTemplate stringRedisTemplate(
@@ -33,9 +27,11 @@ public class RedisConfig {
                 new RedisMessageListenerContainer();
 
         container.setConnectionFactory(factory);
+
         container.addMessageListener(
                 listenerAdapter,
-                new PatternTopic("user-events"));
+                new PatternTopic("user-events")
+        );
 
         return container;
     }
