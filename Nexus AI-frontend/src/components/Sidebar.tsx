@@ -287,12 +287,16 @@ function SessionList({
     });
   };
 
-  // FIX 2: Close drawer FIRST, then select after short delay to avoid
-  // touch-event race conditions on mobile.
+  // FIX: Select the session FIRST (synchronously), then close the drawer.
+  // The previous order (close -> setTimeout -> select) raced against the
+  // mobile drawer's remount-on-close (Sidebar used to swap a `key` on
+  // mobileOpen), which could unmount SessionList before the deferred
+  // onSelectSession ever fired -- so taps on mobile sometimes silently
+  // failed to switch sessions. Selecting first removes the race entirely.
   const handleSelectSession = (id: number) => {
     if (renamingId !== null) return;
+    onSelectSession(id);
     onClose();
-    setTimeout(() => onSelectSession(id), 50);
   };
 
   return (
@@ -614,13 +618,14 @@ export default function Sidebar({
               </div>
 
               {/*
-                FIX 1: key prop forces SessionList to fully remount every time
-                the mobile drawer opens, clearing any stale search state that
-                would otherwise filter out sessions incorrectly.
+                NOTE: no `key` swap here anymore. The previous version forced
+                a full remount on every open/close, which combined with the
+                old close-then-select ordering caused the mobile session-
+                select race. SessionList no longer needs a remount since
+                handleSelectSession now selects before closing.
               */}
               <SessionList
                 {...listProps}
-                key={mobileOpen ? 'mobile-open' : 'mobile-closed'}
                 onClose={onMobileClose}
                 focusSearchOnMount={false}
               />
