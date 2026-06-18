@@ -23,10 +23,6 @@ export interface ProcessedFile {
 
 /**
  * Delay that cancels immediately when the AbortSignal fires.
- *
- * KEY FIX: The old code had no abort-aware delay, so once a 503 retry loop
- * started, clicking "Stop" didn't cancel the in-progress wait. This fixes
- * that — the delay rejects with AbortError the instant the signal fires.
  */
 const signalAwareDelay = (ms: number, signal?: AbortSignal | null): Promise<void> =>
   new Promise((resolve, reject) => {
@@ -44,8 +40,6 @@ const signalAwareDelay = (ms: number, signal?: AbortSignal | null): Promise<void
 
 /**
  * Wake up the Render server and wait for it to be ready.
- * Called once on mount via loadSessions(); individual endpoints handle
- * their own retries via attemptFetch.
  */
 export async function wakeUpServer(): Promise<void> {
   for (let attempt = 1; attempt <= WAKE_ATTEMPTS; attempt++) {
@@ -83,11 +77,6 @@ function normalizeHeaders(init?: HeadersInit): Record<string, string> {
 /**
  * Core fetch with automatic retry.
  *
- * KEY FIX: Previously the function only retried inside `catch` (network
- * errors). But Render's cold-start returns a valid HTTP 503 response —
- * which never triggers `catch`. This version explicitly checks for 503/502
- * and retries with a delay, identical to how it handles network errors.
- *
  * Two retry triggers:
  *   1. HTTP 503 / 502  — Render's proxy response before Spring Boot is up.
  *                        Uses RETRY_DELAY_MS (5s) between attempts.
@@ -108,15 +97,10 @@ const attemptFetch = async (
   try {
     const response = await fetch(url, { ...options, credentials: 'include', headers });
 
-    // ── KEY FIX ──────────────────────────────────────────────────────────
-    // Render cold-start: infrastructure returns 503/502 before Spring Boot
-    // handles anything. The old code fell through to !response.ok and threw
-    // immediately. Now we wait and retry, just like a network error.
     if ((response.status === 503 || response.status === 502) && retries > 0) {
       await signalAwareDelay(RETRY_DELAY_MS, signal);
       return attemptFetch(url, options, headers, retries - 1);
     }
-    // ─────────────────────────────────────────────────────────────────────
 
     return response;
   } catch (err: any) {
@@ -134,6 +118,11 @@ const attemptFetch = async (
 /**
  * Authenticated fetch wrapper.
  *
+ * NOTE: Auth is entirely session-cookie based (NEXUS_SESSION, httpOnly,
+ * SameSite=None, Secure). There is no Bearer token — `credentials: 'include'`
+ * is what actually authenticates every request by attaching the cookie.
+ * Do NOT add an Authorization header here; the backend ignores it.
+ *
  * @param retries - How many times to retry on 503/502 or network errors.
  *                  Default 3 for auth/session calls; CHAT_RETRIES (6) for
  *                  chat send — giving the server up to 30s to wake up.
@@ -143,12 +132,9 @@ export async function fetchWithAuth(
   options: RequestInit = {},
   retries = 3
 ): Promise<unknown> {
-  const token = localStorage.getItem('auth_token');
   const isFormData = options.body instanceof FormData;
 
   let headers = normalizeHeaders(options.headers);
-
-  if (token) headers['Authorization'] = `Bearer ${token}`;
 
   if (!isFormData && !headers['Content-Type']) {
     headers['Content-Type'] = 'application/json';
@@ -251,8 +237,7 @@ export const chatApi = {
 
   /**
    * Text-only chat message.
-   *
-   * KEY FIX: passes CHAT_RETRIES (6) so fetchWithAuth → attemptFetch will
+   * Passes CHAT_RETRIES (6) so fetchWithAuth → attemptFetch will
    * automatically retry 503s for up to 30 seconds, transparently surviving
    * Render's cold-start window without showing an error to the user.
    */
@@ -269,7 +254,7 @@ export const chatApi = {
         signal,
         body: JSON.stringify({ message, sessionId, model }),
       },
-      CHAT_RETRIES // <── KEY FIX: was missing, so retries defaulted to 3 with no 503 handling
+      CHAT_RETRIES
     ),
 
   /**
@@ -292,7 +277,7 @@ export const chatApi = {
     return fetchWithAuth(
       `${API_BASE}/chat/send`,
       { method: 'POST', signal, body: formData },
-      CHAT_RETRIES // <── KEY FIX: same as sendMessage
+      CHAT_RETRIES
     );
   },
 
