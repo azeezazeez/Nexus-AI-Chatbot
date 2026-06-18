@@ -21,10 +21,10 @@ public class WebConfig {
 
         config.setAllowCredentials(true);
 
-        config.setAllowedOriginPatterns(Arrays.asList(
-            "http://localhost:*",
-            "https://*.vercel.app"
-        ));
+        config.setAllowedOrigins(List.of(
+            "https://nexus-smart-ai.vercel.app",
+            "http://localhost:5173"
+         ));
 
         config.setAllowedHeaders(List.of("*"));
 
