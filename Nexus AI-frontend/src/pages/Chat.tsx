@@ -168,7 +168,6 @@ export default function Chat({ user, onLogout }: Props) {
   const abortControllerRef = useRef<AbortController | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  // FIX 3: Changed from boolean ref to number | null ref.
   // Stores the specific session ID that should skip one message load
   // (the newly created session after first send), so switching to any
   // OTHER existing session always loads its messages correctly.
@@ -290,9 +289,9 @@ export default function Chat({ user, onLogout }: Props) {
     }
   }, [sessions, loading]);
 
-  // FIX 3 (continued): Only skip loading messages if the currentSessionId
-  // exactly matches the ID we marked to skip (the newly created session).
-  // Any other session — including ones selected on mobile — always loads.
+  // Only skip loading messages if the currentSessionId exactly matches the
+  // ID we marked to skip (the newly created session). Any other session --
+  // including ones selected on mobile -- always loads.
   useEffect(() => {
     if (currentSessionId) {
       if (skipMessageLoadRef.current === currentSessionId) {
@@ -414,7 +413,7 @@ export default function Chat({ user, onLogout }: Props) {
       const activeSessionId = response.sessionId || currentSessionId;
 
       if (isNewSession && activeSessionId) {
-        // FIX 3: Store the new session's ID (not just `true`) so the
+        // Store the new session's ID (not just `true`) so the
         // message-load effect skips ONLY this specific session's fetch.
         // Switching to any other session will still trigger a full load.
         skipMessageLoadRef.current = activeSessionId;
