@@ -1,21 +1,26 @@
 package com.ai.chatbot_backend.config;
 
 import com.ai.chatbot_backend.redis.consumer.RedisEventListener;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
+import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.listener.PatternTopic;
 import org.springframework.data.redis.listener.RedisMessageListenerContainer;
 import org.springframework.data.redis.listener.adapter.MessageListenerAdapter;
 
 @Configuration
-@Slf4j
 public class RedisConfig {
 
     @Bean
-    public StringRedisTemplate stringRedisTemplate(RedisConnectionFactory factory) {
+    public RedisConnectionFactory redisConnectionFactory() {
+        return new LettuceConnectionFactory();
+    }
+
+    @Bean
+    public StringRedisTemplate stringRedisTemplate(
+            RedisConnectionFactory factory) {
         return new StringRedisTemplate(factory);
     }
 
@@ -23,14 +28,21 @@ public class RedisConfig {
     public RedisMessageListenerContainer redisContainer(
             RedisConnectionFactory factory,
             MessageListenerAdapter listenerAdapter) {
-        RedisMessageListenerContainer container = new RedisMessageListenerContainer();
+
+        RedisMessageListenerContainer container =
+                new RedisMessageListenerContainer();
+
         container.setConnectionFactory(factory);
-        container.addMessageListener(listenerAdapter, new PatternTopic("user-events"));
+        container.addMessageListener(
+                listenerAdapter,
+                new PatternTopic("user-events"));
+
         return container;
     }
 
     @Bean
-    public MessageListenerAdapter listenerAdapter(RedisEventListener listener) {
+    public MessageListenerAdapter listenerAdapter(
+            RedisEventListener listener) {
         return new MessageListenerAdapter(listener, "onMessage");
     }
 }
