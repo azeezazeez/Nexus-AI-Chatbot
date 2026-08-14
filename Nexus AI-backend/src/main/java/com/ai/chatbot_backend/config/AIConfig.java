@@ -12,7 +12,7 @@ public class AIConfig {
     @Value("${groq.api.key}")
     private String groqApiKey;
 
-    @Value("${groq.model:meta-llama/llama-4-scout-17b-16e-instruct}")
+    @Value("${groq.model:llama-3.3-70b-versatile}")
     private String modelName;
 
     private static final String CHAT_ENDPOINT = "/chat/completions";
