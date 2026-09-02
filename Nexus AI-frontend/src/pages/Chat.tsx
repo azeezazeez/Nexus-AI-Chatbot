@@ -77,6 +77,53 @@ const BlinkingCursor = () => (
 );
 
 const SESSION_KEY = 'scout_current_session_id';
+const SESSIONS_CACHE_KEY = 'nexus_sessions_cache_v3';
+const MESSAGES_CACHE_PREFIX = 'nexus_messages_cache_v3_';
+
+const normalizeSessionId = (value: unknown): number | null => {
+  const n = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(n) && n > 0 ? n : null;
+};
+
+const normalizeSessions = (value: unknown): Session[] => {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((raw: any) => {
+      const id = normalizeSessionId(raw?.id ?? raw?.sessionId);
+      if (id === null) return null;
+      return { ...raw, id } as Session;
+    })
+    .filter(Boolean) as Session[];
+};
+
+const readCachedSessions = (): Session[] => {
+  try {
+    return normalizeSessions(JSON.parse(localStorage.getItem(SESSIONS_CACHE_KEY) || '[]'));
+  } catch {
+    return [];
+  }
+};
+
+const cacheSessions = (sessions: Session[]) => {
+  try { localStorage.setItem(SESSIONS_CACHE_KEY, JSON.stringify(sessions)); } catch {}
+};
+
+const readCachedMessages = (sessionId: number): Message[] => {
+  try {
+    const raw = JSON.parse(localStorage.getItem(`${MESSAGES_CACHE_PREFIX}${sessionId}`) || '[]');
+    return Array.isArray(raw) ? raw : [];
+  } catch {
+    return [];
+  }
+};
+
+const cacheMessages = (sessionId: number | null, messages: Message[]) => {
+  if (sessionId === null) return;
+  try {
+    localStorage.setItem(`${MESSAGES_CACHE_PREFIX}${sessionId}`, JSON.stringify(messages));
+  } catch {}
+};
+
 const persistSessionId = (id: number | null) => {
   if (id === null) localStorage.removeItem(SESSION_KEY);
   else localStorage.setItem(SESSION_KEY, String(id));
@@ -114,7 +161,7 @@ const fileToDataUrl = (file: File): Promise<string> =>
   });
 
 export default function Chat({ user, onLogout }: Props) {
-  const [sessions, setSessions] = useState<Session[]>([]);
+  const [sessions, setSessions] = useState<Session[]>(readCachedSessions);
   const [currentSessionId, setCurrentSessionId] = useState<number | null>(readPersistedSessionId);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
@@ -175,6 +222,7 @@ export default function Chat({ user, onLogout }: Props) {
   // (the newly created session after first send), so switching to any
   // OTHER existing session always loads its messages correctly.
   const skipMessageLoadRef = useRef<number | null>(null);
+  const pendingSessionRef = useRef<number | null>(null);
 
   // Auto-resize textarea
   useEffect(() => {
@@ -255,27 +303,57 @@ export default function Chat({ user, onLogout }: Props) {
   }, [isListening, startListening, stopListening]);
 
   // Load sessions & messages
-  const loadSessions = useCallback(async () => {
+  const loadSessions = useCallback(async (preferredSession?: Session) => {
     try {
       wakeUpServer();
       const response = await chatApi.getSessions() as any;
-      const nextSessions = Array.isArray(response) ? response : (response?.sessions || []);
-      setSessions(nextSessions);
+      const serverSessions = normalizeSessions(
+        Array.isArray(response) ? response : (response?.sessions || [])
+      );
+
+      setSessions(prev => {
+        let next = serverSessions;
+
+        // Immediately preserve a just-created session if the backend's list
+        // endpoint is briefly eventually-consistent. It will be replaced by
+        // the authoritative server record on the next successful refresh.
+        if (preferredSession && !next.some(s => s.id === preferredSession.id)) {
+          const existing = prev.find(s => s.id === preferredSession.id);
+          next = [existing || preferredSession, ...next];
+        }
+
+        cacheSessions(next);
+        if (pendingSessionRef.current !== null && next.some(s => s.id === pendingSessionRef.current)) {
+          pendingSessionRef.current = null;
+        }
+        return next;
+      });
     } catch (err: any) {
       console.error('Failed to load sessions:', err);
-      if (err.status === 401) onLogout();
+      // Keep cached/server-confirmed sessions visible during a transient
+      // mobile network failure instead of replacing them with an empty list.
+      setSessions(prev => prev.length ? prev : readCachedSessions());
+      if (err?.status === 401) onLogout();
     } finally {
       setLoading(false);
     }
   }, [onLogout]);
 
   const loadMessages = useCallback(async (sid: number) => {
+    const normalizedSid = normalizeSessionId(sid);
+    if (normalizedSid === null) return;
+
+    const cached = readCachedMessages(normalizedSid);
+    if (cached.length > 0) setMessages(cached);
+
     try {
-      const response = await chatApi.getMessages(sid) as any;
-      setMessages(response.messages || []);
+      const response = await chatApi.getMessages(normalizedSid) as any;
+      const serverMessages = Array.isArray(response?.messages) ? response.messages : [];
+      setMessages(serverMessages);
+      cacheMessages(normalizedSid, serverMessages);
     } catch (err: any) {
       console.error('Failed to load messages:', err);
-      if (err.status === 401) onLogout();
+      if (err?.status === 401) onLogout();
     }
   }, [onLogout]);
 
@@ -285,7 +363,9 @@ export default function Chat({ user, onLogout }: Props) {
     if (loading) return;
     if (currentSessionId !== null) {
       const stillExists = sessions.some(s => s.id === currentSessionId);
-      if (!stillExists) {
+      // Do not clear a newly-created session while the server's sessions
+      // endpoint is catching up. loadSessions(preferredSession) will confirm it.
+      if (!stillExists && pendingSessionRef.current !== currentSessionId) {
         setCurrentSessionId(null);
         persistSessionId(null);
         setMessages([]);
@@ -298,13 +378,20 @@ export default function Chat({ user, onLogout }: Props) {
   // including ones selected on mobile -- always loads.
   useEffect(() => {
     if (currentSessionId) {
-      if (skipMessageLoadRef.current === currentSessionId) {
+      const normalizedSid = normalizeSessionId(currentSessionId);
+      if (normalizedSid === null) {
+        setCurrentSessionId(null);
+        persistSessionId(null);
+        setMessages([]);
+        return;
+      }
+      if (skipMessageLoadRef.current === normalizedSid) {
         // This is the new session we just created inline — messages are
         // already in state from the sendMessage flow, so skip the fetch.
         skipMessageLoadRef.current = null;
         return;
       }
-      loadMessages(currentSessionId);
+      loadMessages(normalizedSid);
     } else {
       setMessages([]);
     }
@@ -449,16 +536,27 @@ export default function Chat({ user, onLogout }: Props) {
       clearTimeout(wakingTimer);
       setServerWaking(false);
 
-      const activeSessionId = response.sessionId || currentSessionId;
+      const activeSessionId = normalizeSessionId(
+        response?.sessionId ?? response?.session?.id ?? currentSessionId
+      );
+      if (isNewSession && activeSessionId === null) {
+        throw new Error('The server did not return a valid session ID.');
+      }
 
       if (isNewSession && activeSessionId) {
         // Keep the newly created session selected immediately. The server
         // session list is refreshed as well, so it appears in the mobile
         // drawer without requiring a desktop refresh.
         skipMessageLoadRef.current = activeSessionId;
+        pendingSessionRef.current = activeSessionId;
         setCurrentSessionId(activeSessionId);
         persistSessionId(activeSessionId);
-        await loadSessions();
+        const optimisticSession: Session = {
+          ...(response?.session || {}),
+          id: activeSessionId,
+          sessionName: response?.session?.sessionName || response?.session?.name || 'New Chat',
+        } as Session;
+        await loadSessions(optimisticSession);
       } else if (activeSessionId) {
         // Refresh ordering/metadata for existing chats too.
         await loadSessions();
@@ -475,8 +573,9 @@ export default function Chat({ user, onLogout }: Props) {
       };
 
       setMessages(prev => {
-        if (prev.some(m => m.id === aiMsg.id)) return prev;
-        return [...prev, aiMsg];
+        const next = prev.some(m => m.id === aiMsg.id) ? prev : [...prev, aiMsg];
+        cacheMessages(activeSessionId, next);
+        return next;
       });
 
       // Generate a fresh adaptive chat title for a new chat, and also when
@@ -503,13 +602,17 @@ export default function Chat({ user, onLogout }: Props) {
         const errMsg = err.message?.includes('starting up')
           ? 'The server is still warming up — please wait a moment and try again.'
           : err.message || 'Sorry, an error occurred. Please try again.';
-        setMessages(prev => [...prev, {
-          id: 'error-' + Date.now(),
-          sessionId: currentSessionId || 0,
-          role: 'assistant',
-          content: errMsg,
-          timestamp: new Date().toISOString(),
-        }]);
+        setMessages(prev => {
+          const next = [...prev, {
+            id: 'error-' + Date.now(),
+            sessionId: currentSessionId || 0,
+            role: 'assistant',
+            content: errMsg,
+            timestamp: new Date().toISOString(),
+          }];
+          cacheMessages(normalizeSessionId(currentSessionId), next);
+          return next;
+        });
       }
     } finally {
       isSendingRef.current = false;
@@ -575,6 +678,7 @@ export default function Chat({ user, onLogout }: Props) {
     if (!sessionIdToDelete) return;
     try {
       await chatApi.deleteSession(sessionIdToDelete);
+      try { localStorage.removeItem(`${MESSAGES_CACHE_PREFIX}${sessionIdToDelete}`); } catch {}
       if (currentSessionId === sessionIdToDelete) {
         setCurrentSessionId(null);
         persistSessionId(null);
@@ -599,6 +703,8 @@ export default function Chat({ user, onLogout }: Props) {
   const confirmClearAll = async () => {
     try {
       await chatApi.clearSessions();
+      sessions.forEach(s => { try { localStorage.removeItem(`${MESSAGES_CACHE_PREFIX}${s.id}`); } catch {} });
+      try { localStorage.removeItem(SESSIONS_CACHE_KEY); } catch {}
       setCurrentSessionId(null);
       persistSessionId(null);
       setMessages([]);
@@ -664,7 +770,7 @@ export default function Chat({ user, onLogout }: Props) {
         user={user}
         sessions={sessions}
         currentSessionId={currentSessionId}
-        onSelectSession={(id) => { setCurrentSessionId(id); persistSessionId(id); }}
+        onSelectSession={(id) => { const sid = normalizeSessionId(id); if (sid === null) return; setCurrentSessionId(sid); persistSessionId(sid); }}
         onNewSession={createNewSession}
         onDeleteSession={deleteSession}
         onRenameSession={renameSession}
