@@ -168,11 +168,10 @@ export default function Chat({ user, onLogout }: Props) {
   const isSendingRef = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-
-  // Stores the specific session ID that should skip one message load
-  // (the newly created session after first send), so switching to any
-  // OTHER existing session always loads its messages correctly.
-  const skipMessageLoadRef = useRef<number | null>(null);
+  const latestUserMessageIdRef = useRef<string | number | null>(null);
+  const latestUserMessageElementRef = useRef<HTMLDivElement | null>(null);
+  const scrollModeRef = useRef<'bottom' | 'user'>('bottom');
+  const optimisticSessionRef = useRef<Session | null>(null);
 
   // Auto-resize textarea
   useEffect(() => {
@@ -252,27 +251,52 @@ export default function Chat({ user, onLogout }: Props) {
     else startListening();
   }, [isListening, startListening, stopListening]);
 
-  // Load sessions & messages
+  // Load sessions & messages. Normalize IDs because some backends return
+  // numeric IDs while others serialize them as strings. Keeping one type here
+  // prevents mobile selection/storage races.
+  const normalizeSessions = useCallback((items: any[]): Session[] => {
+    return (items || [])
+      .map((session: any) => ({
+        ...session,
+        id: Number(session.id ?? session.sessionId ?? session.session_id),
+        sessionName: String(session.sessionName ?? session.name ?? session.title ?? 'New Chat'),
+      }))
+      .filter((session: any) => Number.isFinite(session.id));
+  }, []);
+
   const loadSessions = useCallback(async () => {
     try {
       wakeUpServer();
       const response = await chatApi.getSessions() as any;
-      setSessions(response.sessions || []);
+      const serverSessions = normalizeSessions(response?.sessions ?? response?.data?.sessions ?? []);
+
+      // If the backend response arrives a little before the newly-created row
+      // is visible, keep the optimistic row so mobile never looks empty.
+      const optimistic = optimisticSessionRef.current;
+      let nextSessions = serverSessions;
+      if (optimistic && !serverSessions.some(s => s.id === optimistic.id)) {
+        nextSessions = [optimistic, ...serverSessions];
+      } else if (optimistic) {
+        optimisticSessionRef.current = null;
+      }
+
+      setSessions(nextSessions);
     } catch (err: any) {
       console.error('Failed to load sessions:', err);
-      if (err.status === 401) onLogout();
+      if (err?.status === 401) onLogout();
     } finally {
       setLoading(false);
     }
-  }, [onLogout]);
+  }, [normalizeSessions, onLogout]);
 
   const loadMessages = useCallback(async (sid: number) => {
     try {
       const response = await chatApi.getMessages(sid) as any;
-      setMessages(response.messages || []);
+      setMessages(response?.messages ?? response?.data?.messages ?? []);
+      scrollModeRef.current = 'bottom';
     } catch (err: any) {
       console.error('Failed to load messages:', err);
-      if (err.status === 401) onLogout();
+      if (err?.status === 401) onLogout();
     }
   }, [onLogout]);
 
@@ -290,38 +314,31 @@ export default function Chat({ user, onLogout }: Props) {
     }
   }, [sessions, loading]);
 
-  // Only skip loading messages if the currentSessionId exactly matches the
-  // ID we marked to skip (the newly created session). Any other session --
-  // including ones selected on mobile -- always loads.
   useEffect(() => {
-    if (currentSessionId) {
-      if (skipMessageLoadRef.current === currentSessionId) {
-        // This is the new session we just created inline — messages are
-        // already in state from the sendMessage flow, so skip the fetch.
-        skipMessageLoadRef.current = null;
-        return;
-      }
+    if (currentSessionId !== null) {
       loadMessages(currentSessionId);
     } else {
       setMessages([]);
+      scrollModeRef.current = 'bottom';
     }
   }, [currentSessionId, loadMessages]);
 
-  // Keep scrolling inside the message panel only. Using scrollIntoView() here
-  // can scroll the outer page/layout and make the fixed navbar or composer
-  // appear to jump. Directly scrolling the message container keeps both
-  // the navbar and composer in their fixed positions.
+  // Scroll only the message panel. New/edited user messages are positioned
+  // near the top of the viewport so the first message cannot disappear above
+  // the mobile header. Loaded conversations still open at the bottom.
   useEffect(() => {
     const container = messagesContainerRef.current;
     if (!container) return;
 
     const frame = requestAnimationFrame(() => {
-      container.scrollTo({
-        top: container.scrollHeight,
-        behavior: 'smooth',
-      });
+      if (scrollModeRef.current === 'user' && latestUserMessageElementRef.current) {
+        const target = latestUserMessageElementRef.current;
+        const top = Math.max(0, target.offsetTop - 18);
+        container.scrollTo({ top, behavior: 'smooth' });
+      } else {
+        container.scrollTo({ top: container.scrollHeight, behavior: 'auto' });
+      }
     });
-
     return () => cancelAnimationFrame(frame);
   }, [messages, isTyping]);
 
@@ -385,6 +402,9 @@ export default function Chat({ user, onLogout }: Props) {
       timestamp: new Date().toISOString(),
     };
 
+    latestUserMessageIdRef.current = tempId;
+    scrollModeRef.current = 'user';
+    latestUserMessageElementRef.current = null;
     if (messagesSnapshot) setMessages([...messagesSnapshot, tempUserMsg]);
     else setMessages(prev => [...prev, tempUserMsg]);
 
@@ -426,13 +446,23 @@ export default function Chat({ user, onLogout }: Props) {
       clearTimeout(wakingTimer);
       setServerWaking(false);
 
-      const activeSessionId = response.sessionId || currentSessionId;
+      const rawSessionId =
+        response?.sessionId ?? response?.session_id ?? response?.session?.id ?? currentSessionId;
+      const activeSessionId = rawSessionId == null ? null : Number(rawSessionId);
 
-      if (isNewSession && activeSessionId) {
-        // Store the new session's ID (not just `true`) so the
-        // message-load effect skips ONLY this specific session's fetch.
-        // Switching to any other session will still trigger a full load.
-        skipMessageLoadRef.current = activeSessionId;
+      if (isNewSession && activeSessionId !== null && Number.isFinite(activeSessionId)) {
+        const optimisticName = finalMessage.length > 45
+          ? `${finalMessage.slice(0, 45).trim()}…`
+          : (finalMessage || 'New Chat');
+        optimisticSessionRef.current = {
+          ...(response?.session ?? {}),
+          id: activeSessionId,
+          sessionName: optimisticName,
+        } as Session;
+        setSessions(prev => [
+          optimisticSessionRef.current as Session,
+          ...prev.filter(s => Number(s.id) !== activeSessionId),
+        ]);
         setCurrentSessionId(activeSessionId);
         persistSessionId(activeSessionId);
         await loadSessions();
@@ -442,7 +472,7 @@ export default function Chat({ user, onLogout }: Props) {
 
       const aiMsg: Message = {
         id: response.messageId || 'ai-' + Date.now(),
-        sessionId: activeSessionId,
+        sessionId: activeSessionId ?? 0,
         role: 'assistant',
         content: response.response,
         timestamp: new Date().toISOString(),
@@ -461,7 +491,14 @@ export default function Chat({ user, onLogout }: Props) {
           const titleSource = finalMessage || 'File analysis';
           const { title } = await chatApi.generateTitle(titleSource) as any;
           if (title?.trim()) {
-            await chatApi.renameSession(activeSessionId, title.trim());
+            const cleanTitle = title.trim();
+            setSessions(prev => prev.map(s =>
+              Number(s.id) === activeSessionId ? { ...s, sessionName: cleanTitle } : s
+            ));
+            if (optimisticSessionRef.current?.id === activeSessionId) {
+              optimisticSessionRef.current = { ...optimisticSessionRef.current, sessionName: cleanTitle };
+            }
+            await chatApi.renameSession(activeSessionId, cleanTitle);
             await loadSessions();
           }
         } catch (renameErr) { console.error('Adaptive title rename failed:', renameErr); }
@@ -534,6 +571,10 @@ export default function Chat({ user, onLogout }: Props) {
     setCurrentSessionId(null);
     persistSessionId(null);
     setMessages([]);
+    latestUserMessageIdRef.current = null;
+    latestUserMessageElementRef.current = null;
+    scrollModeRef.current = 'bottom';
+    optimisticSessionRef.current = null;
     setInput('');
     setEditingMessage(null);
     setSelectedFiles([]);
@@ -725,6 +766,7 @@ export default function Chat({ user, onLogout }: Props) {
                   return (
                     <div
                       key={msg.id || `msg-${index}`}
+                      ref={msg.id === latestUserMessageIdRef.current ? latestUserMessageElementRef : undefined}
                       className={`flex w-full min-w-0 ${
                         msg.role === 'user' ? 'justify-end' : 'justify-start'
                       }`}
