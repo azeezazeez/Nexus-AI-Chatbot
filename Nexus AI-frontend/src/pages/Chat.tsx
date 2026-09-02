@@ -650,37 +650,30 @@ export default function Chat({ user, onLogout }: Props) {
 
       <main className="flex-1 flex flex-col min-w-0 min-h-0 h-full w-0 max-w-full overflow-hidden bg-transparent relative z-0 lg:pl-14 pt-14 md:pt-16">
         {/* Header - fixed so mobile/tablet refresh or message scrolling can never push it away */}
-        <header className="fixed top-0 left-0 right-0 lg:left-14 z-[10000] h-14 md:h-16 w-auto bg-white/95 dark:bg-zinc-950/95 backdrop-blur-2xl border-b border-zinc-200 dark:border-zinc-800 flex items-center shrink-0 relative">
-          {/* Mobile menu: fixed to the left edge so it never overlaps the chat title */}
-          <button
-            onClick={() => setMobileOpen(true)}
-            className="lg:hidden absolute left-3 md:left-5 top-1/2 -translate-y-1/2 z-[10001] w-9 h-9 flex items-center justify-center rounded-xl text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all"
-            aria-label="Open chats"
-          >
-            <Menu className="w-5 h-5" />
-          </button>
-
-          {/* Center title: reserves space for both left menu and right theme button */}
-          <div className="absolute left-1/2 -translate-x-1/2 w-[calc(100%-7rem)] sm:w-[calc(100%-9rem)] md:w-auto max-w-[min(70vw,32rem)] flex flex-col items-center gap-0.5 text-center min-w-0">
-            <div className="flex items-center justify-center gap-1.5 min-w-0 max-w-full">
-              <StormLogo className="w-4 h-4 md:w-5 md:h-5 text-indigo-600 dark:text-indigo-500 shrink-0" />
-              <span className="text-[10px] md:text-xs font-black text-zinc-900 dark:text-zinc-100 uppercase tracking-widest truncate">Nexus AI</span>
-              <div className="hidden sm:flex items-center gap-1 ml-1 shrink-0">
-                <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              </div>
+        <header className="fixed top-0 left-0 right-0 lg:left-14 z-[10000] h-14 md:h-16 w-auto bg-white/95 dark:bg-zinc-950/95 backdrop-blur-2xl border-b border-zinc-200 dark:border-zinc-800 flex items-center shrink-0">
+          <div className="flex items-center justify-between h-full px-3 md:px-5">
+            <div className="w-9 md:w-10 shrink-0 flex items-center justify-center">
+              <button onClick={() => setMobileOpen(true)} className="lg:hidden relative z-[10001] w-9 h-9 flex items-center justify-center rounded-xl text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all">
+                <Menu className="w-5 h-5" />
+              </button>
             </div>
-            <span className="block w-full text-[10px] font-semibold text-zinc-500 dark:text-zinc-400 truncate">
-              {sessions.find(s => s.id === currentSessionId)?.sessionName || 'New Chat'}
-            </span>
-          </div>
-
-          {/* Theme button: always pinned to the right-most edge */}
-          <motion.button
-            whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }}
-            onClick={toggleTheme}
-            aria-label="Toggle theme"
-            className="absolute right-3 md:right-5 top-1/2 -translate-y-1/2 z-[10001] w-9 h-9 md:w-10 md:h-10 shrink-0 flex items-center justify-center rounded-full bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-500 dark:text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all"
-          >
+            <div className="flex flex-col items-center gap-0.5 max-w-[60vw] sm:max-w-xs md:max-w-sm">
+              <div className="flex items-center gap-1.5">
+                <StormLogo className="w-4 h-4 md:w-5 md:h-5 text-indigo-600 dark:text-indigo-500 shrink-0" />
+                <span className="text-[10px] md:text-xs font-black text-zinc-900 dark:text-zinc-100 uppercase tracking-widest">Nexus AI</span>
+                <div className="hidden sm:flex items-center gap-1 ml-1">
+                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                </div>
+              </div>
+              <span className="text-[10px] font-semibold text-zinc-500 dark:text-zinc-400 truncate">
+                {sessions.find(s => s.id === currentSessionId)?.sessionName || 'New Chat'}
+              </span>
+            </div>
+            <motion.button
+              whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }}
+              onClick={toggleTheme}
+              className="w-9 h-9 md:w-10 md:h-10 shrink-0 flex items-center justify-center rounded-full bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-500 dark:text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all"
+            >
               <AnimatePresence mode="wait" initial={false}>
                 {isDark
                   ? <motion.span key="sun" initial={{ rotate: -90, opacity: 0 }} animate={{ rotate: 0, opacity: 1 }} exit={{ rotate: 90, opacity: 0 }}><Sun className="w-4 h-4" /></motion.span>
