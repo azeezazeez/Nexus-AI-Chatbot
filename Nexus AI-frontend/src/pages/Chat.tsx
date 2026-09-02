@@ -688,7 +688,6 @@ export default function Chat({ user, onLogout }: Props) {
                 }
               </AnimatePresence>
             </motion.button>
-          </div>
         </header>
 
         {/* Messages */}
