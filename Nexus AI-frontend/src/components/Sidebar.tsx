@@ -339,8 +339,11 @@ function SessionList({
       </div>
 
       {/* Session list */}
+      <div className="px-4 pb-2 shrink-0">
+        <div className="text-[10px] font-black text-zinc-400 uppercase tracking-[0.2em]">Chats</div>
+      </div>
       <div
-        className="flex-1 overflow-y-auto px-3 min-h-0 pb-4"
+        className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-3 pb-4"
         style={{ WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain' }}
       >
         {sortedSessions.length === 0 ? (
@@ -577,7 +580,7 @@ export default function Sidebar({
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.2 }}
-              className="lg:hidden fixed inset-0 z-40 bg-black/50 backdrop-blur-sm"
+              className="lg:hidden fixed inset-0 z-[9998] bg-black/50 backdrop-blur-sm"
               onClick={onMobileClose}
               aria-hidden="true"
             />
@@ -587,7 +590,7 @@ export default function Sidebar({
               animate={{ x: 0 }}
               exit={{ x: '-100%' }}
               transition={{ type: 'spring', stiffness: 320, damping: 32 }}
-              className="lg:hidden fixed inset-y-0 left-0 z-50 w-72 bg-white dark:bg-zinc-950 border-r border-zinc-200 dark:border-zinc-800 flex flex-col h-full shadow-2xl"
+              className="lg:hidden fixed inset-y-0 left-0 z-[9999] w-[min(18rem,calc(100vw-1rem))] max-w-[calc(100vw-1rem)] bg-white dark:bg-zinc-950 border-r border-zinc-200 dark:border-zinc-800 flex flex-col h-[100dvh] overflow-hidden shadow-2xl"
               onClick={e => e.stopPropagation()}
             >
               {/* Mobile drawer header — logo + title + theme toggle + close */}
@@ -624,11 +627,13 @@ export default function Sidebar({
                 select race. SessionList no longer needs a remount since
                 handleSelectSession now selects before closing.
               */}
-              <SessionList
-                {...listProps}
-                onClose={onMobileClose}
-                focusSearchOnMount={false}
-              />
+              <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+                <SessionList
+                  {...listProps}
+                  onClose={onMobileClose}
+                  focusSearchOnMount={false}
+                />
+              </div>
             </motion.aside>
           </>
         )}
@@ -676,11 +681,6 @@ export default function Sidebar({
                 className="w-9 h-9 rounded-xl flex items-center justify-center text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all relative"
               >
                 <MessageSquare className="w-[18px] h-[18px]" strokeWidth={1.6} />
-                {sessions.length > 0 && (
-                  <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-indigo-500 text-white text-[9px] font-black flex items-center justify-center leading-none">
-                    {sessions.length > 9 ? '9+' : sessions.length}
-                  </span>
-                )}
               </button>
             </IconTooltip>
           </div>
