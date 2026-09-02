@@ -165,6 +165,8 @@ export default function Chat({ user, onLogout }: Props) {
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+  // Keeps the just-sent message visible below the fixed navbar on mobile/tablet.
+  const pendingUserMessageRef = useRef<string | number | null>(null);
   const isSendingRef = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -257,7 +259,8 @@ export default function Chat({ user, onLogout }: Props) {
     try {
       wakeUpServer();
       const response = await chatApi.getSessions() as any;
-      setSessions(response.sessions || []);
+      const nextSessions = Array.isArray(response) ? response : (response?.sessions || []);
+      setSessions(nextSessions);
     } catch (err: any) {
       console.error('Failed to load sessions:', err);
       if (err.status === 401) onLogout();
@@ -307,19 +310,38 @@ export default function Chat({ user, onLogout }: Props) {
     }
   }, [currentSessionId, loadMessages]);
 
-  // Keep scrolling inside the message panel only. Using scrollIntoView() here
-  // can scroll the outer page/layout and make the fixed navbar or composer
-  // appear to jump. Directly scrolling the message container keeps both
-  // the navbar and composer in their fixed positions.
+  // Scroll only the chat panel. Never use scrollIntoView(), because it can
+  // move the page itself and hide the fixed navbar/composer on mobile.
   useEffect(() => {
     const container = messagesContainerRef.current;
     if (!container) return;
 
     const frame = requestAnimationFrame(() => {
-      container.scrollTo({
-        top: container.scrollHeight,
-        behavior: 'smooth',
-      });
+      const pendingId = pendingUserMessageRef.current;
+      if (pendingId !== null) {
+        const target = container.querySelector<HTMLElement>(
+          `[data-message-id=\"${String(pendingId).replace(/\"/g, '')}\"]`
+        );
+        if (target) {
+          const containerRect = container.getBoundingClientRect();
+          const targetRect = target.getBoundingClientRect();
+          const navbarOffset = window.matchMedia('(max-width: 1023px)').matches ? 76 : 24;
+          const nextTop = container.scrollTop + (targetRect.top - containerRect.top) - navbarOffset;
+          container.scrollTo({ top: Math.max(0, nextTop), behavior: 'smooth' });
+        }
+        pendingUserMessageRef.current = null;
+        return;
+      }
+
+      // While an answer is streaming, keep the newest answer visible only if
+      // the user was already near the bottom. This prevents a long response
+      // from immediately pushing the sent message under the navbar.
+      if (isTyping) {
+        const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+        if (distanceFromBottom < 180) {
+          container.scrollTo({ top: container.scrollHeight, behavior: 'auto' });
+        }
+      }
     });
 
     return () => cancelAnimationFrame(frame);
@@ -385,6 +407,7 @@ export default function Chat({ user, onLogout }: Props) {
       timestamp: new Date().toISOString(),
     };
 
+    pendingUserMessageRef.current = tempId;
     if (messagesSnapshot) setMessages([...messagesSnapshot, tempUserMsg]);
     else setMessages(prev => [...prev, tempUserMsg]);
 
@@ -429,12 +452,15 @@ export default function Chat({ user, onLogout }: Props) {
       const activeSessionId = response.sessionId || currentSessionId;
 
       if (isNewSession && activeSessionId) {
-        // Store the new session's ID (not just `true`) so the
-        // message-load effect skips ONLY this specific session's fetch.
-        // Switching to any other session will still trigger a full load.
+        // Keep the newly created session selected immediately. The server
+        // session list is refreshed as well, so it appears in the mobile
+        // drawer without requiring a desktop refresh.
         skipMessageLoadRef.current = activeSessionId;
         setCurrentSessionId(activeSessionId);
         persistSessionId(activeSessionId);
+        await loadSessions();
+      } else if (activeSessionId) {
+        // Refresh ordering/metadata for existing chats too.
         await loadSessions();
       }
 
@@ -725,6 +751,7 @@ export default function Chat({ user, onLogout }: Props) {
                   return (
                     <div
                       key={msg.id || `msg-${index}`}
+                      data-message-id={String(msg.id)}
                       className={`flex w-full min-w-0 ${
                         msg.role === 'user' ? 'justify-end' : 'justify-start'
                       }`}
