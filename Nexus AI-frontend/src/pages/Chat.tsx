@@ -77,7 +77,7 @@ const BlinkingCursor = () => (
 );
 
 const SESSION_KEY = 'scout_current_session_id';
-const SESSIONS_CACHE_KEY = 'nexus_sessions_cache_v3';
+const SESSIONS_CACHE_PREFIX = 'nexus_sessions_cache_v4_';
 const MESSAGES_CACHE_PREFIX = 'nexus_messages_cache_v3_';
 
 const normalizeSessionId = (value: unknown): number | null => {
@@ -96,16 +96,25 @@ const normalizeSessions = (value: unknown): Session[] => {
     .filter(Boolean) as Session[];
 };
 
-const readCachedSessions = (): Session[] => {
+const getSessionsCacheKey = (userId: string | number | undefined) =>
+  `${SESSIONS_CACHE_PREFIX}${String(userId ?? 'unknown')}`;
+
+const readCachedSessions = (userId?: string | number): Session[] => {
+  if (userId === undefined || userId === null) return [];
   try {
-    return normalizeSessions(JSON.parse(localStorage.getItem(SESSIONS_CACHE_KEY) || '[]'));
+    return normalizeSessions(
+      JSON.parse(localStorage.getItem(getSessionsCacheKey(userId)) || '[]')
+    );
   } catch {
     return [];
   }
 };
 
-const cacheSessions = (sessions: Session[]) => {
-  try { localStorage.setItem(SESSIONS_CACHE_KEY, JSON.stringify(sessions)); } catch {}
+const cacheSessions = (userId: string | number | undefined, sessions: Session[]) => {
+  if (userId === undefined || userId === null) return;
+  try {
+    localStorage.setItem(getSessionsCacheKey(userId), JSON.stringify(sessions));
+  } catch {}
 };
 
 const readCachedMessages = (sessionId: number): Message[] => {
@@ -161,7 +170,7 @@ const fileToDataUrl = (file: File): Promise<string> =>
   });
 
 export default function Chat({ user, onLogout }: Props) {
-  const [sessions, setSessions] = useState<Session[]>(readCachedSessions);
+  const [sessions, setSessions] = useState<Session[]>(() => readCachedSessions(user?.id));
   const [currentSessionId, setCurrentSessionId] = useState<number | null>(readPersistedSessionId);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
@@ -302,16 +311,30 @@ export default function Chat({ user, onLogout }: Props) {
     else startListening();
   }, [isListening, startListening, stopListening]);
 
+  // Switch the local session cache when the authenticated user changes.
+  useEffect(() => {
+    const cached = readCachedSessions(user?.id);
+    setSessions(cached);
+  }, [user?.id]);
+
   // Load sessions & messages
-  const loadSessions = useCallback(async (preferredSession?: Session) => {
+  const loadSessions = useCallback(async (preferredSession?: Session, allowAuthoritativeEmpty = false) => {
     try {
       wakeUpServer();
       const response = await chatApi.getSessions() as any;
+      const authenticated = response?.authenticated !== false;
       const serverSessions = normalizeSessions(
         Array.isArray(response) ? response : (response?.sessions || [])
       );
 
       setSessions(prev => {
+        // A 200 response with authenticated:false is NOT an instruction to
+        // erase the local chat list. Keep the user's last known sessions
+        // visible while the browser/server session is being restored.
+        if (!authenticated) {
+          return prev.length > 0 ? prev : readCachedSessions(user?.id);
+        }
+
         let next = serverSessions;
 
         // Immediately preserve a just-created session if the backend's list
@@ -322,7 +345,14 @@ export default function Chat({ user, onLogout }: Props) {
           next = [existing || preferredSession, ...next];
         }
 
-        cacheSessions(next);
+        // If the server says authenticated=true but briefly returns an empty
+        // list, do not erase a known-good list. A preferred newly-created
+        // session is still preserved above.
+        if (next.length === 0 && prev.length > 0 && !allowAuthoritativeEmpty) {
+          next = prev;
+        }
+
+        cacheSessions(user?.id, next);
         if (pendingSessionRef.current !== null && next.some(s => s.id === pendingSessionRef.current)) {
           pendingSessionRef.current = null;
         }
@@ -332,12 +362,12 @@ export default function Chat({ user, onLogout }: Props) {
       console.error('Failed to load sessions:', err);
       // Keep cached/server-confirmed sessions visible during a transient
       // mobile network failure instead of replacing them with an empty list.
-      setSessions(prev => prev.length ? prev : readCachedSessions());
+      setSessions(prev => prev.length ? prev : readCachedSessions(user?.id));
       if (err?.status === 401) onLogout();
     } finally {
       setLoading(false);
     }
-  }, [onLogout]);
+  }, [onLogout, user?.id]);
 
   const loadMessages = useCallback(async (sid: number) => {
     const normalizedSid = normalizeSessionId(sid);
@@ -412,9 +442,16 @@ export default function Chat({ user, onLogout }: Props) {
         if (target) {
           const containerRect = container.getBoundingClientRect();
           const targetRect = target.getBoundingClientRect();
-          const navbarOffset = window.matchMedia('(max-width: 1023px)').matches ? 76 : 24;
-          const nextTop = container.scrollTop + (targetRect.top - containerRect.top) - navbarOffset;
-          container.scrollTo({ top: Math.max(0, nextTop), behavior: 'smooth' });
+          const safeTop = containerRect.top + 12;
+          const safeBottom = containerRect.bottom - 12;
+
+          // The message scroller already starts below the fixed navbar.
+          // Never subtract a second navbar offset here.
+          if (targetRect.top < safeTop) {
+            container.scrollTop -= safeTop - targetRect.top;
+          } else if (targetRect.bottom > safeBottom) {
+            container.scrollTop += targetRect.bottom - safeBottom;
+          }
         }
         pendingUserMessageRef.current = null;
         return;
@@ -551,6 +588,16 @@ export default function Chat({ user, onLogout }: Props) {
         pendingSessionRef.current = activeSessionId;
         setCurrentSessionId(activeSessionId);
         persistSessionId(activeSessionId);
+
+        // Replace the optimistic sessionId=0 with the real database session ID.
+        setMessages(prev =>
+          prev.map(msg =>
+            msg.id === tempId
+              ? { ...msg, sessionId: activeSessionId }
+              : msg
+          )
+        );
+
         const optimisticSession: Session = {
           ...(response?.session || {}),
           id: activeSessionId,
@@ -684,7 +731,7 @@ export default function Chat({ user, onLogout }: Props) {
         persistSessionId(null);
         setMessages([]);
       }
-      await loadSessions();
+      await loadSessions(undefined, true);
     } catch (err) { console.error('Delete session failed:', err); }
     finally {
       setSessionIdToDelete(null);
@@ -704,11 +751,11 @@ export default function Chat({ user, onLogout }: Props) {
     try {
       await chatApi.clearSessions();
       sessions.forEach(s => { try { localStorage.removeItem(`${MESSAGES_CACHE_PREFIX}${s.id}`); } catch {} });
-      try { localStorage.removeItem(SESSIONS_CACHE_KEY); } catch {}
+      try { localStorage.removeItem(getSessionsCacheKey(user?.id)); } catch {}
       setCurrentSessionId(null);
       persistSessionId(null);
       setMessages([]);
-      await loadSessions();
+      await loadSessions(undefined, true);
     } catch (err) { console.error('Clear sessions failed:', err); }
     finally { setModalType('none'); }
   };
@@ -716,6 +763,11 @@ export default function Chat({ user, onLogout }: Props) {
   const handleLogout = async () => {
     try { await authApi.logout(); } catch (err) { console.error('Logout failed:', err); }
     finally {
+      try {
+        localStorage.removeItem(getSessionsCacheKey(user?.id));
+      } catch {}
+      setSessions([]);
+      setMessages([]);
       setCurrentSessionId(null);
       persistSessionId(null);
       onLogout();
