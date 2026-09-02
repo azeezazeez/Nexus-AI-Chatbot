@@ -653,9 +653,9 @@ export default function Chat({ user, onLogout }: Props) {
         onMobileClose={() => setMobileOpen(false)}
       />
 
-      <main className="flex-1 flex flex-col min-w-0 w-0 max-w-full overflow-hidden bg-transparent relative z-0 lg:pl-14">
+      <main className="flex-1 flex flex-col min-w-0 w-0 max-w-full overflow-visible bg-transparent relative z-0 lg:pl-14">
         {/* Header */}
-        <header className="sticky top-0 z-[70] h-14 md:h-16 bg-white/90 dark:bg-zinc-950/80 backdrop-blur-2xl border-b border-zinc-200 dark:border-zinc-800 shrink-0 transition-colors duration-300">
+        <header className="relative z-[999] flex-none h-14 md:h-16 w-full bg-white/95 dark:bg-zinc-950/95 backdrop-blur-2xl border-b border-zinc-200 dark:border-zinc-800 shrink-0 transition-colors duration-300">
           <div className="flex items-center justify-between h-full px-3 md:px-5">
             <div className="w-9 md:w-10 shrink-0 flex items-center justify-center">
               <button onClick={() => setMobileOpen(true)} className="lg:hidden relative z-[80] w-9 h-9 flex items-center justify-center rounded-xl text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all">
