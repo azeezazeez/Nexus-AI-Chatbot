@@ -608,7 +608,7 @@ export default function Chat({ user, onLogout }: Props) {
   }
 
   return (
-    <div className="flex h-screen h-[100dvh] overflow-hidden bg-white dark:bg-zinc-950 relative transition-colors duration-300 font-sans">
+    <div className="flex h-screen h-[100dvh] w-full max-w-full overflow-hidden bg-white dark:bg-zinc-950 relative transition-colors duration-300 font-sans">
       <div className="absolute top-0 right-0 w-[800px] h-[800px] bg-indigo-500/5 rounded-full blur-[160px] pointer-events-none" />
 
       <Sidebar
@@ -625,7 +625,7 @@ export default function Chat({ user, onLogout }: Props) {
         onMobileClose={() => setMobileOpen(false)}
       />
 
-      <main className="flex-1 flex flex-col min-w-0 bg-transparent relative z-20 lg:pl-14">
+      <main className="flex-1 flex flex-col min-w-0 w-0 max-w-full overflow-hidden bg-transparent relative z-20 lg:pl-14">
         {/* Header */}
         <header className="sticky top-0 z-30 h-14 md:h-16 bg-white/90 dark:bg-zinc-950/80 backdrop-blur-2xl border-b border-zinc-200 dark:border-zinc-800 shrink-0 transition-colors duration-300">
           <div className="flex items-center justify-between h-full px-3 md:px-5">
@@ -662,8 +662,8 @@ export default function Chat({ user, onLogout }: Props) {
         </header>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto scroll-hide" onScroll={handleScroll}>
-          <div className="max-w-3xl mx-auto px-3 sm:px-4 md:px-6 py-6 md:py-10">
+        <div className="flex-1 min-w-0 w-full max-w-full overflow-y-auto overflow-x-hidden scroll-hide" onScroll={handleScroll}>
+          <div className="w-full max-w-3xl mx-auto min-w-0 px-3 sm:px-4 md:px-6 py-6 md:py-10">
             {messages.length === 0 && !isTyping ? (
               <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-2 max-w-2xl mx-auto">
                 <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="mb-8">
@@ -687,7 +687,7 @@ export default function Chat({ user, onLogout }: Props) {
 
                   return (
                     <div key={msg.id || `msg-${index}`} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} group`}>
-                      <div className={`flex gap-2.5 md:gap-3 w-full ${msg.role === 'user' ? 'flex-row-reverse justify-start' : 'flex-row'}`}>
+                      <div className={`flex gap-2.5 md:gap-3 w-full min-w-0 ${msg.role === 'user' ? 'flex-row-reverse justify-start' : 'flex-row'}`}>
                         <div className="w-7 h-7 md:w-8 md:h-8 shrink-0 flex items-center justify-center mt-1">
                           {msg.role === 'user' ? (
                             <div className="w-full h-full rounded-full border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 flex items-center justify-center shadow-sm overflow-hidden">
@@ -698,12 +698,12 @@ export default function Chat({ user, onLogout }: Props) {
                           )}
                         </div>
 
-                        <div className={`flex flex-col gap-1 min-w-0 ${msg.role === 'user' ? 'max-w-[85%] md:max-w-[75%] items-end' : 'max-w-[90%] md:max-w-[80%] items-start'}`}>
-                          <div className={`px-4 py-3 rounded-2xl shadow-sm border backdrop-blur-xl ${
-                            msg.role === 'assistant'
-                              ? 'bg-white/80 dark:bg-zinc-900/60 border-zinc-200/60 dark:border-zinc-700/50 text-zinc-900 dark:text-zinc-100 rounded-tl-none'
-                              : 'bg-zinc-100/80 dark:bg-zinc-800/60 border-zinc-200/40 dark:border-zinc-700/40 text-zinc-900 dark:text-zinc-100 rounded-tr-none'
-                          }`}>
+                        <div className={`flex flex-col gap-1 min-w-0 w-full ${
+                          msg.role === 'user'
+                            ? 'max-w-[90%] sm:max-w-[85%] items-end'
+                            : 'max-w-full items-start'
+                        }`}>
+                          <div className="w-full min-w-0 text-zinc-900 dark:text-zinc-100">
                             {attachedImages.length > 0 && (
                               <div className="flex flex-wrap gap-2 mb-3">
                                 {attachedImages.map((url, i) => (
@@ -718,9 +718,9 @@ export default function Chat({ user, onLogout }: Props) {
                               </div>
                             )}
 
-                            <div className="text-sm md:text-base leading-relaxed markdown-body max-w-none">
+                            <div className="text-sm md:text-base leading-relaxed markdown-body max-w-none min-w-0 w-full break-words" style={{ overflowWrap: 'anywhere' }}>
                               {isEditing ? (
-                                <div className="flex flex-col gap-3 min-w-[200px] sm:min-w-[340px] p-1">
+                                <div className="flex flex-col gap-3 min-w-0 w-full p-1">
                                   <textarea
                                     value={editInput}
                                     onChange={(e) => setEditInput(e.target.value)}
@@ -743,12 +743,12 @@ export default function Chat({ user, onLogout }: Props) {
                                   components={{
                                     pre({ children, ...props }: any) {
                                       return (
-                                        <div className="my-6 overflow-hidden rounded-xl border border-indigo-200/40 dark:border-indigo-500/20 shadow-lg bg-gradient-to-br from-indigo-50/80 to-violet-50/60 dark:from-indigo-950/50 dark:to-violet-950/40 backdrop-blur-xl">
+                                        <div className="my-4 w-full max-w-full min-w-0 overflow-hidden rounded-xl border border-indigo-200/40 dark:border-indigo-500/20 shadow-lg bg-gradient-to-br from-indigo-50/80 to-violet-50/60 dark:from-indigo-950/50 dark:to-violet-950/40">
                                           <div className="flex items-center gap-2 px-4 py-2 border-b border-indigo-200/30 dark:border-indigo-500/15 bg-indigo-100/40 dark:bg-indigo-900/20">
                                             <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 dark:bg-indigo-500" />
                                             <span className="text-[10px] font-black uppercase tracking-widest text-indigo-400 dark:text-indigo-500">Architecture</span>
                                           </div>
-                                          <pre className="p-5 overflow-x-auto text-[0.82rem] leading-relaxed font-mono text-indigo-700 dark:text-indigo-300 whitespace-pre" {...props}>{children}</pre>
+                                          <pre className="max-w-full overflow-x-auto p-3 sm:p-4 md:p-5 text-[0.75rem] sm:text-[0.82rem] leading-relaxed font-mono text-indigo-700 dark:text-indigo-300 whitespace-pre" {...props}>{children}</pre>
                                         </div>
                                       );
                                     },
@@ -821,7 +821,7 @@ export default function Chat({ user, onLogout }: Props) {
                     <div className="w-7 h-7 md:w-8 md:h-8 shrink-0 flex items-center justify-center mt-1">
                       <StormLogo className="w-6 h-6 text-indigo-500 animate-spin" />
                     </div>
-                    <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 px-4 py-3 rounded-2xl rounded-tl-none shadow-sm flex flex-col gap-2 backdrop-blur-xl">
+                    <div className="px-1 py-2 flex flex-col gap-2 min-w-0 max-w-full">
                       <div className="flex items-center gap-2">
                         <motion.div animate={{ scale: [1, 1.2, 1], opacity: [0.3, 1, 0.3] }} transition={{ repeat: Infinity, duration: 1 }} className="w-1.5 h-1.5 bg-indigo-600 rounded-full" />
                         <motion.div animate={{ scale: [1, 1.2, 1], opacity: [0.3, 1, 0.3] }} transition={{ repeat: Infinity, duration: 1, delay: 0.2 }} className="w-1.5 h-1.5 bg-indigo-600 rounded-full" />
@@ -847,8 +847,8 @@ export default function Chat({ user, onLogout }: Props) {
         </div>
 
         {/* Input bar */}
-        <div className="shrink-0 bg-white dark:bg-zinc-950 border-t border-zinc-200/50 dark:border-zinc-800/50 px-3 sm:px-4 md:px-6 py-3 md:py-4">
-          <div className="max-w-3xl mx-auto relative">
+        <div className="shrink-0 w-full max-w-full overflow-hidden bg-white dark:bg-zinc-950 border-t border-zinc-200/50 dark:border-zinc-800/50 px-3 sm:px-4 md:px-6 py-3 md:py-4">
+          <div className="w-full max-w-3xl mx-auto relative min-w-0">
             <AnimatePresence>
               {showScrollBottom && (
                 <motion.button
