@@ -30,7 +30,12 @@ const PINNED_KEY = 'nexus_pinned_sessions';
 const SIDEBAR_SEEN_KEY = 'nexus_sidebar_seen';
 
 const loadPinnedIds = (): number[] => {
-  try { return JSON.parse(localStorage.getItem(PINNED_KEY) || '[]'); } catch { return []; }
+  try {
+    const raw = JSON.parse(localStorage.getItem(PINNED_KEY) || '[]');
+    return Array.isArray(raw)
+      ? raw.map((id: unknown) => Number(id)).filter((id: number) => Number.isFinite(id) && id > 0)
+      : [];
+  } catch { return []; }
 };
 const savePinnedIds = (ids: number[]) => {
   localStorage.setItem(PINNED_KEY, JSON.stringify(ids));
@@ -554,10 +559,16 @@ export default function Sidebar({
     else collapseDesktop();
   }, [desktopCollapsed, expandDesktop, collapseDesktop]);
 
+  const normalizedSessions = sessions
+    .map(session => ({ ...session, id: Number((session as any).id) }))
+    .filter(session => Number.isFinite(session.id) && session.id > 0);
+
+  const normalizedCurrentSessionId = Number(currentSessionId);
+
   const listProps = {
     user,
-    sessions,
-    currentSessionId,
+    sessions: normalizedSessions,
+    currentSessionId: Number.isFinite(normalizedCurrentSessionId) ? normalizedCurrentSessionId : null,
     onSelectSession,
     onNewSession,
     onDeleteSession,
@@ -675,7 +686,7 @@ export default function Sidebar({
                 <Search className="w-[18px] h-[18px]" strokeWidth={1.6} />
               </button>
             </IconTooltip>
-            <IconTooltip label={`Chats (${sessions.length})`}>
+            <IconTooltip label={`Chats (${normalizedSessions.length})`}>
               <button
                 onClick={expandDesktop}
                 className="w-9 h-9 rounded-xl flex items-center justify-center text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all relative"
