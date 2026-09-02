@@ -30,12 +30,7 @@ const PINNED_KEY = 'nexus_pinned_sessions';
 const SIDEBAR_SEEN_KEY = 'nexus_sidebar_seen';
 
 const loadPinnedIds = (): number[] => {
-  try {
-    const raw = JSON.parse(localStorage.getItem(PINNED_KEY) || '[]');
-    return Array.isArray(raw)
-      ? raw.map((id: unknown) => Number(id)).filter((id: number) => Number.isFinite(id) && id > 0)
-      : [];
-  } catch { return []; }
+  try { return JSON.parse(localStorage.getItem(PINNED_KEY) || '[]'); } catch { return []; }
 };
 const savePinnedIds = (ids: number[]) => {
   localStorage.setItem(PINNED_KEY, JSON.stringify(ids));
@@ -234,7 +229,13 @@ function SessionList({
     }
   }, [renamingId]);
 
-  const displaySessions: Session[] = searchResults ?? sessions;
+  const displaySessions: Session[] = (searchResults ?? sessions)
+    .map((s: any) => ({
+      ...s,
+      id: Number(s.id ?? s.sessionId ?? s.session_id),
+      sessionName: String(s.sessionName ?? s.name ?? s.title ?? 'New Chat'),
+    }))
+    .filter((s: any) => Number.isFinite(s.id));
 
   const sortedSessions = [
     ...displaySessions.filter(s => pinnedIds.includes(s.id)),
@@ -348,7 +349,7 @@ function SessionList({
         <div className="text-[10px] font-black text-zinc-400 uppercase tracking-[0.2em]">Chats</div>
       </div>
       <div
-        className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain px-3 pb-4 touch-pan-y"
+        className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-3 pb-4"
         style={{ WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain' }}
       >
         {sortedSessions.length === 0 ? (
@@ -559,16 +560,10 @@ export default function Sidebar({
     else collapseDesktop();
   }, [desktopCollapsed, expandDesktop, collapseDesktop]);
 
-  const normalizedSessions = sessions
-    .map(session => ({ ...session, id: Number((session as any).id) }))
-    .filter(session => Number.isFinite(session.id) && session.id > 0);
-
-  const normalizedCurrentSessionId = Number(currentSessionId);
-
   const listProps = {
     user,
-    sessions: normalizedSessions,
-    currentSessionId: Number.isFinite(normalizedCurrentSessionId) ? normalizedCurrentSessionId : null,
+    sessions,
+    currentSessionId,
     onSelectSession,
     onNewSession,
     onDeleteSession,
@@ -580,75 +575,54 @@ export default function Sidebar({
   return (
     <>
       {/* ═══════════════════════════════════════════════════
-          MOBILE / TABLET DRAWER  (hidden on lg+)
+          MOBILE / TABLET DRAWER
+          Keep the drawer mounted so the session list is never lost when
+          opening/closing it. The drawer is hidden from pointer interaction
+          while closed, but its SessionList remains synchronized with the
+          parent `sessions` prop.
       ═══════════════════════════════════════════════════ */}
-      <AnimatePresence>
-        {mobileOpen && (
-          <>
-            <motion.div
-              key="mobile-backdrop"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.2 }}
-              className="lg:hidden fixed inset-0 z-[19998] bg-black/50 backdrop-blur-sm"
+      <div
+        className={`lg:hidden fixed inset-0 z-[9998] transition-opacity duration-200 ${
+          mobileOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+        }`}
+        aria-hidden={!mobileOpen}
+      >
+        <div
+          className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+          onClick={onMobileClose}
+        />
+
+        <aside
+          className={`absolute inset-y-0 left-0 z-[9999] w-[min(18rem,calc(100vw-1rem))] max-w-[calc(100vw-1rem)] bg-white dark:bg-zinc-950 border-r border-zinc-200 dark:border-zinc-800 flex flex-col h-[100dvh] overflow-hidden shadow-2xl transition-transform duration-300 ease-out ${
+            mobileOpen ? 'translate-x-0' : '-translate-x-full'
+          }`}
+          onClick={e => e.stopPropagation()}
+        >
+          <div className="flex items-center justify-between px-5 pt-5 pb-3 shrink-0">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-8 h-8 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-500/20 p-1.5 shrink-0">
+                <NexusLogo className="w-full h-full text-white" />
+              </div>
+              <h2 className="text-lg font-black tracking-tighter text-zinc-900 dark:text-white italic">NEXUS</h2>
+            </div>
+            <button
               onClick={onMobileClose}
-              aria-hidden="true"
-            />
-            <motion.aside
-              key="mobile-drawer"
-              initial={{ x: '-100%' }}
-              animate={{ x: 0 }}
-              exit={{ x: '-100%' }}
-              transition={{ type: 'spring', stiffness: 320, damping: 32 }}
-              className="lg:hidden fixed inset-y-0 left-0 z-[19999] w-[min(18rem,calc(100vw-1rem))] max-w-[calc(100vw-1rem)] bg-white dark:bg-zinc-950 border-r border-zinc-200 dark:border-zinc-800 flex flex-col h-[100dvh] min-h-0 overflow-hidden shadow-2xl overscroll-contain"
-              onClick={e => e.stopPropagation()}
+              className="w-9 h-9 shrink-0 flex items-center justify-center rounded-full bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 shadow-sm transition-all"
+              aria-label="Close chats"
             >
-              {/* Mobile drawer header — logo + title + theme toggle + close */}
-              <div className="flex items-center justify-between px-5 pt-5 pb-2 shrink-0">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-500/20 p-1.5">
-                    <NexusLogo className="w-full h-full text-white" />
-                  </div>
-                  <h2 className="text-lg font-black tracking-tighter text-zinc-900 dark:text-white italic">NEXUS</h2>
-                </div>
+              <X className="w-4 h-4" />
+            </button>
+          </div>
 
-                {/* Right side: theme toggle + close button */}
-                <div className="flex items-center gap-2">
-                  <ThemeToggleButton className="w-9 h-9" />
-                  <button
-                    onClick={onMobileClose}
-                    className="w-9 h-9 flex items-center justify-center rounded-full
-                               bg-zinc-100 dark:bg-zinc-800
-                               border border-zinc-200 dark:border-zinc-700
-                               text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200
-                               hover:border-zinc-300 dark:hover:border-zinc-600
-                               shadow-sm transition-all"
-                    aria-label="Close menu"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-
-              {/*
-                NOTE: no `key` swap here anymore. The previous version forced
-                a full remount on every open/close, which combined with the
-                old close-then-select ordering caused the mobile session-
-                select race. SessionList no longer needs a remount since
-                handleSelectSession now selects before closing.
-              */}
-              <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-                <SessionList
-                  {...listProps}
-                  onClose={onMobileClose}
-                  focusSearchOnMount={false}
-                />
-              </div>
-            </motion.aside>
-          </>
-        )}
-      </AnimatePresence>
+          <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+            <SessionList
+              {...listProps}
+              onClose={onMobileClose}
+              focusSearchOnMount={false}
+            />
+          </div>
+        </aside>
+      </div>
 
       {/* ═══════════════════════════════════════════════════
           DESKTOP COLLAPSED ICON RAIL  (lg+ only)
@@ -686,7 +660,7 @@ export default function Sidebar({
                 <Search className="w-[18px] h-[18px]" strokeWidth={1.6} />
               </button>
             </IconTooltip>
-            <IconTooltip label={`Chats (${normalizedSessions.length})`}>
+            <IconTooltip label={`Chats (${sessions.length})`}>
               <button
                 onClick={expandDesktop}
                 className="w-9 h-9 rounded-xl flex items-center justify-center text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all relative"
