@@ -168,10 +168,13 @@ export default function Chat({ user, onLogout }: Props) {
   const isSendingRef = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const latestUserMessageIdRef = useRef<string | number | null>(null);
   const latestUserMessageElementRef = useRef<HTMLDivElement | null>(null);
   const scrollModeRef = useRef<'bottom' | 'user'>('bottom');
-  const optimisticSessionRef = useRef<Session | null>(null);
+
+  // Stores the specific session ID that should skip one message load
+  // (the newly created session after first send), so switching to any
+  // OTHER existing session always loads its messages correctly.
+  const skipMessageLoadRef = useRef<number | null>(null);
 
   // Auto-resize textarea
   useEffect(() => {
@@ -251,52 +254,27 @@ export default function Chat({ user, onLogout }: Props) {
     else startListening();
   }, [isListening, startListening, stopListening]);
 
-  // Load sessions & messages. Normalize IDs because some backends return
-  // numeric IDs while others serialize them as strings. Keeping one type here
-  // prevents mobile selection/storage races.
-  const normalizeSessions = useCallback((items: any[]): Session[] => {
-    return (items || [])
-      .map((session: any) => ({
-        ...session,
-        id: Number(session.id ?? session.sessionId ?? session.session_id),
-        sessionName: String(session.sessionName ?? session.name ?? session.title ?? 'New Chat'),
-      }))
-      .filter((session: any) => Number.isFinite(session.id));
-  }, []);
-
+  // Load sessions & messages
   const loadSessions = useCallback(async () => {
     try {
       wakeUpServer();
       const response = await chatApi.getSessions() as any;
-      const serverSessions = normalizeSessions(response?.sessions ?? response?.data?.sessions ?? []);
-
-      // If the backend response arrives a little before the newly-created row
-      // is visible, keep the optimistic row so mobile never looks empty.
-      const optimistic = optimisticSessionRef.current;
-      let nextSessions = serverSessions;
-      if (optimistic && !serverSessions.some(s => s.id === optimistic.id)) {
-        nextSessions = [optimistic, ...serverSessions];
-      } else if (optimistic) {
-        optimisticSessionRef.current = null;
-      }
-
-      setSessions(nextSessions);
+      setSessions(response.sessions || []);
     } catch (err: any) {
       console.error('Failed to load sessions:', err);
-      if (err?.status === 401) onLogout();
+      if (err.status === 401) onLogout();
     } finally {
       setLoading(false);
     }
-  }, [normalizeSessions, onLogout]);
+  }, [onLogout]);
 
   const loadMessages = useCallback(async (sid: number) => {
     try {
       const response = await chatApi.getMessages(sid) as any;
-      setMessages(response?.messages ?? response?.data?.messages ?? []);
-      scrollModeRef.current = 'bottom';
+      setMessages(response.messages || []);
     } catch (err: any) {
       console.error('Failed to load messages:', err);
-      if (err?.status === 401) onLogout();
+      if (err.status === 401) onLogout();
     }
   }, [onLogout]);
 
@@ -314,31 +292,48 @@ export default function Chat({ user, onLogout }: Props) {
     }
   }, [sessions, loading]);
 
+  // Only skip loading messages if the currentSessionId exactly matches the
+  // ID we marked to skip (the newly created session). Any other session --
+  // including ones selected on mobile -- always loads.
   useEffect(() => {
-    if (currentSessionId !== null) {
+    if (currentSessionId) {
+      if (skipMessageLoadRef.current === currentSessionId) {
+        // This is the new session we just created inline — messages are
+        // already in state from the sendMessage flow, so skip the fetch.
+        skipMessageLoadRef.current = null;
+        return;
+      }
       loadMessages(currentSessionId);
     } else {
       setMessages([]);
-      scrollModeRef.current = 'bottom';
     }
   }, [currentSessionId, loadMessages]);
 
-  // Scroll only the message panel. New/edited user messages are positioned
-  // near the top of the viewport so the first message cannot disappear above
-  // the mobile header. Loaded conversations still open at the bottom.
+  // ONLY the messages panel scrolls. Never call scrollIntoView(), because it
+  // can scroll an ancestor and hide the first user message beneath the navbar.
+  // When a message is sent/retried/edited, position that exact user message
+  // at the top of the message viewport. Existing conversations still open at
+  // the latest message.
   useEffect(() => {
     const container = messagesContainerRef.current;
     if (!container) return;
 
     const frame = requestAnimationFrame(() => {
-      if (scrollModeRef.current === 'user' && latestUserMessageElementRef.current) {
-        const target = latestUserMessageElementRef.current;
-        const top = Math.max(0, target.offsetTop - 18);
-        container.scrollTo({ top, behavior: 'smooth' });
+      const target = latestUserMessageElementRef.current;
+
+      if (scrollModeRef.current === 'user' && target) {
+        const containerRect = container.getBoundingClientRect();
+        const targetRect = target.getBoundingClientRect();
+        const desiredTop = 18;
+        const delta = targetRect.top - containerRect.top - desiredTop;
+        const maxScroll = Math.max(0, container.scrollHeight - container.clientHeight);
+        const nextTop = Math.max(0, Math.min(maxScroll, container.scrollTop + delta));
+        container.scrollTo({ top: nextTop, behavior: 'auto' });
       } else {
         container.scrollTo({ top: container.scrollHeight, behavior: 'auto' });
       }
     });
+
     return () => cancelAnimationFrame(frame);
   }, [messages, isTyping]);
 
@@ -402,9 +397,11 @@ export default function Chat({ user, onLogout }: Props) {
       timestamp: new Date().toISOString(),
     };
 
-    latestUserMessageIdRef.current = tempId;
-    scrollModeRef.current = 'user';
+    // Tell the scroll controller that this render contains a newly sent user message.
+    // The ref is attached to that exact row below, so it will be positioned safely
+    // below the navbar instead of being scrolled underneath it.
     latestUserMessageElementRef.current = null;
+    scrollModeRef.current = 'user';
     if (messagesSnapshot) setMessages([...messagesSnapshot, tempUserMsg]);
     else setMessages(prev => [...prev, tempUserMsg]);
 
@@ -446,23 +443,13 @@ export default function Chat({ user, onLogout }: Props) {
       clearTimeout(wakingTimer);
       setServerWaking(false);
 
-      const rawSessionId =
-        response?.sessionId ?? response?.session_id ?? response?.session?.id ?? currentSessionId;
-      const activeSessionId = rawSessionId == null ? null : Number(rawSessionId);
+      const activeSessionId = response.sessionId || currentSessionId;
 
-      if (isNewSession && activeSessionId !== null && Number.isFinite(activeSessionId)) {
-        const optimisticName = finalMessage.length > 45
-          ? `${finalMessage.slice(0, 45).trim()}…`
-          : (finalMessage || 'New Chat');
-        optimisticSessionRef.current = {
-          ...(response?.session ?? {}),
-          id: activeSessionId,
-          sessionName: optimisticName,
-        } as Session;
-        setSessions(prev => [
-          optimisticSessionRef.current as Session,
-          ...prev.filter(s => Number(s.id) !== activeSessionId),
-        ]);
+      if (isNewSession && activeSessionId) {
+        // Store the new session's ID (not just `true`) so the
+        // message-load effect skips ONLY this specific session's fetch.
+        // Switching to any other session will still trigger a full load.
+        skipMessageLoadRef.current = activeSessionId;
         setCurrentSessionId(activeSessionId);
         persistSessionId(activeSessionId);
         await loadSessions();
@@ -472,7 +459,7 @@ export default function Chat({ user, onLogout }: Props) {
 
       const aiMsg: Message = {
         id: response.messageId || 'ai-' + Date.now(),
-        sessionId: activeSessionId ?? 0,
+        sessionId: activeSessionId,
         role: 'assistant',
         content: response.response,
         timestamp: new Date().toISOString(),
@@ -491,14 +478,7 @@ export default function Chat({ user, onLogout }: Props) {
           const titleSource = finalMessage || 'File analysis';
           const { title } = await chatApi.generateTitle(titleSource) as any;
           if (title?.trim()) {
-            const cleanTitle = title.trim();
-            setSessions(prev => prev.map(s =>
-              Number(s.id) === activeSessionId ? { ...s, sessionName: cleanTitle } : s
-            ));
-            if (optimisticSessionRef.current?.id === activeSessionId) {
-              optimisticSessionRef.current = { ...optimisticSessionRef.current, sessionName: cleanTitle };
-            }
-            await chatApi.renameSession(activeSessionId, cleanTitle);
+            await chatApi.renameSession(activeSessionId, title.trim());
             await loadSessions();
           }
         } catch (renameErr) { console.error('Adaptive title rename failed:', renameErr); }
@@ -571,10 +551,8 @@ export default function Chat({ user, onLogout }: Props) {
     setCurrentSessionId(null);
     persistSessionId(null);
     setMessages([]);
-    latestUserMessageIdRef.current = null;
-    latestUserMessageElementRef.current = null;
     scrollModeRef.current = 'bottom';
-    optimisticSessionRef.current = null;
+    latestUserMessageElementRef.current = null;
     setInput('');
     setEditingMessage(null);
     setSelectedFiles([]);
@@ -689,10 +667,10 @@ export default function Chat({ user, onLogout }: Props) {
         onMobileClose={() => setMobileOpen(false)}
       />
 
-      <main className="flex-1 flex flex-col min-w-0 min-h-0 h-full w-0 max-w-full overflow-hidden bg-transparent relative z-0 lg:pl-14 pt-14 md:pt-16">
-        {/* Header - fixed so mobile/tablet refresh or message scrolling can never push it away */}
-        <header className="fixed top-0 left-0 right-0 lg:left-14 z-[10000] h-14 md:h-16 w-auto bg-white/95 dark:bg-zinc-950/95 backdrop-blur-2xl border-b border-zinc-200 dark:border-zinc-800 flex items-center shrink-0">
-          {/* Mobile menu: fixed to the left edge so it never overlaps the chat title */}
+      <main className="flex-1 flex flex-col min-w-0 min-h-0 h-full w-0 max-w-full overflow-hidden bg-transparent relative z-0 lg:pl-14">
+        {/* Header is a normal flex item. The message panel below is the ONLY scroll container. */}
+        <header className="relative z-50 h-14 md:h-16 w-full shrink-0 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-2xl border-b border-zinc-200 dark:border-zinc-800 flex items-center">
+          {/* Mobile menu: pinned to the left edge of the navbar */}
           <button
             onClick={() => setMobileOpen(true)}
             className="lg:hidden absolute left-3 md:left-5 top-1/2 -translate-y-1/2 z-[10001] w-9 h-9 flex items-center justify-center rounded-xl text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all"
@@ -702,7 +680,7 @@ export default function Chat({ user, onLogout }: Props) {
           </button>
 
           {/* Center title: reserves space for both left menu and right theme button */}
-          <div className="absolute left-14 right-14 sm:left-16 sm:right-16 md:left-20 md:right-20 flex flex-col items-center gap-0.5 text-center min-w-0 overflow-hidden">
+          <div className="absolute left-14 right-14 sm:left-16 sm:right-16 md:left-20 md:right-20 top-1/2 -translate-y-1/2 flex flex-col items-center gap-0.5 text-center min-w-0 overflow-hidden">
             <div className="flex items-center justify-center gap-1.5 min-w-0 max-w-full">
               <StormLogo className="w-4 h-4 md:w-5 md:h-5 text-indigo-600 dark:text-indigo-500 shrink-0" />
               <span className="text-[10px] md:text-xs font-black text-zinc-900 dark:text-zinc-100 uppercase tracking-widest truncate">Nexus AI</span>
@@ -715,7 +693,7 @@ export default function Chat({ user, onLogout }: Props) {
             </span>
           </div>
 
-          {/* Theme button: always pinned to the right-most edge */}
+          {/* Theme button: pinned to the right-most edge of the navbar */}
           <motion.button
             whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }}
             onClick={toggleTheme}
@@ -729,6 +707,7 @@ export default function Chat({ user, onLogout }: Props) {
                 }
               </AnimatePresence>
             </motion.button>
+          </div>
         </header>
 
         {/* Messages */}
@@ -737,7 +716,7 @@ export default function Chat({ user, onLogout }: Props) {
           ref={messagesContainerRef}
           onScroll={handleScroll}
         >
-          <div className="w-full max-w-3xl mx-auto px-3 sm:px-4 md:px-6 pt-6 md:pt-10 pb-8 md:pb-10">
+          <div className="w-full max-w-3xl mx-auto px-3 sm:px-4 md:px-6 pt-6 md:pt-10 pb-12 md:pb-14">
             {messages.length === 0 && !isTyping ? (
               <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-2 max-w-2xl mx-auto">
                 <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="mb-8">
@@ -766,7 +745,7 @@ export default function Chat({ user, onLogout }: Props) {
                   return (
                     <div
                       key={msg.id || `msg-${index}`}
-                      ref={msg.id === latestUserMessageIdRef.current ? latestUserMessageElementRef : undefined}
+                      ref={msg.id === latestUserMessageElementRef.current ? latestUserMessageElementRef : undefined}
                       className={`flex w-full min-w-0 ${
                         msg.role === 'user' ? 'justify-end' : 'justify-start'
                       }`}
