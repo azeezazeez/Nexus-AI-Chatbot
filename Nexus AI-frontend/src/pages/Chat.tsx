@@ -164,6 +164,7 @@ export default function Chat({ user, onLogout }: Props) {
   }, []);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const isSendingRef = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -306,8 +307,22 @@ export default function Chat({ user, onLogout }: Props) {
     }
   }, [currentSessionId, loadMessages]);
 
+  // Keep scrolling inside the message panel only. Using scrollIntoView() here
+  // can scroll the outer page/layout and make the fixed navbar or composer
+  // appear to jump. Directly scrolling the message container keeps both
+  // the navbar and composer in their fixed positions.
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const container = messagesContainerRef.current;
+    if (!container) return;
+
+    const frame = requestAnimationFrame(() => {
+      container.scrollTo({
+        top: container.scrollHeight,
+        behavior: 'smooth',
+      });
+    });
+
+    return () => cancelAnimationFrame(frame);
   }, [messages, isTyping]);
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
@@ -616,7 +631,7 @@ export default function Chat({ user, onLogout }: Props) {
   }
 
   return (
-    <div className="flex h-screen h-[100dvh] w-full max-w-full overflow-hidden bg-white dark:bg-zinc-950 relative transition-colors duration-300 font-sans">
+    <div className="flex h-screen h-[100dvh] min-h-0 w-full max-w-full overflow-hidden bg-white dark:bg-zinc-950 relative transition-colors duration-300 font-sans">
       <div className="absolute top-0 right-0 w-[800px] h-[800px] bg-indigo-500/5 rounded-full blur-[160px] pointer-events-none" />
 
       <Sidebar
@@ -633,9 +648,9 @@ export default function Chat({ user, onLogout }: Props) {
         onMobileClose={() => setMobileOpen(false)}
       />
 
-      <main className="flex-1 flex flex-col min-w-0 min-h-0 w-0 max-w-full overflow-hidden bg-transparent relative z-0 lg:pl-14 pt-14 md:pt-16">
+      <main className="flex-1 flex flex-col min-w-0 min-h-0 h-full w-0 max-w-full overflow-hidden bg-transparent relative z-0 lg:pl-14 pt-14 md:pt-16">
         {/* Header - fixed so mobile/tablet refresh or message scrolling can never push it away */}
-        <header className="fixed top-0 left-0 right-0 lg:left-14 z-[10000] h-14 md:h-16 w-auto bg-white/95 dark:bg-zinc-950/95 backdrop-blur-2xl border-b border-zinc-200 dark:border-zinc-800">
+        <header className="fixed top-0 left-0 right-0 lg:left-14 z-[10000] h-14 md:h-16 w-auto bg-white/95 dark:bg-zinc-950/95 backdrop-blur-2xl border-b border-zinc-200 dark:border-zinc-800 flex items-center shrink-0">
           <div className="flex items-center justify-between h-full px-3 md:px-5">
             <div className="w-9 md:w-10 shrink-0 flex items-center justify-center">
               <button onClick={() => setMobileOpen(true)} className="lg:hidden relative z-[10001] w-9 h-9 flex items-center justify-center rounded-xl text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all">
@@ -672,9 +687,10 @@ export default function Chat({ user, onLogout }: Props) {
         {/* Messages */}
         <div
           className="flex-1 min-h-0 min-w-0 w-full max-w-full overflow-y-auto overflow-x-hidden overscroll-contain scroll-hide"
+          ref={messagesContainerRef}
           onScroll={handleScroll}
         >
-          <div className="w-full max-w-3xl mx-auto px-3 sm:px-4 md:px-6 py-6 md:py-10">
+          <div className="w-full max-w-3xl mx-auto px-3 sm:px-4 md:px-6 pt-6 md:pt-10 pb-8 md:pb-10">
             {messages.length === 0 && !isTyping ? (
               <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-2 max-w-2xl mx-auto">
                 <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="mb-8">
@@ -949,13 +965,13 @@ export default function Chat({ user, onLogout }: Props) {
         </div>
 
         {/* Input bar */}
-        <div className="shrink-0 w-full max-w-full overflow-hidden bg-white dark:bg-zinc-950 border-t border-zinc-200/50 dark:border-zinc-800/50 px-3 sm:px-4 md:px-6 py-3 md:py-4">
+        <div className="shrink-0 flex-none w-full max-w-full overflow-hidden bg-white dark:bg-zinc-950 border-t border-zinc-200/50 dark:border-zinc-800/50 px-3 sm:px-4 md:px-6 pt-3 md:pt-4 pb-3 md:pb-4">
           <div className="w-full max-w-3xl mx-auto relative min-w-0">
             <AnimatePresence>
               {showScrollBottom && (
                 <motion.button
                   initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }}
-                  onClick={() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })}
+                  onClick={() => messagesContainerRef.current?.scrollTo({ top: messagesContainerRef.current.scrollHeight, behavior: 'smooth' })}
                   className="absolute -top-14 right-2 p-2.5 bg-indigo-600 text-white rounded-full shadow-xl shadow-indigo-500/30 hover:bg-indigo-700 transition-all z-10 hover:scale-110"
                 >
                   <ArrowDown className="w-4 h-4 md:w-5 md:h-5" />
