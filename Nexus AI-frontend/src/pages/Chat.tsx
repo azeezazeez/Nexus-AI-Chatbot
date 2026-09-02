@@ -11,7 +11,7 @@ import ConfirmationModal from '../components/ConfirmationModal';
 import {
   ArrowDown, ArrowUp,
   Copy, Check, Edit2, Sun, Moon, Menu,
-  X, RotateCcw, Search,
+  X, RotateCcw,
 } from 'lucide-react';
 
 import ReactMarkdown from 'react-markdown';
@@ -346,7 +346,8 @@ export default function Chat({ user, onLogout }: Props) {
     messageText: string,
     messagesSnapshot?: Message[],
     filesToSend?: File[],
-    previewUrls?: string[]
+    previewUrls?: string[],
+    regenerateTitle = false
   ) => {
     if ((!messageText.trim() && (!filesToSend || filesToSend.length === 0))) return;
     if (isSendingRef.current) return;
@@ -437,12 +438,18 @@ export default function Chat({ user, onLogout }: Props) {
         return [...prev, aiMsg];
       });
 
-      if (isNewSession && activeSessionId) {
+      // Generate a fresh adaptive chat title for a new chat, and also when
+      // an existing user message is edited and re-submitted. This keeps the
+      // sidebar/chat header aligned with the latest direction of the chat.
+      if ((isNewSession || regenerateTitle) && activeSessionId) {
         try {
-          const { title } = await chatApi.generateTitle(messageText.trim() || 'File analysis') as any;
-          await chatApi.renameSession(activeSessionId, title);
-          await loadSessions();
-        } catch (renameErr) { console.error('Rename failed:', renameErr); }
+          const titleSource = finalMessage || 'File analysis';
+          const { title } = await chatApi.generateTitle(titleSource) as any;
+          if (title?.trim()) {
+            await chatApi.renameSession(activeSessionId, title.trim());
+            await loadSessions();
+          }
+        } catch (renameErr) { console.error('Adaptive title rename failed:', renameErr); }
       }
     } catch (err: any) {
       clearTimeout(wakingTimer);
@@ -496,33 +503,6 @@ export default function Chat({ user, onLogout }: Props) {
     const msgIndex = messages.findIndex(m => m.id === msg.id);
     const messagesBeforeMsg = msgIndex > 0 ? messages.slice(0, msgIndex) : [];
     sendMessage(cleanMessageContent(msg.content), messagesBeforeMsg);
-  };
-
-  // Re-search/regenerate an assistant response by resending the preceding user
-  // message with the conversation state that existed before that user turn.
-  const handleResearchMessage = (msg: Message) => {
-    if (isTyping) return;
-
-    const assistantIndex = messages.findIndex(m => m.id === msg.id);
-    if (assistantIndex < 0) return;
-
-    const previousUserIndex = [...messages]
-      .slice(0, assistantIndex)
-      .map((message, index) => ({ message, index }))
-      .reverse()
-      .find(({ message }) => message.role === 'user')?.index;
-
-    if (previousUserIndex === undefined) return;
-
-    const previousUserMessage = messages[previousUserIndex];
-    const messagesBeforeUser = previousUserIndex > 0
-      ? messages.slice(0, previousUserIndex)
-      : [];
-
-    sendMessage(
-      cleanMessageContent(previousUserMessage.content),
-      messagesBeforeUser
-    );
   };
 
   const handleStopResponse = () => {
@@ -615,7 +595,7 @@ export default function Chat({ user, onLogout }: Props) {
     const messagesBeforeEdit = editedIndex > 0 ? messages.slice(0, editedIndex) : [];
     setEditingMessage(null);
     setEditInput('');
-    await sendMessage(editedText, messagesBeforeEdit);
+    await sendMessage(editedText, messagesBeforeEdit, undefined, undefined, true);
   };
 
   const showBlinkingCursor = !input && (isTyping || justFinished);
@@ -653,12 +633,12 @@ export default function Chat({ user, onLogout }: Props) {
         onMobileClose={() => setMobileOpen(false)}
       />
 
-      <main className="flex-1 flex flex-col min-w-0 w-0 max-w-full overflow-visible bg-transparent relative z-0 lg:pl-14">
-        {/* Header */}
-        <header className="relative z-[999] flex-none h-14 md:h-16 w-full bg-white/95 dark:bg-zinc-950/95 backdrop-blur-2xl border-b border-zinc-200 dark:border-zinc-800 shrink-0 transition-colors duration-300">
+      <main className="flex-1 flex flex-col min-w-0 min-h-0 w-0 max-w-full overflow-hidden bg-transparent relative z-0 lg:pl-14 pt-14 md:pt-16">
+        {/* Header - fixed so mobile/tablet refresh or message scrolling can never push it away */}
+        <header className="fixed top-0 left-0 right-0 lg:left-14 z-[10000] h-14 md:h-16 w-auto bg-white/95 dark:bg-zinc-950/95 backdrop-blur-2xl border-b border-zinc-200 dark:border-zinc-800">
           <div className="flex items-center justify-between h-full px-3 md:px-5">
             <div className="w-9 md:w-10 shrink-0 flex items-center justify-center">
-              <button onClick={() => setMobileOpen(true)} className="lg:hidden relative z-[80] w-9 h-9 flex items-center justify-center rounded-xl text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all">
+              <button onClick={() => setMobileOpen(true)} className="lg:hidden relative z-[10001] w-9 h-9 flex items-center justify-center rounded-xl text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all">
                 <Menu className="w-5 h-5" />
               </button>
             </div>
@@ -691,7 +671,7 @@ export default function Chat({ user, onLogout }: Props) {
 
         {/* Messages */}
         <div
-          className="flex-1 min-w-0 w-full max-w-full overflow-y-auto overflow-x-hidden scroll-hide"
+          className="flex-1 min-h-0 min-w-0 w-full max-w-full overflow-y-auto overflow-x-hidden overscroll-contain scroll-hide"
           onScroll={handleScroll}
         >
           <div className="w-full max-w-3xl mx-auto px-3 sm:px-4 md:px-6 py-6 md:py-10">
@@ -889,19 +869,6 @@ export default function Chat({ user, onLogout }: Props) {
                                     <Edit2 className="w-4 h-4 md:w-3.5 md:h-3.5" />
                                   </button>
                                 </>
-                              )}
-
-                              {/* Assistant: Re-search/regenerate + Copy */}
-                              {msg.role === 'assistant' && !isEditing && !isTyping && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleResearchMessage(msg)}
-                                  title="Re-search / regenerate response"
-                                  aria-label="Re-search / regenerate response"
-                                  className="p-2 md:p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 active:bg-zinc-200 dark:active:bg-zinc-700 text-zinc-500 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all touch-manipulation"
-                                >
-                                  <Search className="w-4 h-4 md:w-3.5 md:h-3.5" />
-                                </button>
                               )}
 
                               {/* Copy is available for EVERY message */}
