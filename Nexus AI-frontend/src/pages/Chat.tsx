@@ -653,12 +653,12 @@ export default function Chat({ user, onLogout }: Props) {
         onMobileClose={() => setMobileOpen(false)}
       />
 
-      <main className="flex-1 flex flex-col min-w-0 w-0 max-w-full overflow-hidden bg-transparent relative z-20 lg:pl-14">
+      <main className="flex-1 flex flex-col min-w-0 w-0 max-w-full overflow-hidden bg-transparent relative z-0 lg:pl-14">
         {/* Header */}
-        <header className="sticky top-0 z-30 h-14 md:h-16 bg-white/90 dark:bg-zinc-950/80 backdrop-blur-2xl border-b border-zinc-200 dark:border-zinc-800 shrink-0 transition-colors duration-300">
+        <header className="sticky top-0 z-[70] h-14 md:h-16 bg-white/90 dark:bg-zinc-950/80 backdrop-blur-2xl border-b border-zinc-200 dark:border-zinc-800 shrink-0 transition-colors duration-300">
           <div className="flex items-center justify-between h-full px-3 md:px-5">
             <div className="w-9 md:w-10 shrink-0 flex items-center justify-center">
-              <button onClick={() => setMobileOpen(true)} className="lg:hidden w-9 h-9 flex items-center justify-center rounded-xl text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all">
+              <button onClick={() => setMobileOpen(true)} className="lg:hidden relative z-[80] w-9 h-9 flex items-center justify-center rounded-xl text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all">
                 <Menu className="w-5 h-5" />
               </button>
             </div>
@@ -747,10 +747,10 @@ export default function Chat({ user, onLogout }: Props) {
                         <div className="flex flex-col gap-1 min-w-0 flex-1 max-w-full">
                           {/* Message card */}
                           <div
-                            className={`w-full min-w-0 max-w-full px-3.5 py-3 sm:px-4 sm:py-3.5 rounded-2xl shadow-sm border overflow-hidden ${
-                              msg.role === 'assistant'
-                                ? 'bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 rounded-tl-none'
-                                : 'bg-zinc-100 dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700 text-zinc-900 dark:text-zinc-100 rounded-tr-none'
+                            className={`min-w-0 max-w-full ${
+                              msg.role === 'user'
+                                ? 'w-fit max-w-[92%] sm:max-w-[88%] px-3.5 py-3 sm:px-4 sm:py-3.5 rounded-2xl shadow-sm border overflow-hidden bg-zinc-100 dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700 text-zinc-900 dark:text-zinc-100 rounded-tr-none'
+                                : 'w-full text-zinc-900 dark:text-zinc-100'
                             }`}
                           >
                             {attachedImages.length > 0 && (
