@@ -11,7 +11,7 @@ import ConfirmationModal from '../components/ConfirmationModal';
 import {
   ArrowDown, ArrowUp,
   Copy, Check, Edit2, Sun, Moon, Menu,
-  X, RotateCcw,
+  X, RotateCcw, Search,
 } from 'lucide-react';
 
 import ReactMarkdown from 'react-markdown';
@@ -490,11 +490,39 @@ export default function Chat({ user, onLogout }: Props) {
     await sendMessage(text, undefined, filesToSend, previewUrls);
   };
 
+  // Retry a user message using the conversation state before that message.
   const handleRetryMessage = (msg: Message) => {
     if (isTyping) return;
     const msgIndex = messages.findIndex(m => m.id === msg.id);
     const messagesBeforeMsg = msgIndex > 0 ? messages.slice(0, msgIndex) : [];
     sendMessage(cleanMessageContent(msg.content), messagesBeforeMsg);
+  };
+
+  // Re-search/regenerate an assistant response by resending the preceding user
+  // message with the conversation state that existed before that user turn.
+  const handleResearchMessage = (msg: Message) => {
+    if (isTyping) return;
+
+    const assistantIndex = messages.findIndex(m => m.id === msg.id);
+    if (assistantIndex < 0) return;
+
+    const previousUserIndex = [...messages]
+      .slice(0, assistantIndex)
+      .map((message, index) => ({ message, index }))
+      .reverse()
+      .find(({ message }) => message.role === 'user')?.index;
+
+    if (previousUserIndex === undefined) return;
+
+    const previousUserMessage = messages[previousUserIndex];
+    const messagesBeforeUser = previousUserIndex > 0
+      ? messages.slice(0, previousUserIndex)
+      : [];
+
+    sendMessage(
+      cleanMessageContent(previousUserMessage.content),
+      messagesBeforeUser
+    );
   };
 
   const handleStopResponse = () => {
@@ -662,8 +690,11 @@ export default function Chat({ user, onLogout }: Props) {
         </header>
 
         {/* Messages */}
-        <div className="flex-1 min-w-0 w-full max-w-full overflow-y-auto overflow-x-hidden scroll-hide" onScroll={handleScroll}>
-          <div className="w-full max-w-3xl mx-auto min-w-0 px-3 sm:px-4 md:px-6 py-6 md:py-10">
+        <div
+          className="flex-1 min-w-0 w-full max-w-full overflow-y-auto overflow-x-hidden scroll-hide"
+          onScroll={handleScroll}
+        >
+          <div className="w-full max-w-3xl mx-auto px-3 sm:px-4 md:px-6 py-6 md:py-10">
             {messages.length === 0 && !isTyping ? (
               <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-2 max-w-2xl mx-auto">
                 <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="mb-8">
@@ -672,22 +703,37 @@ export default function Chat({ user, onLogout }: Props) {
                 <h2 className="text-2xl md:text-3xl font-bold text-zinc-900 dark:text-zinc-100 mb-6">How can I help you today?</h2>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 w-full">
                   {['Plan a 3-day trip to Tokyo', 'How to build a SaaS with React?', 'Write a professional covering letter', 'Explain the theory of relativity'].map((s, i) => (
-                    <button key={i} onClick={() => handleSendMessage(undefined, s)} className="group p-3.5 md:p-4 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-xl text-sm font-medium text-zinc-500 dark:text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:border-indigo-400 transition-all text-left shadow-sm">
+                    <button
+                      key={i}
+                      onClick={() => handleSendMessage(undefined, s)}
+                      className="group p-3.5 md:p-4 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-xl text-sm font-medium text-zinc-500 dark:text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:border-indigo-400 transition-all text-left shadow-sm"
+                    >
                       <span className="block truncate">{s}</span>
                     </button>
                   ))}
                 </div>
               </div>
             ) : (
-              <div className="space-y-6 md:space-y-8 pb-6 pt-2">
+              <div className="space-y-5 md:space-y-7 pb-6 pt-2">
                 {messages.map((msg, index) => {
                   const isEditing = editingMessage?.id === msg.id;
                   const shouldSpin = isTyping && msg.role === 'assistant' && index === messages.length - 1;
                   const attachedImages = messageAttachments[msg.id] || [];
 
                   return (
-                    <div key={msg.id || `msg-${index}`} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} group`}>
-                      <div className={`flex gap-2.5 md:gap-3 w-full min-w-0 ${msg.role === 'user' ? 'flex-row-reverse justify-start' : 'flex-row'}`}>
+                    <div
+                      key={msg.id || `msg-${index}`}
+                      className={`flex w-full min-w-0 ${
+                        msg.role === 'user' ? 'justify-end' : 'justify-start'
+                      }`}
+                    >
+                      <div
+                        className={`flex min-w-0 w-full items-start gap-2.5 md:gap-3 ${
+                          msg.role === 'user'
+                            ? 'flex-row-reverse max-w-[92%] sm:max-w-[88%]'
+                            : 'max-w-full'
+                        }`}
+                      >
                         <div className="w-7 h-7 md:w-8 md:h-8 shrink-0 flex items-center justify-center mt-1">
                           {msg.role === 'user' ? (
                             <div className="w-full h-full rounded-full border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 flex items-center justify-center shadow-sm overflow-hidden">
@@ -698,43 +744,60 @@ export default function Chat({ user, onLogout }: Props) {
                           )}
                         </div>
 
-                        <div className={`flex flex-col gap-1 min-w-0 w-full ${
-                          msg.role === 'user'
-                            ? 'max-w-[90%] sm:max-w-[85%] items-end'
-                            : 'max-w-full items-start'
-                        }`}>
-                          <div className="w-full min-w-0 text-zinc-900 dark:text-zinc-100">
+                        <div className="flex flex-col gap-1 min-w-0 flex-1 max-w-full">
+                          {/* Message card */}
+                          <div
+                            className={`w-full min-w-0 max-w-full px-3.5 py-3 sm:px-4 sm:py-3.5 rounded-2xl shadow-sm border overflow-hidden ${
+                              msg.role === 'assistant'
+                                ? 'bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 rounded-tl-none'
+                                : 'bg-zinc-100 dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700 text-zinc-900 dark:text-zinc-100 rounded-tr-none'
+                            }`}
+                          >
                             {attachedImages.length > 0 && (
                               <div className="flex flex-wrap gap-2 mb-3">
                                 {attachedImages.map((url, i) => (
-                                  <div key={i} className="relative group/img">
+                                  <div key={i} className="relative group/img max-w-full">
                                     <img
                                       src={url}
                                       alt={`Attachment ${i + 1}`}
-                                      className="max-w-[220px] max-h-[180px] rounded-xl object-cover border border-zinc-200/50 dark:border-zinc-600/40 shadow-sm"
+                                      className="max-w-full w-auto h-auto max-h-[180px] rounded-xl object-cover border border-zinc-200/50 dark:border-zinc-600/40 shadow-sm"
                                     />
                                   </div>
                                 ))}
                               </div>
                             )}
 
-                            <div className="text-sm md:text-base leading-relaxed markdown-body max-w-none min-w-0 w-full break-words" style={{ overflowWrap: 'anywhere' }}>
+                            <div className="text-sm md:text-base leading-relaxed markdown-body max-w-none min-w-0 w-full break-words [overflow-wrap:anywhere]">
                               {isEditing ? (
-                                <div className="flex flex-col gap-3 min-w-0 w-full p-1">
+                                <div className="flex flex-col gap-3 w-full min-w-0 p-1">
                                   <textarea
                                     value={editInput}
                                     onChange={(e) => setEditInput(e.target.value)}
                                     onKeyDown={(e) => {
-                                      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); handleSaveEdit(); }
+                                      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                                        e.preventDefault();
+                                        handleSaveEdit();
+                                      }
                                       if (e.key === 'Escape') handleCancelEdit();
                                     }}
-                                    className="w-full border rounded-xl p-3 text-sm focus:outline-none focus:ring-2 focus:ring-white/20 resize-none min-h-[100px] bg-zinc-50 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-700"
+                                    className="w-full max-w-full border rounded-xl p-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/30 resize-none min-h-[100px] bg-zinc-50 dark:bg-zinc-950 border-zinc-200 dark:border-zinc-700"
                                     autoFocus
                                   />
-                                  <div className="flex justify-end gap-2">
-                                    <span className="text-[9px] text-zinc-400 mr-auto">⌘↵ to send · Esc to cancel</span>
-                                    <button onClick={handleCancelEdit} className="px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg text-zinc-500 hover:text-zinc-900">Cancel</button>
-                                    <button onClick={handleSaveEdit} disabled={!editInput.trim() || isTyping} className="px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest shadow-lg disabled:opacity-40 bg-indigo-600 text-white hover:bg-indigo-700">Send</button>
+                                  <div className="flex flex-wrap items-center justify-end gap-2">
+                                    <span className="text-[9px] text-zinc-400 mr-auto">Ctrl/⌘ + Enter to send · Esc to cancel</span>
+                                    <button
+                                      onClick={handleCancelEdit}
+                                      className="px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
+                                    >
+                                      Cancel
+                                    </button>
+                                    <button
+                                      onClick={handleSaveEdit}
+                                      disabled={!editInput.trim() || isTyping}
+                                      className="px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest shadow-lg disabled:opacity-40 bg-indigo-600 text-white hover:bg-indigo-700"
+                                    >
+                                      Send
+                                    </button>
                                   </div>
                                 </div>
                               ) : (
@@ -744,11 +807,16 @@ export default function Chat({ user, onLogout }: Props) {
                                     pre({ children, ...props }: any) {
                                       return (
                                         <div className="my-4 w-full max-w-full min-w-0 overflow-hidden rounded-xl border border-indigo-200/40 dark:border-indigo-500/20 shadow-lg bg-gradient-to-br from-indigo-50/80 to-violet-50/60 dark:from-indigo-950/50 dark:to-violet-950/40">
-                                          <div className="flex items-center gap-2 px-4 py-2 border-b border-indigo-200/30 dark:border-indigo-500/15 bg-indigo-100/40 dark:bg-indigo-900/20">
-                                            <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 dark:bg-indigo-500" />
+                                          <div className="flex items-center gap-2 px-3 sm:px-4 py-2 border-b border-indigo-200/30 dark:border-indigo-500/15 bg-indigo-100/40 dark:bg-indigo-900/20">
+                                            <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 dark:bg-indigo-500 shrink-0" />
                                             <span className="text-[10px] font-black uppercase tracking-widest text-indigo-400 dark:text-indigo-500">Architecture</span>
                                           </div>
-                                          <pre className="max-w-full overflow-x-auto p-3 sm:p-4 md:p-5 text-[0.75rem] sm:text-[0.82rem] leading-relaxed font-mono text-indigo-700 dark:text-indigo-300 whitespace-pre" {...props}>{children}</pre>
+                                          <pre
+                                            className="max-w-full overflow-x-auto p-3 sm:p-4 md:p-5 text-[0.75rem] sm:text-[0.82rem] leading-relaxed font-mono text-indigo-700 dark:text-indigo-300 whitespace-pre"
+                                            {...props}
+                                          >
+                                            {children}
+                                          </pre>
                                         </div>
                                       );
                                     },
@@ -759,7 +827,12 @@ export default function Chat({ user, onLogout }: Props) {
                                       return !isInline && match ? (
                                         <CodeBlock language={match[1]} value={content} />
                                       ) : (
-                                        <code className={`${className || ''} bg-zinc-100 dark:bg-zinc-800 text-indigo-600 dark:text-indigo-400 px-1 py-0.5 rounded font-mono text-[0.85em]`} {...props}>{children}</code>
+                                        <code
+                                          className={`${className || ''} bg-zinc-100 dark:bg-zinc-800 text-indigo-600 dark:text-indigo-400 px-1 py-0.5 rounded font-mono text-[0.85em] break-words [overflow-wrap:anywhere]`}
+                                          {...props}
+                                        >
+                                          {children}
+                                        </code>
                                       );
                                     }
                                   } as Components}
@@ -770,43 +843,86 @@ export default function Chat({ user, onLogout }: Props) {
                             </div>
                           </div>
 
-                          {/* Message action buttons */}
-                          <div className="flex items-center gap-1 mt-1 px-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          {/* Message action buttons.
+                              Always visible so touch devices do not depend on hover. */}
+                          <div
+                            className={`flex flex-wrap items-center gap-1 mt-1 px-1 ${
+                              msg.role === 'user' ? 'justify-end' : 'justify-start'
+                            }`}
+                          >
                             {msg.role === 'assistant' && (
-                              <span className="text-[10px] font-black text-indigo-500/50 uppercase tracking-[0.2em] mr-auto pl-1">Nexus AI</span>
+                              <span className="text-[10px] font-black text-indigo-500/60 uppercase tracking-[0.18em] mr-auto pl-1">
+                                Nexus AI
+                              </span>
                             )}
+
                             <span className="text-[9px] font-black text-zinc-400 dark:text-zinc-500 uppercase tracking-widest whitespace-nowrap mr-1">
-                              {msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Now'}
+                              {msg.timestamp
+                                ? new Date(msg.timestamp).toLocaleTimeString([], {
+                                    hour: '2-digit',
+                                    minute: '2-digit'
+                                  })
+                                : 'Now'}
                             </span>
 
                             <div className="flex items-center gap-0.5">
+                              {/* User: Re-send + Edit + Copy */}
                               {msg.role === 'user' && !isEditing && !isTyping && (
                                 <>
                                   <button
+                                    type="button"
                                     onClick={() => handleRetryMessage(msg)}
-                                    title="Retry"
-                                    className="p-1 px-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all"
+                                    title="Retry message"
+                                    aria-label="Retry message"
+                                    className="p-2 md:p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 active:bg-zinc-200 dark:active:bg-zinc-700 text-zinc-500 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all touch-manipulation"
                                   >
-                                    <RotateCcw className="w-3.5 h-3.5" />
+                                    <RotateCcw className="w-4 h-4 md:w-3.5 md:h-3.5" />
                                   </button>
+
                                   <button
+                                    type="button"
                                     onClick={() => handleStartEdit(msg)}
-                                    className="p-1 px-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all"
+                                    title="Edit message"
+                                    aria-label="Edit message"
+                                    className="p-2 md:p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 active:bg-zinc-200 dark:active:bg-zinc-700 text-zinc-500 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all touch-manipulation"
                                   >
-                                    <Edit2 className="w-3.5 h-3.5" />
+                                    <Edit2 className="w-4 h-4 md:w-3.5 md:h-3.5" />
                                   </button>
                                 </>
                               )}
 
+                              {/* Assistant: Re-search/regenerate + Copy */}
+                              {msg.role === 'assistant' && !isEditing && !isTyping && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleResearchMessage(msg)}
+                                  title="Re-search / regenerate response"
+                                  aria-label="Re-search / regenerate response"
+                                  className="p-2 md:p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 active:bg-zinc-200 dark:active:bg-zinc-700 text-zinc-500 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all touch-manipulation"
+                                >
+                                  <Search className="w-4 h-4 md:w-3.5 md:h-3.5" />
+                                </button>
+                              )}
+
+                              {/* Copy is available for EVERY message */}
                               <button
+                                type="button"
                                 onClick={() => {
                                   navigator.clipboard.writeText(cleanMessageContent(msg.content));
                                   setCopiedId(msg.id);
                                   setTimeout(() => setCopiedId(null), 2000);
                                 }}
-                                className={`p-1 px-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all ${copiedId === msg.id ? 'text-emerald-500' : 'text-zinc-400 hover:text-indigo-600'}`}
+                                title="Copy message"
+                                aria-label="Copy message"
+                                className={`p-2 md:p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 active:bg-zinc-200 dark:active:bg-zinc-700 transition-all touch-manipulation ${
+                                  copiedId === msg.id
+                                    ? 'text-emerald-500'
+                                    : 'text-zinc-500 hover:text-indigo-600 dark:hover:text-indigo-400'
+                                }`}
                               >
-                                {copiedId === msg.id ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                                {copiedId === msg.id
+                                  ? <Check className="w-4 h-4 md:w-3.5 md:h-3.5" />
+                                  : <Copy className="w-4 h-4 md:w-3.5 md:h-3.5" />}
                               </button>
                             </div>
                           </div>
@@ -817,19 +933,36 @@ export default function Chat({ user, onLogout }: Props) {
                 })}
 
                 {isTyping && (
-                  <div className="flex items-start gap-3">
+                  <div className="flex items-start gap-3 min-w-0 max-w-full">
                     <div className="w-7 h-7 md:w-8 md:h-8 shrink-0 flex items-center justify-center mt-1">
                       <StormLogo className="w-6 h-6 text-indigo-500 animate-spin" />
                     </div>
-                    <div className="px-1 py-2 flex flex-col gap-2 min-w-0 max-w-full">
+                    <div className="min-w-0 max-w-full px-1 py-2 flex flex-col gap-2">
                       <div className="flex items-center gap-2">
-                        <motion.div animate={{ scale: [1, 1.2, 1], opacity: [0.3, 1, 0.3] }} transition={{ repeat: Infinity, duration: 1 }} className="w-1.5 h-1.5 bg-indigo-600 rounded-full" />
-                        <motion.div animate={{ scale: [1, 1.2, 1], opacity: [0.3, 1, 0.3] }} transition={{ repeat: Infinity, duration: 1, delay: 0.2 }} className="w-1.5 h-1.5 bg-indigo-600 rounded-full" />
-                        <motion.div animate={{ scale: [1, 1.2, 1], opacity: [0.3, 1, 0.3] }} transition={{ repeat: Infinity, duration: 1, delay: 0.4 }} className="w-1.5 h-1.5 bg-indigo-600 rounded-full" />
+                        <motion.div
+                          animate={{ scale: [1, 1.2, 1], opacity: [0.3, 1, 0.3] }}
+                          transition={{ repeat: Infinity, duration: 1 }}
+                          className="w-1.5 h-1.5 bg-indigo-600 rounded-full"
+                        />
+                        <motion.div
+                          animate={{ scale: [1, 1.2, 1], opacity: [0.3, 1, 0.3] }}
+                          transition={{ repeat: Infinity, duration: 1, delay: 0.2 }}
+                          className="w-1.5 h-1.5 bg-indigo-600 rounded-full"
+                        />
+                        <motion.div
+                          animate={{ scale: [1, 1.2, 1], opacity: [0.3, 1, 0.3] }}
+                          transition={{ repeat: Infinity, duration: 1, delay: 0.4 }}
+                          className="w-1.5 h-1.5 bg-indigo-600 rounded-full"
+                        />
                       </div>
                       <AnimatePresence>
                         {serverWaking && (
-                          <motion.p initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="text-[10px] font-medium text-zinc-400">
+                          <motion.p
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: 'auto' }}
+                            exit={{ opacity: 0, height: 0 }}
+                            className="text-[10px] font-medium text-zinc-400"
+                          >
                             {selectedFiles.length
                               ? 'Processing uploaded file — this may take 10–15 seconds…'
                               : 'Server is waking up, please wait a moment…'}
@@ -839,9 +972,11 @@ export default function Chat({ user, onLogout }: Props) {
                     </div>
                   </div>
                 )}
+
                 <div ref={messagesEndRef} />
               </div>
             )}
+
             {(messages.length === 0 && !isTyping) && <div ref={messagesEndRef} />}
           </div>
         </div>
@@ -899,7 +1034,7 @@ export default function Chat({ user, onLogout }: Props) {
                     onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !isTyping) { e.preventDefault(); handleSendMessage(); } }}
                     placeholder={showBlinkingCursor ? '' : isListening ? 'Listening…' : 'Write a message...'}
                     rows={1}
-                    className="w-full px-3 md:px-4 py-3.5 md:py-4 bg-transparent focus:outline-none font-medium text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-500 text-sm md:text-base leading-relaxed resize-none min-h-[52px] max-h-[180px] overflow-y-auto"
+                    className="w-full min-w-0 max-w-full px-3 md:px-4 py-3.5 md:py-4 bg-transparent focus:outline-none font-medium text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-500 text-sm md:text-base leading-relaxed resize-none min-h-[52px] max-h-[180px] overflow-y-auto"
                     onInput={(e) => { const t = e.target as HTMLTextAreaElement; t.style.height = 'auto'; t.style.height = `${Math.min(t.scrollHeight, 180)}px`; }}
                   />
                   {showBlinkingCursor && !inputFocused && !isListening && (
@@ -933,7 +1068,9 @@ export default function Chat({ user, onLogout }: Props) {
                 </div>
               </div>
             </div>
-            <p className="mt-2.5 text-center text-[10px] font-medium text-zinc-500/40 dark:text-zinc-400/40">Nexus AI can analyse images and files you attach.</p>
+            <p className="mt-2.5 px-2 text-center text-[10px] sm:text-[11px] leading-relaxed font-medium text-zinc-500/60 dark:text-zinc-400/60">
+              Nexus AI is AI and can make mistakes. Please double-check responses.
+            </p>
           </div>
         </div>
       </main>
